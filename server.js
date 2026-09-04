@@ -1,7 +1,7 @@
 const express = require('express');
 const fs = require('fs');
 const path = require('path');
-const { DATA_DIR, CODEX_DIR, CLAUDE_CODE_DIR, HERMES_DIR, OMP_DIR, DSH_DIR, GEMINI_DIR } = require('./lib/config');
+const { DATA_DIR, CODEX_DIR, CLAUDE_CODE_DIR, HERMES_DIR, OMP_DIR, DSH_DIR, GEMINI_DIR, DOUBAO_DIR } = require('./lib/config');
 const mountInsightsRoutes = require('./lib/routes/insights');
 const mountPromptRoutes = require('./lib/routes/prompts');
 const mountSearchRoutes = require('./lib/routes/search');
@@ -77,4 +77,5 @@ app.listen(PORT, HOST, () => {
   console.log(`  OMP:         ${OMP_DIR}`);
   console.log(`  DeepSeek Harness: ${DSH_DIR}`);
   console.log(`  Gemini CLI:  ${GEMINI_DIR}`);
+  console.log(`  Doubao:      ${DOUBAO_DIR}`);
 });

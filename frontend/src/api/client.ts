@@ -41,6 +41,7 @@ export interface DirSettings {
   ompDir: string;
   dshDir: string;
   geminiDir: string;
+  doubaoDir: string;
 }
 
 type ParamValue = string | number | boolean | undefined | null;

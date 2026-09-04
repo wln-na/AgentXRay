@@ -15,6 +15,7 @@ const PLATFORM_TIPS: Record<Platform, string> = {
   omp: 'oh-my-pi 会话（~/.omp/agent/sessions）',
   dsh: 'DeepSeek Harness 会话（~/.dsh/sessions）',
   gemini: 'Gemini CLI 会话（~/.gemini/tmp）',
+  doubao: 'Doubao 会话（~/.doubao/agent_mode/workspace/.sessions）',
 };
 
 export function PlatformBar() {
