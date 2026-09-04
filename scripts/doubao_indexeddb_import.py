@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """Build AgentXRay's read-only Doubao cache from a Chromium IndexedDB snapshot.
 
-Only a narrow allow-list is persisted: project/session identifiers and titles,
-message text/tool summaries, timestamps, section identifiers, and model names.
+Only a narrow allow-list is persisted: project/session identifiers, names and
+workspace roots, message text/tool summaries, timestamps, section identifiers,
+and model names.
 Raw request metadata (cookies, tokens, IPs, device IDs, log IDs) is never stored.
 """
 
@@ -19,7 +20,7 @@ import tempfile
 from pathlib import Path
 from typing import Any, Iterable
 
-SCHEMA_VERSION = "1"
+SCHEMA_VERSION = "2"
 
 
 def js_values(value: Any) -> list[Any]:
@@ -136,14 +137,24 @@ def message_model_key(message: dict[str, Any], fallback: str | None) -> str | No
     return str(value) if value not in (None, "") else fallback
 
 
+def parse_general_task_param(value: Any) -> dict[str, Any]:
+    if isinstance(value, dict):
+        return value
+    return parse_json_object(value)
+
+
 def task_context(task: dict[str, Any]) -> dict[str, str | None]:
     request = as_dict(as_dict(as_dict(task.get("requestQuery")).get("syncTask")))
     client_meta = as_dict(request.get("client_meta"))
     option = as_dict(request.get("option"))
     init_option = as_dict(option.get("conversation_init_option"))
     model_config = as_dict(option.get("model_config"))
+    general_task_param = parse_general_task_param(option.get("general_task_param"))
+    client_option = as_dict(general_task_param.get("client_option"))
+    agent_task_param = as_dict(general_task_param.get("agent_task_param"))
     conversation_id = client_meta.get("conversation_id")
     project_id = init_option.get("project_id")
+    project_path = client_option.get("workspace") or agent_task_param.get("workspace")
     section_id = client_meta.get("section_id")
     model_key = model_config.get("model_item_key")
 
@@ -157,13 +168,23 @@ def task_context(task: dict[str, Any]) -> dict[str, str | None]:
         model_key = model_key or ext.get("model_item_key")
         init = parse_json_object(ext.get("conversation_init_option"))
         project_id = project_id or init.get("project_id")
+        message_general_param = parse_general_task_param(ext.get("general_task_param"))
+        message_client_option = as_dict(message_general_param.get("client_option"))
+        message_agent_task_param = as_dict(message_general_param.get("agent_task_param"))
+        project_path = (
+            project_path
+            or message_client_option.get("workspace")
+            or message_agent_task_param.get("workspace")
+        )
         ack = parse_json_object(ext.get("ack_client_meta"))
         conversation_id = conversation_id or ack.get("conversation_id")
         section_id = section_id or ack.get("section_id")
-        break
+        if conversation_id and project_id and project_path and section_id and model_key:
+            break
     return {
         "conversation_id": str(conversation_id) if conversation_id else None,
         "project_id": str(project_id) if project_id else None,
+        "project_path": str(project_path) if project_path else None,
         "section_id": str(section_id) if section_id else None,
         "model_key": str(model_key) if model_key not in (None, "") else None,
     }
@@ -198,6 +219,8 @@ def extract_projects(payload: dict[str, Any], sequence: int, projects: dict[str,
             projects[project_id] = {
                 "id": project_id,
                 "name": str(project.get("name") or project_id),
+                "root_path": current.get("root_path") if current else None,
+                "root_path_sequence": int(current.get("root_path_sequence", -1)) if current else -1,
                 "display_order": int(project.get("displayOrder") or 0),
                 "sequence": sequence,
             }
@@ -223,7 +246,13 @@ def upsert_message(messages: dict[str, dict[str, Any]], item: dict[str, Any]) ->
         messages[item["id"]] = item
 
 
-def extract_task_state(payload: dict[str, Any], sequence: int, sessions: dict[str, dict[str, Any]], messages: dict[str, dict[str, Any]]) -> None:
+def extract_task_state(
+    payload: dict[str, Any],
+    sequence: int,
+    projects: dict[str, dict[str, Any]],
+    sessions: dict[str, dict[str, Any]],
+    messages: dict[str, dict[str, Any]],
+) -> None:
     state = as_dict(payload.get("state")) or payload
     tasks = as_dict(state.get("mainTaskDataMap"))
     for task_id, task_value in tasks.items():
@@ -234,6 +263,22 @@ def extract_task_state(payload: dict[str, Any], sequence: int, sessions: dict[st
             continue
         session = sessions.setdefault(conversation_id, {"id": conversation_id, "sequence": -1})
         session["project_id"] = ctx["project_id"] or session.get("project_id")
+        session["project_path"] = ctx["project_path"] or session.get("project_path")
+        if session.get("project_id") and session.get("project_path"):
+            project = projects.setdefault(
+                session["project_id"],
+                {
+                    "id": session["project_id"],
+                    "name": session["project_id"],
+                    "root_path": None,
+                    "root_path_sequence": -1,
+                    "display_order": 0,
+                    "sequence": -1,
+                },
+            )
+            if sequence >= int(project.get("root_path_sequence", -1)):
+                project["root_path"] = session["project_path"]
+                project["root_path_sequence"] = sequence
         session["section_id"] = ctx["section_id"] or session.get("section_id")
         session["model_key"] = ctx["model_key"] or session.get("model_key")
         session["sequence"] = max(int(session.get("sequence", -1)), sequence)
@@ -273,7 +318,7 @@ def open_database(path: Path) -> sqlite3.Connection:
         PRAGMA synchronous=NORMAL;
         CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
         CREATE TABLE IF NOT EXISTS projects (
-            id TEXT PRIMARY KEY, name TEXT NOT NULL, display_order INTEGER NOT NULL DEFAULT 0
+            id TEXT PRIMARY KEY, name TEXT NOT NULL, root_path TEXT, display_order INTEGER NOT NULL DEFAULT 0
         );
         CREATE TABLE IF NOT EXISTS sessions (
             id TEXT PRIMARY KEY, project_id TEXT, title TEXT, section_id TEXT,
@@ -308,11 +353,25 @@ def merge_existing_cache(
     db = sqlite3.connect(f"file:{output}?mode=ro", uri=True)
     db.row_factory = sqlite3.Row
     try:
-        for row in db.execute("SELECT id,name,display_order FROM projects"):
+        tables = {row["name"] for row in db.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+        if not {"projects", "sessions", "messages"}.issubset(tables):
+            return
+        project_columns = {row["name"] for row in db.execute("PRAGMA table_info(projects)")}
+        project_select = "SELECT id,name,root_path,display_order FROM projects" if "root_path" in project_columns else "SELECT id,name,display_order FROM projects"
+        for row in db.execute(project_select):
             projects.setdefault(
                 row["id"],
-                {"id": row["id"], "name": row["name"], "display_order": row["display_order"], "sequence": -1},
+                {
+                    "id": row["id"],
+                    "name": row["name"],
+                    "root_path": row["root_path"] if "root_path" in project_columns else None,
+                    "root_path_sequence": -1,
+                    "display_order": row["display_order"],
+                    "sequence": -1,
+                },
             )
+            if projects[row["id"]].get("root_path") in (None, "") and "root_path" in project_columns:
+                projects[row["id"]]["root_path"] = row["root_path"]
         for row in db.execute("SELECT * FROM sessions"):
             current = sessions.setdefault(row["id"], {"id": row["id"], "sequence": -1})
             for key in ("project_id", "title", "section_id", "model", "model_key", "source_task_id"):
@@ -355,7 +414,10 @@ def write_cache(output: Path, source: Path, projects: dict[str, dict[str, Any]],
             db.execute("DELETE FROM messages")
             db.execute("DELETE FROM messages_fts")
             for project in projects.values():
-                db.execute("INSERT INTO projects(id,name,display_order) VALUES(?,?,?)", (project["id"], project["name"], project["display_order"]))
+                db.execute(
+                    "INSERT INTO projects(id,name,root_path,display_order) VALUES(?,?,?,?)",
+                    (project["id"], project["name"], project.get("root_path"), project["display_order"]),
+                )
             by_conversation: dict[str, list[dict[str, Any]]] = {}
             for message in messages.values():
                 message["model"] = models.get(message.get("model_key") or "") or message.get("model")
@@ -446,7 +508,7 @@ def build_cache(records_path: Path, output: Path, source: Path, warning_count: i
                     extract_projects(payload, sequence, projects, sessions)
                     extract_models(payload, models)
                 if source_kind == "blob" or "mainTaskDataMap" in json.dumps(payload, ensure_ascii=False)[:1000]:
-                    extract_task_state(payload, sequence, sessions, messages)
+                    extract_task_state(payload, sequence, projects, sessions, messages)
     if bad_lines:
         raise RuntimeError(f"dfindexeddb emitted {bad_lines} invalid JSONL records")
     write_cache(output, source, projects, sessions, messages, models, warning_count)

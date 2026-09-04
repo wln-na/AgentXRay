@@ -47,6 +47,7 @@ export interface SessionSummary {
   spawnCount?: number | null;
   projectId?: string | null;
   projectName?: string | null;
+  projectPath?: string | null;
   sectionId?: string | null;
   dataSource?: string | null;
   sourcePath?: string | null;
@@ -114,6 +115,7 @@ export interface SessionMeta {
   models?: string[];
   projectId?: string | null;
   projectName?: string | null;
+  projectPath?: string | null;
   sectionId?: string | null;
   dataSource?: string | null;
   sourcePath?: string | null;

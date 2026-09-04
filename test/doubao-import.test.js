@@ -23,7 +23,7 @@ test('Doubao importer builds a privacy-minimized cache with project, session, me
 
   const db = new Database(output, { readonly: true });
   t.after(() => db.close());
-  const project = db.prepare('SELECT id, name FROM projects').get();
+  const project = db.prepare('SELECT id, name, root_path FROM projects').get();
   const session = db.prepare('SELECT id, project_id, title, model FROM sessions').get();
   const messages = db.prepare('SELECT role, model, content_json FROM messages ORDER BY timestamp').all();
   const metadata = Object.fromEntries(
@@ -33,7 +33,11 @@ test('Doubao importer builds a privacy-minimized cache with project, session, me
       .map((row) => [row.key, row.value])
   );
 
-  assert.deepEqual(project, { id: 'fixture-project', name: 'Fixture Project' });
+  assert.deepEqual(project, {
+    id: 'fixture-project',
+    name: 'Fixture Project',
+    root_path: '/Users/example/Projects/fixture-project',
+  });
   assert.deepEqual(session, {
     id: 'fixture-conversation',
     project_id: 'fixture-project',
@@ -54,10 +58,50 @@ test('Doubao importer builds a privacy-minimized cache with project, session, me
   assert.equal(metadata.message_count, '2');
   assert.equal(metadata.model_count, '1');
 
+  const adapterProbe = spawnSync(
+    process.execPath,
+    [
+      '-e',
+      `process.env.DOUBAO_CACHE_PATH=${JSON.stringify(output)};
+       const store=require(${JSON.stringify(path.join(ROOT, 'lib', 'platforms', 'doubao-store.js'))});
+       Promise.all([store.listCachedSessions(${JSON.stringify(output)}), store.getCachedSession(${JSON.stringify(output)}, 'fixture-conversation')])
+         .then(([sessions, detail])=>process.stdout.write(JSON.stringify({session:sessions[0], detail:detail.session})))
+         .catch((error)=>{console.error(error);process.exit(1);});`,
+    ],
+    { encoding: 'utf8' }
+  );
+  assert.equal(adapterProbe.status, 0, adapterProbe.stderr || adapterProbe.stdout);
+  const adapter = JSON.parse(adapterProbe.stdout);
+  assert.equal(adapter.session.projectName, 'Fixture Project');
+  assert.equal(adapter.session.projectPath, '/Users/example/Projects/fixture-project');
+  assert.equal(adapter.session.cwd, '/Users/example/Projects/fixture-project');
+  assert.equal(adapter.detail.projectPath, '/Users/example/Projects/fixture-project');
+
   const cacheBytes = fs.readFileSync(output, 'utf8');
   for (const forbidden of ['inner_user_ip', 'local_device_id', 'trace_id', 'cookie', 'authorization']) {
     assert.equal(cacheBytes.includes(forbidden), false, `cache leaked ${forbidden}`);
   }
+});
+
+test('Doubao importer rebuilds an incomplete cache file', (t) => {
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'agentxray-doubao-empty-cache-test-'));
+  t.after(() => fs.rmSync(tempDir, { recursive: true, force: true }));
+  const output = path.join(tempDir, 'doubao.sqlite');
+  fs.writeFileSync(output, '');
+
+  const result = spawnSync(
+    process.env.PYTHON || 'python3',
+    [IMPORTER, '--source', tempDir, '--records', RECORDS, '--output', output],
+    { encoding: 'utf8' }
+  );
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+
+  const db = new Database(output, { readonly: true });
+  t.after(() => db.close());
+  assert.deepEqual(db.prepare('SELECT name, root_path FROM projects').get(), {
+    name: 'Fixture Project',
+    root_path: '/Users/example/Projects/fixture-project',
+  });
 });
 
 test('Doubao importer preserves cached history when Chromium blobs disappear', (t) => {
@@ -83,8 +127,10 @@ test('Doubao importer preserves cached history when Chromium blobs disappear', (
 
   const db = new Database(output, { readonly: true });
   t.after(() => db.close());
+  const project = db.prepare('SELECT root_path FROM projects').get();
   const session = db.prepare('SELECT created_at, updated_at, model, model_key FROM sessions').get();
   const messages = db.prepare('SELECT role, model, content_json FROM messages ORDER BY timestamp').all();
+  assert.equal(project.root_path, '/Users/example/Projects/fixture-project');
   assert.equal(session.model, 'Fixture Model');
   assert.equal(session.model_key, 'fixture-model-key');
   assert.ok(session.created_at);
