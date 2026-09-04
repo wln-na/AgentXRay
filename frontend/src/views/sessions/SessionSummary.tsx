@@ -156,6 +156,9 @@ export function SessionSummary({
   const selectedSessionId = useAppStore((s) => s.selectedSessionId);
   const { data: sessions } = useSessionsList();
   const [collapsed, setCollapsed] = useState(() => loadStoredFlag(SUMMARY_COLLAPSED_KEY, true));
+  const [pathCopied, setPathCopied] = useState(false);
+
+  const sessionFile = sessions?.find((s) => s.id === selectedSessionId)?.file;
 
   const msgs = detail.messages;
   const stats = useMemo(() => computeSessionStats(msgs), [msgs]);
@@ -185,6 +188,24 @@ export function SessionSummary({
           <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-muted-foreground">
             <span>{formatDate(detail.session?.timestamp)}</span>
             <span>{detail.session?.cwd || 'Unknown cwd'}</span>
+            {sessionFile ? (
+              <button
+                type="button"
+                className="cursor-pointer truncate max-w-[300px] hover:text-foreground hover:underline"
+                title={`点击复制本地路径：${sessionFile}`}
+                onClick={async () => {
+                  try {
+                    await navigator.clipboard.writeText(sessionFile);
+                    setPathCopied(true);
+                    setTimeout(() => setPathCopied(false), 1500);
+                  } catch (error) {
+                    toast.error('复制失败: ' + (error as Error).message);
+                  }
+                }}
+              >
+                📁 {pathCopied ? '已复制!' : sessionFile}
+              </button>
+            ) : null}
             {listModel ? <span className="rounded border border-border px-1">🧠 {listModel}</span> : null}
             {total !== null ? (
               <span title="Wall-clock time from first to last message">⏱ Total: {formatDurationCompact(total)}</span>

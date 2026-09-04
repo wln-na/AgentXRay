@@ -102,6 +102,7 @@ export function GlobalInsights() {
   }
 
   const errPct = (data.errorRate * 100).toFixed(1);
+  const cacheRead = data.tokenUsage.cacheRead || 0;
   const tokenTotal = (data.tokenUsage.input || 0) + (data.tokenUsage.output || 0);
   const maxCalls = data.toolStats.length > 0 ? data.toolStats[0].calls : 1;
   const maxTrend = data.trend.length
@@ -120,6 +121,9 @@ export function GlobalInsights() {
         <StatCard value={data.totalToolCalls} label="Tool Calls" />
         <StatCard value={`${errPct}%`} label="Error Rate" tone="error" />
         <StatCard value={fmtTokens(tokenTotal)} label="Tokens (in+out)" tone="token" />
+        {cacheRead > 0 && (
+          <StatCard value={fmtTokens(cacheRead)} label="Cache Read" tone="token" />
+        )}
         {data.totalCost > 0 && (
           <StatCard value={`💰 ${formatCost(data.totalCost)}`} label="Cost" tone="cost" />
         )}
