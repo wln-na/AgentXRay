@@ -103,7 +103,12 @@ const PRE_CLASS = 'overflow-x-auto whitespace-pre-wrap break-words rounded bg-mu
 /** Embedded toolCall content part (OpenClaw/omp assistant messages). */
 export function ToolCallPart({ part }: { part: MessageContentPart }) {
   const { scrollToMessage } = useContext(MessageActionsContext);
-  const args = (part.arguments ?? {}) as Record<string, unknown>;
+  const hasArguments = part.arguments !== null && part.arguments !== undefined;
+  const args = (hasArguments ? part.arguments : {}) as Record<string, unknown>;
+  const summary = typeof part.summary === 'string' ? part.summary : '';
+  const path = typeof part.path === 'string' ? part.path : '';
+  const content = typeof part.content === 'string' ? part.content : '';
+  const status = part.status === null || part.status === undefined ? '' : String(part.status);
   const command = typeof args.command === 'string' ? args.command.toLowerCase() : '';
   const isSpawn = part.name === 'sessions_spawn' && !!args.agentId;
   const isDelegate = part.name === 'delegate_task';
@@ -124,7 +129,31 @@ export function ToolCallPart({ part }: { part: MessageContentPart }) {
           </>
         }
       >
-        <pre className={PRE_CLASS}>{JSON.stringify(args, null, 2)}</pre>
+        <div className="space-y-1.5">
+          {summary ? (
+            <div className="text-[11px]">
+              <span className="text-muted-foreground">操作摘要：</span>
+              {summary}
+            </div>
+          ) : null}
+          {path ? (
+            <div className="break-all font-mono text-[11px]">
+              <span className="font-sans text-muted-foreground">本地路径：</span>
+              {path}
+            </div>
+          ) : null}
+          {status ? (
+            <div className="text-[11px]">
+              <span className="text-muted-foreground">状态：</span>
+              {status}
+            </div>
+          ) : null}
+          {hasArguments ? <pre className={PRE_CLASS}>{JSON.stringify(part.arguments, null, 2)}</pre> : null}
+          {content ? <pre className={PRE_CLASS}>{content}</pre> : null}
+          {!hasArguments && !summary && !path && !content && !status ? (
+            <div className="text-[11px] text-muted-foreground">源会话未记录该工具调用的详细内容。</div>
+          ) : null}
+        </div>
       </Collapse>
       {(isExecSpawn || isDelegate) && part.id ? (
         <button

@@ -20,7 +20,7 @@ import tempfile
 from pathlib import Path
 from typing import Any, Iterable
 
-SCHEMA_VERSION = "2"
+SCHEMA_VERSION = "3"
 
 
 def js_values(value: Any) -> list[Any]:
@@ -120,13 +120,20 @@ def extract_text_and_tools(message: dict[str, Any]) -> list[dict[str, Any]]:
             })
         elif file_op:
             header = as_dict(file_op.get("header"))
+            summary = header.get("summary")
+            path = file_op.get("path")
+            content_text = file_op.get("content")
             parts.append({
                 "type": "toolCall",
                 "id": str(block.get("block_id") or ""),
-                "name": "Bash" if "运行" in str(header.get("summary") or "") else "file_operation",
+                "name": "Bash" if "运行" in str(summary or "") else "file_operation",
                 "arguments": None,
                 "status": file_op.get("status"),
-                "summary": header.get("summary"),
+                "summary": summary,
+                "path": path if isinstance(path, str) and path else None,
+                "fileName": file_op.get("file_name") if isinstance(file_op.get("file_name"), str) else None,
+                "fileType": file_op.get("file_type") if isinstance(file_op.get("file_type"), str) else None,
+                "content": content_text if isinstance(content_text, str) and content_text else None,
             })
     return parts
 
@@ -340,6 +347,34 @@ def open_database(path: Path) -> sqlite3.Connection:
     return connection
 
 
+def merge_message_content(current: list[Any], cached: list[Any]) -> list[Any]:
+    """Enrich current parts while retaining tool calls pruned from a later UI snapshot."""
+    merged = [dict(part) if isinstance(part, dict) else part for part in current]
+    indexed = {
+        str(part.get("id")): index
+        for index, part in enumerate(merged)
+        if isinstance(part, dict) and part.get("id") not in (None, "")
+    }
+    for cached_part in cached:
+        if not isinstance(cached_part, dict):
+            continue
+        part_id = cached_part.get("id")
+        if part_id in (None, ""):
+            continue
+        key = str(part_id)
+        if key not in indexed:
+            indexed[key] = len(merged)
+            merged.append(dict(cached_part))
+            continue
+        current_part = merged[indexed[key]]
+        if not isinstance(current_part, dict):
+            continue
+        for field, value in cached_part.items():
+            if current_part.get(field) in (None, "", [], {}) and value not in (None, "", [], {}):
+                current_part[field] = value
+    return merged
+
+
 def merge_existing_cache(
     output: Path,
     projects: dict[str, dict[str, Any]],
@@ -384,6 +419,11 @@ def merge_existing_cache(
                 models.setdefault(row["model_key"], row["model"])
         for row in db.execute("SELECT * FROM messages"):
             content = json.loads(row["content_json"])
+            cached_content = content if isinstance(content, list) else []
+            current = messages.get(row["id"])
+            if current is not None:
+                current["content"] = merge_message_content(current.get("content") or [], cached_content)
+                continue
             upsert_message(messages, {
                 "id": row["id"],
                 "conversation_id": row["conversation_id"],
@@ -393,7 +433,7 @@ def merge_existing_cache(
                 "timestamp": row["timestamp"],
                 "model": row["model"],
                 "model_key": row["model_key"],
-                "content": content if isinstance(content, list) else [],
+                "content": cached_content,
                 "sort_index": int(row["sort_index"] or 0),
                 "sequence": int(row["source_sequence"] or 0),
             })

@@ -53,7 +53,25 @@ test('Doubao importer builds a privacy-minimized cache with project, session, me
   );
   assert.match(messages[0].content_json, /fixture question/);
   assert.match(messages[1].content_json, /fixture_tool/);
-  assert.equal(metadata.project_count, '1');
+  const assistantContent = JSON.parse(messages[1].content_json);
+  const fileOperation = assistantContent.find((part) => part.id === 'fixture-file-tool');
+  assert.deepEqual(fileOperation, {
+    type: 'toolCall',
+    id: 'fixture-file-tool',
+    name: 'file_operation',
+    arguments: null,
+    status: null,
+    summary: '已读取 fixture.txt',
+    path: '/Users/example/Projects/fixture-project/fixture.txt',
+    fileName: 'fixture.txt',
+    fileType: 'text',
+    content: 'Read fixture.txt:\nfixture file content',
+  });
+  const bashOperation = assistantContent.find((part) => part.id === 'fixture-bash-tool');
+  assert.equal(bashOperation.name, 'Bash');
+  assert.equal(bashOperation.summary, '已运行 npm test');
+  assert.match(bashOperation.content, /tests passed/);
+  assert.equal(metadata.schema_version, '3');
   assert.equal(metadata.session_count, '1');
   assert.equal(metadata.message_count, '2');
   assert.equal(metadata.model_count, '1');
@@ -65,7 +83,7 @@ test('Doubao importer builds a privacy-minimized cache with project, session, me
       `process.env.DOUBAO_CACHE_PATH=${JSON.stringify(output)};
        const store=require(${JSON.stringify(path.join(ROOT, 'lib', 'platforms', 'doubao-store.js'))});
        Promise.all([store.listCachedSessions(${JSON.stringify(output)}), store.getCachedSession(${JSON.stringify(output)}, 'fixture-conversation')])
-         .then(([sessions, detail])=>process.stdout.write(JSON.stringify({session:sessions[0], detail:detail.session})))
+         .then(([sessions, detail])=>process.stdout.write(JSON.stringify({session:sessions[0], detail:detail.session, messages:detail.messages})))
          .catch((error)=>{console.error(error);process.exit(1);});`,
     ],
     { encoding: 'utf8' }
@@ -76,11 +94,67 @@ test('Doubao importer builds a privacy-minimized cache with project, session, me
   assert.equal(adapter.session.projectPath, '/Users/example/Projects/fixture-project');
   assert.equal(adapter.session.cwd, '/Users/example/Projects/fixture-project');
   assert.equal(adapter.detail.projectPath, '/Users/example/Projects/fixture-project');
+  const apiFileOperation = adapter.messages
+    .flatMap((message) => message.content || [])
+    .find((part) => part.id === 'fixture-file-tool');
+  assert.equal(apiFileOperation.summary, '已读取 fixture.txt');
+  assert.equal(apiFileOperation.path, '/Users/example/Projects/fixture-project/fixture.txt');
+  assert.match(apiFileOperation.content, /fixture file content/);
 
   const cacheBytes = fs.readFileSync(output, 'utf8');
   for (const forbidden of ['inner_user_ip', 'local_device_id', 'trace_id', 'cookie', 'authorization']) {
     assert.equal(cacheBytes.includes(forbidden), false, `cache leaked ${forbidden}`);
   }
+});
+
+test('Doubao importer upgrades equal-sequence cached tool summaries with current details', (t) => {
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'agentxray-doubao-tool-upgrade-test-'));
+  t.after(() => fs.rmSync(tempDir, { recursive: true, force: true }));
+  const output = path.join(tempDir, 'doubao.sqlite');
+  const initial = spawnSync(
+    process.env.PYTHON || 'python3',
+    [IMPORTER, '--source', tempDir, '--records', RECORDS, '--output', output],
+    { encoding: 'utf8' }
+  );
+  assert.equal(initial.status, 0, initial.stderr || initial.stdout);
+
+  const db = new Database(output);
+  const assistant = db.prepare("SELECT id, content_json FROM messages WHERE role='assistant'").get();
+  const legacyContent = JSON.parse(assistant.content_json).map((part) =>
+    part.type === 'toolCall'
+      ? { type: part.type, id: part.id, name: part.name, arguments: null, status: part.status, summary: part.summary }
+      : part
+  );
+  legacyContent.push({
+    type: 'toolCall',
+    id: 'historical-tool-pruned-from-current-snapshot',
+    name: 'file_operation',
+    arguments: null,
+    status: null,
+    summary: '历史工具摘要',
+  });
+  db.prepare('UPDATE messages SET content_json=? WHERE id=?').run(JSON.stringify(legacyContent), assistant.id);
+  db.close();
+
+  const refresh = spawnSync(
+    process.env.PYTHON || 'python3',
+    [IMPORTER, '--source', tempDir, '--records', RECORDS, '--output', output],
+    { encoding: 'utf8' }
+  );
+  assert.equal(refresh.status, 0, refresh.stderr || refresh.stdout);
+
+  const refreshed = new Database(output, { readonly: true });
+  t.after(() => refreshed.close());
+  const content = JSON.parse(
+    refreshed.prepare("SELECT content_json FROM messages WHERE role='assistant'").get().content_json
+  );
+  const fileOperation = content.find((part) => part.id === 'fixture-file-tool');
+  assert.equal(fileOperation.path, '/Users/example/Projects/fixture-project/fixture.txt');
+  assert.match(fileOperation.content, /fixture file content/);
+  assert.equal(
+    content.find((part) => part.id === 'historical-tool-pruned-from-current-snapshot').summary,
+    '历史工具摘要'
+  );
 });
 
 test('Doubao importer rebuilds an incomplete cache file', (t) => {
