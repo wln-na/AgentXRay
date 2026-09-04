@@ -8,7 +8,7 @@ import { Markdown } from '@/components/Markdown';
 import { formatDurationCompact, getTextContent } from '@/lib/pure';
 import { cn } from '@/lib/utils';
 import type { TimingMeta } from './lib';
-import { formatDate, formatNumber, messageAnchorId, truncateId } from './lib';
+import { formatDate, formatNumber, messageAnchorId, splitUserMessageContext, truncateId } from './lib';
 /** scrollToMessage from SessionsView: expands pagination + clears filter + flashes. */
 export const MessageActionsContext = createContext<{ scrollToMessage: (id: string) => void }>({
   scrollToMessage: () => {},
@@ -220,7 +220,8 @@ export function MessageBubble({ message, timing }: { message: SessionMessage; ti
   const anchor = messageAnchorId(message) || '';
 
   if (message.role === 'user') {
-    const preview = text.length > 1400 ? text.slice(0, 1400) + '\n\n[truncated]' : text;
+    const { input, contexts } = splitUserMessageContext(text);
+    const preview = input.length > 1400 ? input.slice(0, 1400) + '\n\n[truncated]' : input;
     return (
       <article
         id={`message-${anchor}`}
@@ -231,7 +232,23 @@ export function MessageBubble({ message, timing }: { message: SessionMessage; ti
           timestamp={message.timestamp}
           timing={timing}
         />
-        <Markdown text={preview} />
+        <div className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">用户实际输入</div>
+        {preview ? <Markdown text={preview} /> : <div className="text-xs text-muted-foreground">未记录独立的用户输入</div>}
+        {contexts.length ? (
+          <details className="mt-2 rounded border border-border/70 bg-background/50 px-2 py-1.5">
+            <summary className="cursor-pointer text-[11px] font-medium text-muted-foreground">
+              附带上下文 · {contexts.length} 组
+            </summary>
+            <div className="mt-2 space-y-2">
+              {contexts.map((context, index) => (
+                <section key={`${context.label}:${index}`} className="rounded border border-border/60 bg-secondary/30 p-2">
+                  <div className="mb-1 text-[10px] font-semibold text-muted-foreground">{context.label}</div>
+                  <pre className={PRE_CLASS}>{context.text}</pre>
+                </section>
+              ))}
+            </div>
+          </details>
+        ) : null}
       </article>
     );
   }

@@ -110,7 +110,7 @@ export function getSessionDetail(
 
 /** Spawned sub-agents of a session (omp / claude-code only). */
 export function getSessionChildren(
-  platform: 'omp' | 'claude-code',
+  platform: 'omp' | 'claude-code' | 'codex',
   sessionId: string,
   dir?: string
 ): Promise<ChildAgentSummary[]> {
@@ -120,7 +120,7 @@ export function getSessionChildren(
 }
 
 export function getSessionChild(
-  platform: 'omp' | 'claude-code',
+  platform: 'omp' | 'claude-code' | 'codex',
   sessionId: string,
   childName: string,
   dir?: string

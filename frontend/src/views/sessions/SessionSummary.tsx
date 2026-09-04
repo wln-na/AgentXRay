@@ -164,7 +164,15 @@ export function SessionSummary({
   const sessionFile = selectedSummary?.file;
   const localPaths = Array.from(
     new Set(
-      [detail.session?.sourcePath, detail.session?.trajectoryPath, selectedSummary?.sourcePath, selectedSummary?.trajectoryPath, sessionFile]
+      [
+        detail.session?.sourcePath,
+        detail.session?.trajectoryPath,
+        detail.session?.filePath,
+        selectedSummary?.sourcePath,
+        selectedSummary?.trajectoryPath,
+        selectedSummary?.filePath,
+        sessionFile,
+      ]
         .filter((value): value is string => typeof value === 'string' && Boolean(value))
     )
   );
@@ -179,6 +187,9 @@ export function SessionSummary({
   const toolMs = timing.totalToolDurationMs || 0;
   const modelMs = total !== null ? Math.max(0, total - toolMs) : 0;
   const topTools = Object.entries(stats.toolNames)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 8);
+  const topSkills = Object.entries(stats.skillNames)
     .sort((a, b) => b[1] - a[1])
     .slice(0, 8);
 
@@ -216,6 +227,11 @@ export function SessionSummary({
                 {index === 0 ? '📁' : '↳'} {pathCopied ? '已复制!' : localPath}
               </button>
             ))}
+            {selectedSummary?.archived || detail.session?.archived ? (
+              <span className="rounded border border-amber-500/50 bg-amber-500/10 px-1 text-amber-700 dark:text-amber-300">
+                已归档
+              </span>
+            ) : null}
             {detail.session?.dataSource ? (
               <span className="rounded border border-border px-1">来源: {detail.session.dataSource}</span>
             ) : null}
@@ -270,8 +286,8 @@ export function SessionSummary({
 
       {!collapsed ? (
         <div className="mt-3 space-y-3" data-testid="summary-body">
-          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-            <div>
+          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+            <div className="rounded-md border border-border/70 p-2.5">
               <div className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
                 Messages
               </div>
@@ -299,7 +315,7 @@ export function SessionSummary({
                 </FilterBadge>
               </div>
             </div>
-            <div>
+            <div className="rounded-md border border-border/70 p-2.5">
               <div className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Tools</div>
               <div className="flex flex-wrap gap-1">
                 <FilterBadge
@@ -351,23 +367,41 @@ export function SessionSummary({
               </div>
             </div>
             {topTools.length ? (
-              <div>
+              <div className="rounded-md border border-border/70 p-2.5">
                 <div className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
                   Top Tools
                 </div>
-                <div className="flex flex-wrap gap-1">
+                <div className="flex flex-wrap gap-1.5">
                   {topTools.map(([name, count]) => (
                     <span
                       key={name}
-                      className="rounded border border-border px-1.5 py-0.5 text-[11px] text-muted-foreground"
+                      className="rounded border border-border bg-secondary/30 px-1.5 py-0.5 text-[11px] text-muted-foreground"
                     >
-                      {name}: {count}
+                      {name} ×{count}
                     </span>
                   ))}
                 </div>
               </div>
             ) : null}
-            <div>
+            {topSkills.length ? (
+              <div className="rounded-md border border-border/70 p-2.5">
+                <div className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                  Skill 使用
+                </div>
+                <div className="flex flex-wrap gap-1.5">
+                  {topSkills.map(([name, count]) => (
+                    <span
+                      key={name}
+                      className="rounded border border-primary/30 bg-primary/5 px-1.5 py-0.5 text-[11px] text-foreground"
+                    >
+                      {name} ×{count}
+                    </span>
+                  ))}
+                </div>
+                <div className="mt-1 text-[10px] text-muted-foreground">按会话中读取 SKILL.md 的记录统计</div>
+              </div>
+            ) : null}
+            <div className="rounded-md border border-border/70 p-2.5">
               <div className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Tokens</div>
               <div className="flex flex-wrap gap-1">
                 {Object.keys(tokenSummary).length ? (

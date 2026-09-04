@@ -7,7 +7,7 @@ import { formatDurationCompact, getTextContent, parseTimestampMs } from '@/lib/p
 import { cn } from '@/lib/utils';
 import { useAppStore } from '@/store';
 import type { MsgFilter, TimingAnalysis } from './lib';
-import { applyMsgFilter, messageAnchorId } from './lib';
+import { applyMsgFilter, compactAssistantFragments, messageAnchorId } from './lib';
 import { GraphLane, MessageBubble } from './MessageItem';
 import type { MessageUnit, RetryInfo, TurnUnit } from './messageUnits';
 import { buildMessageUnits, buildRetryChains } from './messageUnits';
@@ -50,7 +50,7 @@ function Chip({ className, title, children }: { className?: string; title?: stri
 
 function TurnGroup({ unit, timing, isCodex }: { unit: TurnUnit; timing: TimingAnalysis; isCodex: boolean }) {
   const toolCount = unit.tools.length;
-  const stepCount = unit.steps.length;
+  const resultCount = unit.steps.filter((s) => s.role === 'toolResult').length;
   const errCount = unit.steps.filter((s) => s.role === 'toolResult' && s.isError).length;
   const { retryCount, retryMap } = buildRetryChains(unit);
 
@@ -98,7 +98,7 @@ function TurnGroup({ unit, timing, isCodex }: { unit: TurnUnit; timing: TimingAn
               🔧 {toolCount} tool call{toolCount > 1 ? 's' : ''}
             </strong>
             <span className="text-muted-foreground">
-              · {stepCount} result{stepCount > 1 ? 's' : ''}
+              · {resultCount} result{resultCount > 1 ? 's' : ''}
             </span>
             <span className="flex flex-wrap items-center gap-1">
               {batchDur !== null ? (
@@ -172,7 +172,8 @@ export function MessageList({
 
   const units = useMemo<MessageUnit[]>(() => {
     const filtered = applyMsgFilter(timing.visibleMessages, msgFilter);
-    const built = buildMessageUnits(filtered, isCodex);
+    const compacted = compactAssistantFragments(filtered);
+    const built = buildMessageUnits(compacted, isCodex);
     // newest-first = reverse (latest on top); oldest-first = natural order
     return msgOrder === 'newest-first' ? built.reverse() : built;
   }, [timing, msgFilter, isCodex, msgOrder]);

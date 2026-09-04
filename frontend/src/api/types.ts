@@ -51,6 +51,12 @@ export interface SessionSummary {
   dataSource?: string | null;
   sourcePath?: string | null;
   trajectoryPath?: string | null;
+  filePath?: string | null;
+  archived?: boolean;
+  parentThreadId?: string | null;
+  childCount?: number;
+  agentRole?: string | null;
+  agentNickname?: string | null;
   [key: string]: unknown;
 }
 
@@ -112,6 +118,11 @@ export interface SessionMeta {
   dataSource?: string | null;
   sourcePath?: string | null;
   trajectoryPath?: string | null;
+  filePath?: string | null;
+  archived?: boolean;
+  parentThreadId?: string | null;
+  agentRole?: string | null;
+  agentNickname?: string | null;
   historyAvailable?: boolean;
   contentAvailable?: boolean;
   [key: string]: unknown;

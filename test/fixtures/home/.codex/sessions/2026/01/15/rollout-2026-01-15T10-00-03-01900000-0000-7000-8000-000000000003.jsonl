@@ -1,0 +1,4 @@
+{"timestamp":"2026-01-15T10:00:03.000Z","type":"session_meta","payload":{"id":"01900000-0000-7000-8000-000000000003","parent_thread_id":"01900000-0000-7000-8000-000000000001","timestamp":"2026-01-15T10:00:03.000Z","cwd":"/fixtures/project-alpha","source":{"subagent":{"thread_spawn":{"parent_thread_id":"01900000-0000-7000-8000-000000000001","agent_role":"explorer","agent_nickname":"Scout"}}},"model_provider":"fixture-provider"}}
+{"timestamp":"2026-01-15T10:00:03.500Z","type":"turn_context","payload":{"model":"fixture-model-child"}}
+{"timestamp":"2026-01-15T10:00:04.000Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"fixture: inspect child branch"}]}}
+{"timestamp":"2026-01-15T10:00:14.000Z","type":"response_item","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"fixture: child branch inspected"}]}}

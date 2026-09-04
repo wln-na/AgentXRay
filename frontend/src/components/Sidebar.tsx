@@ -4,7 +4,7 @@
 
 import { useQuery } from '@tanstack/react-query';
 import { Search, Settings, X } from 'lucide-react';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { getAgents, searchSessions } from '@/api/client';
 import { PLATFORM_LABELS } from '@/api/types';
 import { SettingsDialog } from '@/components/SettingsDialog';
@@ -94,28 +94,48 @@ export function Sidebar() {
   const [cmdkSeed, setCmdkSeed] = useState('');
   const [matchedSessionIds, setMatchedSessionIds] = useState<Set<string> | null>(null);
   const [isSearching, setIsSearching] = useState(false);
+  const [searchError, setSearchError] = useState('');
+  const searchRequestRef = useRef(0);
+
+  useEffect(() => {
+    searchRequestRef.current += 1;
+    setFilterTerm('');
+    setMatchedSessionIds(null);
+    setIsSearching(false);
+    setSearchError('');
+  }, [platform]);
 
   // Full-text search within the current platform on Enter.
   // Clearing the input restores the full session list.
   const runPlatformSearch = async (q: string) => {
     if (!q.trim()) {
       setMatchedSessionIds(null);
+      setSearchError('');
       return;
     }
+    const requestId = searchRequestRef.current + 1;
+    searchRequestRef.current = requestId;
     setIsSearching(true);
+    setSearchError('');
     try {
       const results = await searchSessions(q, settings, platform);
-      setMatchedSessionIds(new Set(results.map((r) => r.sessionId)));
-    } catch {
-      setMatchedSessionIds(new Set());
+      if (searchRequestRef.current !== requestId) return;
+      setMatchedSessionIds(new Set(results.map((result) => result.sessionId)));
+    } catch (searchError) {
+      if (searchRequestRef.current !== requestId) return;
+      setMatchedSessionIds(null);
+      setSearchError(searchError instanceof Error ? searchError.message : '全文搜索失败');
     } finally {
-      setIsSearching(false);
+      if (searchRequestRef.current === requestId) setIsSearching(false);
     }
   };
 
   const clearSearch = () => {
+    searchRequestRef.current += 1;
     setFilterTerm('');
     setMatchedSessionIds(null);
+    setIsSearching(false);
+    setSearchError('');
   };
 
   // Global ⌘K / Ctrl+K toggle (legacy document keydown)
@@ -148,8 +168,11 @@ export function Sidebar() {
           type="search"
           value={filterTerm}
           onChange={(e) => {
+            searchRequestRef.current += 1;
             setFilterTerm(e.target.value);
-            if (!e.target.value.trim()) setMatchedSessionIds(null);
+            setMatchedSessionIds(null);
+            setIsSearching(false);
+            setSearchError('');
           }}
           onKeyDown={(e) => {
             if (e.key === 'Enter') {
@@ -187,7 +210,14 @@ export function Sidebar() {
           ⌘K
         </button>
       </div>
-      {matchedSessionIds !== null ? (
+      {searchError ? (
+        <div className="flex items-start justify-between gap-2 rounded border border-destructive/30 bg-destructive/5 px-2 py-1.5 text-[11px] text-destructive">
+          <span className="min-w-0 break-words">全文搜索失败：{searchError}</span>
+          <button type="button" onClick={() => void runPlatformSearch(filterTerm)} className="shrink-0 underline">
+            重试
+          </button>
+        </div>
+      ) : matchedSessionIds !== null ? (
         <div className="flex items-center justify-between text-[11px] text-muted-foreground">
           <span>
             {isSearching ? '搜索中…' : `全文搜索命中 ${matchedSessionIds.size} 个会话`}
@@ -220,7 +250,7 @@ export function Sidebar() {
           onChange={setAutoScroll}
         />
       </div>
-      <SessionList filterTerm={filterTerm} matchedSessionIds={matchedSessionIds} />
+      <SessionList filterTerm={filterTerm} matchedSessionIds={matchedSessionIds} isSearching={isSearching} />
       <SettingsDialog open={settingsOpen} onOpenChange={setSettingsOpen} />
       <CmdkDialog open={cmdkOpen} onOpenChange={setCmdkOpen} seedQuery={cmdkSeed} />
     </aside>

@@ -11,6 +11,9 @@ const { startServer, getJson, sendJson } = require('./helpers.js');
 
 const CODEX1 = '01900000-0000-7000-8000-000000000001';
 const CODEX2 = '01900000-0000-7000-8000-000000000002';
+const CODEX_CHILD = '01900000-0000-7000-8000-000000000003';
+const CODEX_GRANDCHILD = '01900000-0000-7000-8000-000000000005';
+const CODEX_ARCHIVED = '01900000-0000-7000-8000-000000000004';
 const CLAUDE_A = 'aaaa1111-2222-4333-8444-555566667777';
 const CLAUDE_B = 'bbbb1111-2222-4333-8444-555566667778';
 const OMP1 = '019a0000-0000-7000-8000-00000000aaaa';
@@ -41,10 +44,10 @@ describe('AgentXRay API', () => {
   describe('sessions: codex', () => {
     it('lists sessions newest-first with metadata', async () => {
       const sessions = await getJson(srv.base, '/api/codex/sessions');
-      assert.equal(sessions.length, 2);
+      assert.equal(sessions.length, 3);
       assert.deepEqual(
         sessions.map((s) => s.id),
-        [CODEX2, CODEX1]
+        [CODEX2, CODEX1, CODEX_ARCHIVED]
       );
       const s1 = sessions[1];
       assert.equal(s1.timestamp, '2026-01-15T10:00:00.000Z');
@@ -54,6 +57,37 @@ describe('AgentXRay API', () => {
       assert.equal(s1.toolResultCount, 1);
       assert.ok(s1.firstUserMessage.startsWith('fixture: search-needle-alpha'));
       assert.deepEqual(s1.topTools, [{ name: 'shell', count: 1 }]);
+      assert.equal(s1.childCount, 2);
+      assert.equal(s1.lastActivity, '2026-01-15T10:00:14.000Z');
+      const archived = sessions.find((s) => s.id === CODEX_ARCHIVED);
+      assert.equal(archived.archived, true);
+      assert.ok(archived.filePath.includes('.codex/archived_sessions/'));
+    });
+
+    it('exposes Codex subagents without listing them as main sessions', async () => {
+      const children = await getJson(srv.base, `/api/codex/sessions/${CODEX1}/children`);
+      assert.equal(children.length, 2);
+      const child = children.find((item) => item.name === CODEX_CHILD);
+      assert.equal(child.agentType, 'explorer');
+      assert.equal(child.description, 'Scout');
+      assert.equal(child.messageCount, 2);
+      const grandchild = children.find((item) => item.name === CODEX_GRANDCHILD);
+      assert.equal(grandchild.parentThreadId, CODEX_CHILD);
+      assert.equal(grandchild.agentType, 'reviewer');
+
+      const detail = await getJson(srv.base, `/api/codex/sessions/${CODEX1}/children/${CODEX_CHILD}`);
+      assert.equal(detail.session.id, CODEX_CHILD);
+      assert.equal(detail.session.parentThreadId, CODEX1);
+      assert.equal(detail.session.rootThreadId, CODEX1);
+      assert.deepEqual(
+        detail.messages.map((m) => m.role),
+        ['user', 'assistant']
+      );
+
+      const grandchildDetail = await getJson(srv.base, `/api/codex/sessions/${CODEX1}/children/${CODEX_GRANDCHILD}`);
+      assert.equal(grandchildDetail.session.id, CODEX_GRANDCHILD);
+      assert.equal(grandchildDetail.session.parentThreadId, CODEX_CHILD);
+      assert.equal(grandchildDetail.session.rootThreadId, CODEX1);
     });
 
     it('serves a session detail with normalized roles', async () => {
@@ -196,6 +230,14 @@ describe('AgentXRay API', () => {
       assert.ok(results[0].matches[0].snippet.includes('search-needle-alpha'));
     });
 
+    it('maps Codex child-thread matches to the parent session', async () => {
+      const results = await getJson(srv.base, '/api/search?q=child%20branch&platform=codex');
+      assert.equal(results.length, 1);
+      assert.equal(results[0].sessionId, CODEX1);
+      assert.equal(results[0].childSessionId, CODEX_CHILD);
+      assert.match(results[0].matches[0].snippet, /child branch/i);
+    });
+
     it('multi-keyword search is an AND across the session', async () => {
       const hit = await getJson(srv.base, '/api/search?q=search-needle-alpha+zebra-token&platform=codex');
       assert.equal(hit.length, 1);
@@ -253,8 +295,8 @@ describe('AgentXRay API', () => {
   describe('prompts + hidden prompts', () => {
     it('hiding one text collapses every identical occurrence, and unhiding restores it', async () => {
       const beforeData = await getJson(srv.base, '/api/prompts?platform=codex');
-      assert.equal(beforeData.totalPrompts, 3);
-      assert.equal(beforeData.totalSessions, 2);
+      assert.equal(beforeData.totalPrompts, 4);
+      assert.equal(beforeData.totalSessions, 3);
       assert.equal(beforeData.groups[0].directory, '/fixtures/project-alpha');
 
       // The duplicate text lives in both codex sessions: one hide removes both
@@ -269,7 +311,7 @@ describe('AgentXRay API', () => {
 
       const afterHide = await getJson(srv.base, '/api/prompts?platform=codex');
       assert.equal(afterHide.totalPrompts, beforeData.totalPrompts - 2);
-      assert.equal(afterHide.totalSessions, 1); // session 2 only held the duplicate
+      assert.equal(afterHide.totalSessions, 2); // duplicate-only main session drops; archived main remains
 
       // Store lives under the temp HOME, never the real ~/.agentxray
       assert.ok(await exists(path.join(srv.home, '.agentxray', 'hidden-prompts.json')));
@@ -432,11 +474,11 @@ describe('backup', () => {
 
   it('copies every session log once, then skips everything on the second run', async () => {
     const first = await sendJson(srv.base, 'POST', '/api/backup', undefined);
-    // codex 2 + claude 2 + history.jsonl + omp 2 + dsh 2 + gemini 3 (incl. nested subagent transcript)
-    assert.equal(first.copied, 12);
+    // codex 5 (4 active incl. child + grandchild, plus 1 archived) + claude 2 + history.jsonl + omp 2 + dsh 2 + gemini 3
+    assert.equal(first.copied, 15);
     assert.equal(first.skipped, 0);
-    assert.equal(first.total, 12);
-    assert.deepEqual(first.byPlatform.codex, { copied: 2, skipped: 0 });
+    assert.equal(first.total, 15);
+    assert.deepEqual(first.byPlatform.codex, { copied: 5, skipped: 0 });
     assert.deepEqual(first.byPlatform['claude-code'], { copied: 3, skipped: 0 });
     assert.deepEqual(first.byPlatform.omp, { copied: 2, skipped: 0 });
     assert.deepEqual(first.byPlatform.dsh, { copied: 2, skipped: 0 });
@@ -447,12 +489,12 @@ describe('backup', () => {
 
     const second = await sendJson(srv.base, 'POST', '/api/backup', undefined);
     assert.equal(second.copied, 0);
-    assert.equal(second.skipped, 12);
-    assert.equal(second.total, 12);
+    assert.equal(second.skipped, 15);
+    assert.equal(second.total, 15);
 
     const status = await getJson(srv.base, '/api/backup/status');
     assert.equal(status.archiveDir, first.archiveDir);
-    assert.equal(status.files, 12);
+    assert.equal(status.files, 15);
     assert.ok(status.bytes > 0);
     assert.ok(typeof status.lastBackup === 'string');
   });

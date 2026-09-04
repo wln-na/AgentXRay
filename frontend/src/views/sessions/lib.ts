@@ -213,8 +213,89 @@ export interface SessionStats {
   errorCount: number;
   spawnCount: number;
   toolNames: Record<string, number>;
+  skillNames: Record<string, number>;
   totalRetryTools: number;
   totalRetryAttempts: number;
+}
+
+export function compactAssistantFragments(messages: SessionMessage[]): SessionMessage[] {
+  const compacted: SessionMessage[] = [];
+  for (const message of messages) {
+    const previous = compacted.at(-1);
+    const sameAssistantFragment =
+      previous?.role === 'assistant' &&
+      message.role === 'assistant' &&
+      previous.timestamp === message.timestamp &&
+      previous.model === message.model &&
+      previous.provider === message.provider;
+    if (!sameAssistantFragment) {
+      compacted.push(message);
+      continue;
+    }
+    compacted[compacted.length - 1] = {
+      ...previous,
+      content: [...(previous.content || []), ...(message.content || [])],
+      reasoning: [previous.reasoning, message.reasoning].filter(Boolean).join('\n\n') || null,
+      usage: message.usage || previous.usage,
+    };
+  }
+  return compacted;
+}
+
+export interface UserMessageParts {
+  input: string;
+  contexts: { label: string; text: string }[];
+}
+
+const USER_CONTEXT_LABELS: Record<string, string> = {
+  'system-reminder': '系统附带上下文',
+  'agents_md': '项目规则',
+  'in-app-browser-context': '浏览器上下文',
+  environment_context: '运行环境上下文',
+  user_instructions: '用户规则上下文',
+  information: '附件信息',
+  'current-date': '日期上下文',
+  'current-state': 'Agent 状态',
+  constraint: '执行约束',
+  usage_guide: '行为指南',
+  retained_skills: 'Skill 上下文',
+};
+
+export function splitUserMessageContext(text: string): UserMessageParts {
+  const contexts: UserMessageParts['contexts'] = [];
+  let remaining = text;
+  const agentsInstructions = /^AGENTS\.md instructions for [^\n]+\n+[\s\S]*$/i;
+  if (agentsInstructions.test(remaining.trim())) {
+    contexts.push({ label: '项目规则', text: remaining.trim() });
+    remaining = '';
+  }
+  const tagNames = Object.keys(USER_CONTEXT_LABELS).join('|');
+  const pattern = new RegExp(`<(${tagNames})(?:\\s[^>]*)?>[\\s\\S]*?<\\/\\1>`, 'gi');
+  const input = remaining
+    .replace(pattern, (block, tag: string) => {
+      const normalizedTag = tag.toLowerCase();
+      contexts.push({ label: USER_CONTEXT_LABELS[normalizedTag] || normalizedTag, text: block.trim() });
+      return '\n';
+    })
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+  return { input, contexts };
+}
+
+function skillNamesFromValue(value: unknown): string[] {
+  let text = '';
+  try {
+    const serialized = typeof value === 'string' ? value : JSON.stringify(value);
+    text = typeof serialized === 'string' ? serialized : '';
+  } catch {
+    return [];
+  }
+  const names = new Set<string>();
+  const pattern = /(?:^|[\\/])([^\\/"'\s]+)[\\/]SKILL\.md\b/gi;
+  for (const match of text.matchAll(pattern)) {
+    if (match[1]) names.add(match[1]);
+  }
+  return [...names];
 }
 
 // Stats block of legacy renderSummary (counts + per-turn retry tally)
@@ -227,6 +308,7 @@ export function computeSessionStats(msgs: SessionMessage[]): SessionStats {
     errorCount: 0,
     spawnCount: 0,
     toolNames: {},
+    skillNames: {},
     totalRetryTools: 0,
     totalRetryAttempts: 0,
   };
@@ -253,12 +335,18 @@ export function computeSessionStats(msgs: SessionMessage[]): SessionStats {
       stats.toolCallCount++;
       const name = msg.toolName || 'unknown';
       stats.toolNames[name] = (stats.toolNames[name] || 0) + 1;
+      for (const skill of skillNamesFromValue(msg.details)) {
+        stats.skillNames[skill] = (stats.skillNames[skill] || 0) + 1;
+      }
     }
     for (const c of msg.content || []) {
       if (c.type === 'toolCall') {
         stats.toolCallCount++;
         const name = c.name || 'unknown';
         stats.toolNames[name] = (stats.toolNames[name] || 0) + 1;
+        for (const skill of skillNamesFromValue(c.arguments ?? c.input)) {
+          stats.skillNames[skill] = (stats.skillNames[skill] || 0) + 1;
+        }
         if (isSpawnPart(c)) stats.spawnCount++;
       }
     }

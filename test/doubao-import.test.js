@@ -59,3 +59,37 @@ test('Doubao importer builds a privacy-minimized cache with project, session, me
     assert.equal(cacheBytes.includes(forbidden), false, `cache leaked ${forbidden}`);
   }
 });
+
+test('Doubao importer preserves cached history when Chromium blobs disappear', (t) => {
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'agentxray-doubao-degraded-test-'));
+  t.after(() => fs.rmSync(tempDir, { recursive: true, force: true }));
+  const output = path.join(tempDir, 'doubao.sqlite');
+  const initial = spawnSync(
+    process.env.PYTHON || 'python3',
+    [IMPORTER, '--source', tempDir, '--records', RECORDS, '--output', output],
+    { encoding: 'utf8' }
+  );
+  assert.equal(initial.status, 0, initial.stderr || initial.stdout);
+
+  const degradedRecords = path.join(tempDir, 'directory-only.jsonl');
+  const directoryRecord = fs.readFileSync(RECORDS, 'utf8').split('\n').find(Boolean);
+  fs.writeFileSync(degradedRecords, `${directoryRecord}\n`, 'utf8');
+  const refresh = spawnSync(
+    process.env.PYTHON || 'python3',
+    [IMPORTER, '--source', tempDir, '--records', degradedRecords, '--output', output],
+    { encoding: 'utf8' }
+  );
+  assert.equal(refresh.status, 0, refresh.stderr || refresh.stdout);
+
+  const db = new Database(output, { readonly: true });
+  t.after(() => db.close());
+  const session = db.prepare('SELECT created_at, updated_at, model, model_key FROM sessions').get();
+  const messages = db.prepare('SELECT role, model, content_json FROM messages ORDER BY timestamp').all();
+  assert.equal(session.model, 'Fixture Model');
+  assert.equal(session.model_key, 'fixture-model-key');
+  assert.ok(session.created_at);
+  assert.ok(session.updated_at);
+  assert.equal(messages.length, 2);
+  assert.match(messages[0].content_json, /fixture question/);
+  assert.match(messages[1].content_json, /fixture answer/);
+});

@@ -295,7 +295,55 @@ def open_database(path: Path) -> sqlite3.Connection:
     return connection
 
 
+def merge_existing_cache(
+    output: Path,
+    projects: dict[str, dict[str, Any]],
+    sessions: dict[str, dict[str, Any]],
+    messages: dict[str, dict[str, Any]],
+    models: dict[str, str],
+) -> None:
+    """Retain audit history that Chromium no longer exposes in the latest snapshot."""
+    if not output.is_file():
+        return
+    db = sqlite3.connect(f"file:{output}?mode=ro", uri=True)
+    db.row_factory = sqlite3.Row
+    try:
+        for row in db.execute("SELECT id,name,display_order FROM projects"):
+            projects.setdefault(
+                row["id"],
+                {"id": row["id"], "name": row["name"], "display_order": row["display_order"], "sequence": -1},
+            )
+        for row in db.execute("SELECT * FROM sessions"):
+            current = sessions.setdefault(row["id"], {"id": row["id"], "sequence": -1})
+            for key in ("project_id", "title", "section_id", "model", "model_key", "source_task_id"):
+                if current.get(key) in (None, "") and row[key] not in (None, ""):
+                    current[key] = row[key]
+            current["created_at"] = current.get("created_at") or row["created_at"]
+            current["updated_at"] = current.get("updated_at") or row["updated_at"]
+            current["sequence"] = max(int(current.get("sequence", -1)), int(row["source_sequence"] or -1))
+            if row["model_key"] and row["model"]:
+                models.setdefault(row["model_key"], row["model"])
+        for row in db.execute("SELECT * FROM messages"):
+            content = json.loads(row["content_json"])
+            upsert_message(messages, {
+                "id": row["id"],
+                "conversation_id": row["conversation_id"],
+                "session_id": row["session_id"],
+                "section_id": row["section_id"],
+                "role": row["role"],
+                "timestamp": row["timestamp"],
+                "model": row["model"],
+                "model_key": row["model_key"],
+                "content": content if isinstance(content, list) else [],
+                "sort_index": int(row["sort_index"] or 0),
+                "sequence": int(row["source_sequence"] or 0),
+            })
+    finally:
+        db.close()
+
+
 def write_cache(output: Path, source: Path, projects: dict[str, dict[str, Any]], sessions: dict[str, dict[str, Any]], messages: dict[str, dict[str, Any]], models: dict[str, str], warning_count: int) -> None:
+    merge_existing_cache(output, projects, sessions, messages, models)
     temp_output = output.with_suffix(output.suffix + ".next")
     for extra in (temp_output, Path(str(temp_output) + "-wal"), Path(str(temp_output) + "-shm")):
         extra.unlink(missing_ok=True)
@@ -310,18 +358,27 @@ def write_cache(output: Path, source: Path, projects: dict[str, dict[str, Any]],
                 db.execute("INSERT INTO projects(id,name,display_order) VALUES(?,?,?)", (project["id"], project["name"], project["display_order"]))
             by_conversation: dict[str, list[dict[str, Any]]] = {}
             for message in messages.values():
-                message["model"] = models.get(message.get("model_key") or "")
+                message["model"] = models.get(message.get("model_key") or "") or message.get("model")
                 by_conversation.setdefault(message["conversation_id"], []).append(message)
             for conversation_id, session in sessions.items():
                 conversation_messages = by_conversation.get(conversation_id, [])
                 times = sorted(m["timestamp"] for m in conversation_messages if m.get("timestamp"))
-                model_keys = [m.get("model_key") for m in conversation_messages if m.get("model_key")]
+                created_candidates = [value for value in (times[0] if times else None, session.get("created_at")) if value]
+                updated_candidates = [value for value in (times[-1] if times else None, session.get("updated_at")) if value]
+                created_at = min(created_candidates) if created_candidates else None
+                updated_at = max(updated_candidates) if updated_candidates else created_at
+                ordered_messages = sorted(
+                    conversation_messages,
+                    key=lambda item: (item.get("timestamp") or "", int(item.get("sequence", 0)), int(item.get("sort_index", 0))),
+                )
+                model_keys = [m.get("model_key") for m in ordered_messages if m.get("model_key")]
                 model_key = model_keys[-1] if model_keys else session.get("model_key")
+                model = models.get(model_key or "") or session.get("model")
                 db.execute(
                     """INSERT INTO sessions(id,project_id,title,section_id,created_at,updated_at,model,model_key,source_path,source_task_id,source_sequence)
                        VALUES(?,?,?,?,?,?,?,?,?,?,?)""",
                     (conversation_id, session.get("project_id"), session.get("title"), session.get("section_id"),
-                     times[0] if times else None, times[-1] if times else None, models.get(model_key or ""), model_key,
+                     created_at, updated_at, model, model_key,
                      str(source), session.get("source_task_id"), int(session.get("sequence", 0))),
                 )
             for message in messages.values():

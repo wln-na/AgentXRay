@@ -1,3 +1,4 @@
+import { lazy, Suspense } from 'react';
 import { Copy } from 'lucide-react';
 import { toast } from 'sonner';
 import { PlatformBar } from '@/components/PlatformBar';
@@ -8,10 +9,23 @@ import { useVersionPoller } from '@/hooks/useVersionPoller';
 import { DEMO } from '@/demo/flag';
 import { useAppStore } from '@/store';
 import type { MainView } from '@/store';
-import { InsightsView } from '@/views/insights/InsightsView';
-import { LibraryView } from '@/views/library/LibraryView';
-import { PromptsView } from '@/views/prompts/PromptsView';
-import { SessionsView } from '@/views/sessions/SessionsView';
+
+const InsightsView = lazy(() =>
+  import('@/views/insights/InsightsView').then((module) => ({ default: module.InsightsView }))
+);
+const LibraryView = lazy(() =>
+  import('@/views/library/LibraryView').then((module) => ({ default: module.LibraryView }))
+);
+const PromptsView = lazy(() =>
+  import('@/views/prompts/PromptsView').then((module) => ({ default: module.PromptsView }))
+);
+const SessionsView = lazy(() =>
+  import('@/views/sessions/SessionsView').then((module) => ({ default: module.SessionsView }))
+);
+
+function ViewFallback() {
+  return <div className="p-4 text-sm text-muted-foreground">正在加载视图…</div>;
+}
 
 const TABS: { view: MainView; label: string; title: string }[] = [
   { view: 'sessions', label: '会话', title: '浏览与回放会话：消息、工具调用、耗时与 token' },
@@ -78,18 +92,28 @@ export default function App() {
                   ))}
                 </TabsList>
               </div>
-              <TabsContent value="sessions" className="mt-0 min-h-0 flex-1 overflow-auto p-4">
-                <SessionsView />
-              </TabsContent>
-              <TabsContent value="insights" className="mt-0 min-h-0 flex-1 overflow-auto p-4">
-                <InsightsView />
-              </TabsContent>
-              <TabsContent value="prompts" className="mt-0 min-h-0 flex-1 overflow-auto p-4">
-                <PromptsView />
-              </TabsContent>
-              <TabsContent value="library" className="mt-0 min-h-0 flex-1 overflow-auto p-4">
-                <LibraryView />
-              </TabsContent>
+              <Suspense fallback={<ViewFallback />}>
+                {view === 'sessions' ? (
+                  <TabsContent value="sessions" forceMount className="mt-0 min-h-0 flex-1 overflow-auto p-4">
+                    <SessionsView />
+                  </TabsContent>
+                ) : null}
+                {view === 'insights' ? (
+                  <TabsContent value="insights" forceMount className="mt-0 min-h-0 flex-1 overflow-auto p-4">
+                    <InsightsView />
+                  </TabsContent>
+                ) : null}
+                {view === 'prompts' ? (
+                  <TabsContent value="prompts" forceMount className="mt-0 min-h-0 flex-1 overflow-auto p-4">
+                    <PromptsView />
+                  </TabsContent>
+                ) : null}
+                {view === 'library' ? (
+                  <TabsContent value="library" forceMount className="mt-0 min-h-0 flex-1 overflow-auto p-4">
+                    <LibraryView />
+                  </TabsContent>
+                ) : null}
+              </Suspense>
             </Tabs>
           </main>
         </div>

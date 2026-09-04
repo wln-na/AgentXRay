@@ -8,16 +8,16 @@ import { getSessionChild, getSessionChildren, getSessionDetail } from '@/api/cli
 import type { ChildAgentSummary, Platform, SessionDetail } from '@/api/types';
 import { dirForPlatform, useAppStore } from '@/store';
 
-export type ChildPlatform = 'omp' | 'claude-code';
+export type ChildPlatform = 'omp' | 'claude-code' | 'codex';
 
 /** Platforms whose sessions can spawn child agents. */
 export function hasChildAgents(platform: Platform): platform is ChildPlatform {
-  return platform === 'omp' || platform === 'claude-code';
+  return platform === 'omp' || platform === 'claude-code' || platform === 'codex';
 }
 
 /** Chip/span label: claude-code children carry meta (description/agentType); omp children only a name. */
 export function childAgentLabel(c: ChildAgentSummary, platform: Platform): string {
-  return (platform === 'claude-code' ? c.description || c.agentType : '') || c.name;
+  return (platform === 'claude-code' || platform === 'codex' ? c.description || c.agentType : '') || c.name;
 }
 
 /** Subagent list of the selected session. Legacy swallows fetch errors → empty list. */
