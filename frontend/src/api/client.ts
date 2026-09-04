@@ -238,11 +238,15 @@ export async function getToolsAudit(opts: {
 // ---------- Search ----------
 
 /** Full-text search across every platform (multi-keyword AND), with per-platform dir overrides. */
-export function searchSessions(q: string, dirs?: Partial<DirSettings>): Promise<SearchResult[]> {
+export function searchSessions(
+  q: string,
+  dirs?: Partial<DirSettings>,
+  platform?: string
+): Promise<SearchResult[]> {
   return fetchJson(
     withParams('/api/search', {
       q,
-      platform: 'all',
+      platform: platform || 'all',
       dirOpenclaw: dirs?.openclawDir,
       dirCodex: dirs?.codexDir,
       dirClaude: dirs?.claudeCodeDir,

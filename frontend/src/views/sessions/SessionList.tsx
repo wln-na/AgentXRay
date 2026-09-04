@@ -80,12 +80,22 @@ function SessionCard({ session, active, onClick }: { session: SessionSummary; ac
   );
 }
 
-export function SessionList({ filterTerm }: { filterTerm: string }) {
+export function SessionList({
+  filterTerm,
+  matchedSessionIds,
+}: {
+  filterTerm: string;
+  matchedSessionIds?: Set<string> | null;
+}) {
   const selectedSessionId = useAppStore((s) => s.selectedSessionId);
   const setSelectedSessionId = useAppStore((s) => s.setSelectedSessionId);
   const { data, isLoading, error } = useSessionsList();
   const sessions = data ?? [];
-  const filtered = filterSessionList(sessions, filterTerm);
+  const baseFiltered = filterSessionList(sessions, filterTerm);
+  // When a full-text search is active, only show matched sessions.
+  const filtered = matchedSessionIds
+    ? baseFiltered.filter((s) => matchedSessionIds.has(s.id))
+    : baseFiltered;
   const virtualized = filtered.length > VIRT_THRESHOLD;
 
   const parentRef = useRef<HTMLDivElement>(null);

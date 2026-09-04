@@ -3,9 +3,9 @@
 // toggles, and the (virtualized) session list.
 
 import { useQuery } from '@tanstack/react-query';
-import { Settings } from 'lucide-react';
+import { Search, Settings, X } from 'lucide-react';
 import { useEffect, useState } from 'react';
-import { getAgents } from '@/api/client';
+import { getAgents, searchSessions } from '@/api/client';
 import { PLATFORM_LABELS } from '@/api/types';
 import { SettingsDialog } from '@/components/SettingsDialog';
 import { Button } from '@/components/ui/button';
@@ -81,6 +81,7 @@ function AgentNav() {
 
 export function Sidebar() {
   const platform = useAppStore((s) => s.platform);
+  const settings = useAppStore((s) => s.settings);
   const includeArchived = useAppStore((s) => s.includeArchived);
   const setIncludeArchived = useAppStore((s) => s.setIncludeArchived);
   const autoRefresh = useAppStore((s) => s.autoRefresh);
@@ -91,6 +92,31 @@ export function Sidebar() {
   const [filterTerm, setFilterTerm] = useState('');
   const [cmdkOpen, setCmdkOpen] = useState(false);
   const [cmdkSeed, setCmdkSeed] = useState('');
+  const [matchedSessionIds, setMatchedSessionIds] = useState<Set<string> | null>(null);
+  const [isSearching, setIsSearching] = useState(false);
+
+  // Full-text search within the current platform on Enter.
+  // Clearing the input restores the full session list.
+  const runPlatformSearch = async (q: string) => {
+    if (!q.trim()) {
+      setMatchedSessionIds(null);
+      return;
+    }
+    setIsSearching(true);
+    try {
+      const results = await searchSessions(q, settings, platform);
+      setMatchedSessionIds(new Set(results.map((r) => r.sessionId)));
+    } catch {
+      setMatchedSessionIds(new Set());
+    } finally {
+      setIsSearching(false);
+    }
+  };
+
+  const clearSearch = () => {
+    setFilterTerm('');
+    setMatchedSessionIds(null);
+  };
 
   // Global ⌘K / Ctrl+K toggle (legacy document keydown)
   useEffect(() => {
@@ -117,23 +143,38 @@ export function Sidebar() {
         </Button>
       </div>
       <div className="relative">
+        <Search className="absolute left-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
         <Input
           type="search"
           value={filterTerm}
-          onChange={(e) => setFilterTerm(e.target.value)}
+          onChange={(e) => {
+            setFilterTerm(e.target.value);
+            if (!e.target.value.trim()) setMatchedSessionIds(null);
+          }}
           onKeyDown={(e) => {
             if (e.key === 'Enter') {
               e.preventDefault();
               const q = filterTerm.trim();
               if (!q) return;
-              setCmdkSeed(q);
-              setCmdkOpen(true);
+              runPlatformSearch(q);
+            } else if (e.key === 'Escape') {
+              clearSearch();
             }
           }}
-          placeholder="输入过滤列表 · 回车全文搜索（空格分隔多关键词，全部命中才返回）"
-          title="直接输入：按 ID/文件名/首条消息过滤左侧列表；按回车：打开全平台全文搜索 — 空格分隔多关键词，全部命中才返回"
-          className="pr-10 text-xs"
+          placeholder="输入过滤 · 回车全文搜索当前平台"
+          title="直接输入：按 ID/标题/首条消息过滤列表；按回车：在当前平台全文搜索；Esc 清除"
+          className="pl-7 pr-16 text-xs"
         />
+        {filterTerm ? (
+          <button
+            type="button"
+            onClick={clearSearch}
+            className="absolute right-10 top-1/2 -translate-y-1/2 rounded p-0.5 text-muted-foreground hover:text-foreground"
+            title="清除搜索"
+          >
+            <X className="h-3 w-3" />
+          </button>
+        ) : null}
         <button
           type="button"
           onClick={() => {
@@ -146,6 +187,16 @@ export function Sidebar() {
           ⌘K
         </button>
       </div>
+      {matchedSessionIds !== null ? (
+        <div className="flex items-center justify-between text-[11px] text-muted-foreground">
+          <span>
+            {isSearching ? '搜索中…' : `全文搜索命中 ${matchedSessionIds.size} 个会话`}
+          </span>
+          <button onClick={clearSearch} className="text-primary hover:underline">
+            清除
+          </button>
+        </div>
+      ) : null}
       {platform === 'openclaw' && <AgentNav />}
       <div className="flex flex-wrap items-center gap-3">
         {platform === 'openclaw' && (
@@ -169,7 +220,7 @@ export function Sidebar() {
           onChange={setAutoScroll}
         />
       </div>
-      <SessionList filterTerm={filterTerm} />
+      <SessionList filterTerm={filterTerm} matchedSessionIds={matchedSessionIds} />
       <SettingsDialog open={settingsOpen} onOpenChange={setSettingsOpen} />
       <CmdkDialog open={cmdkOpen} onOpenChange={setCmdkOpen} seedQuery={cmdkSeed} />
     </aside>
