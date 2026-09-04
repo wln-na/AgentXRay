@@ -154,6 +154,8 @@ export function SessionSummary({
   onRetryJump: () => void;
 }) {
   const selectedSessionId = useAppStore((s) => s.selectedSessionId);
+  const msgOrder = useAppStore((s) => s.msgOrder);
+  const setMsgOrder = useAppStore((s) => s.setMsgOrder);
   const { data: sessions } = useSessionsList();
   const [collapsed, setCollapsed] = useState(() => loadStoredFlag(SUMMARY_COLLAPSED_KEY, true));
   const [pathCopied, setPathCopied] = useState(false);
@@ -230,6 +232,14 @@ export function SessionSummary({
           </div>
         </div>
         <div className="flex items-start gap-2">
+          <button
+            type="button"
+            className={ACTION_BTN}
+            title={msgOrder === 'newest-first' ? '当前：最新在上，点击切换为最早在上' : '当前：最早在上，点击切换为最新在上'}
+            onClick={() => setMsgOrder(msgOrder === 'newest-first' ? 'oldest-first' : 'newest-first')}
+          >
+            {msgOrder === 'newest-first' ? '⬆️ 最新在上' : '⬇️ 最早在上'}
+          </button>
           <button
             type="button"
             className={ACTION_BTN}

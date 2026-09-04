@@ -5,6 +5,7 @@ import { useMemo } from 'react';
 import type { Platform, SessionMessage } from '@/api/types';
 import { formatDurationCompact, getTextContent, parseTimestampMs } from '@/lib/pure';
 import { cn } from '@/lib/utils';
+import { useAppStore } from '@/store';
 import type { MsgFilter, TimingAnalysis } from './lib';
 import { applyMsgFilter, messageAnchorId } from './lib';
 import { GraphLane, MessageBubble } from './MessageItem';
@@ -167,12 +168,14 @@ export function MessageList({
   onLoadMore: () => void;
 }) {
   const isCodex = platform === 'codex' || platform === 'omp' || platform === 'dsh' || platform === 'gemini';
+  const msgOrder = useAppStore((s) => s.msgOrder);
 
   const units = useMemo<MessageUnit[]>(() => {
     const filtered = applyMsgFilter(timing.visibleMessages, msgFilter);
-    // Newest on top (legacy units.reverse())
-    return buildMessageUnits(filtered, isCodex).reverse();
-  }, [timing, msgFilter, isCodex]);
+    const built = buildMessageUnits(filtered, isCodex);
+    // newest-first = reverse (latest on top); oldest-first = natural order
+    return msgOrder === 'newest-first' ? built.reverse() : built;
+  }, [timing, msgFilter, isCodex, msgOrder]);
 
   if (!messages.length) {
     return <div className="py-8 text-center text-sm text-muted-foreground">Session messages will appear here.</div>;

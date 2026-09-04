@@ -174,6 +174,8 @@ interface AppState {
   /** Sidebar toggles (sessions view): 5s list polling + SSE tail / scroll-to-top on new messages. */
   autoRefresh: boolean;
   autoScroll: boolean;
+  /** Message list order: newest-first (default) or oldest-first (chat style). */
+  msgOrder: 'newest-first' | 'oldest-first';
   theme: Theme;
 
   setPlatform: (platform: Platform) => void;
@@ -192,6 +194,7 @@ interface AppState {
   clearPendingScrollMsgId: () => void;
   setAutoRefresh: (value: boolean) => void;
   setAutoScroll: (value: boolean) => void;
+  setMsgOrder: (value: 'newest-first' | 'oldest-first') => void;
   toggleTheme: () => void;
   setTheme: (theme: Theme) => void;
 }
@@ -213,6 +216,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   pendingScrollMsgId: null,
   autoRefresh: true,
   autoScroll: false,
+  msgOrder: 'newest-first',
   theme: loadTheme(),
 
   setPlatform: (platform) => {
@@ -256,6 +260,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   clearPendingScrollMsgId: () => set({ pendingScrollMsgId: null }),
   setAutoRefresh: (value) => set({ autoRefresh: value }),
   setAutoScroll: (value) => set({ autoScroll: value }),
+  setMsgOrder: (value) => set({ msgOrder: value }),
   toggleTheme: () => {
     const next = get().theme === 'dark' ? 'light' : 'dark';
     applyTheme(next);

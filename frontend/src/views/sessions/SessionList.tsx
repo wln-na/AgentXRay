@@ -91,8 +91,9 @@ export function SessionList({
   const setSelectedSessionId = useAppStore((s) => s.setSelectedSessionId);
   const { data, isLoading, error } = useSessionsList();
   const sessions = data ?? [];
-  const baseFiltered = filterSessionList(sessions, filterTerm);
-  // When a full-text search is active, only show matched sessions.
+  // When a full-text search is active (matchedSessionIds != null), ignore the
+  // local title/ID filter — the search result set is authoritative.
+  const baseFiltered = matchedSessionIds ? sessions : filterSessionList(sessions, filterTerm);
   const filtered = matchedSessionIds
     ? baseFiltered.filter((s) => matchedSessionIds.has(s.id))
     : baseFiltered;
