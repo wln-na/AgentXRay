@@ -64,6 +64,14 @@ describe('AgentXRay API', () => {
       for (const role of ['user', 'assistant', 'toolCall', 'toolResult']) {
         assert.ok(roles.includes(role), `missing role ${role}`);
       }
+      const assistants = messages.filter((m) => m.role === 'assistant');
+      assert.deepEqual(
+        assistants.map((m) => m.model),
+        ['fixture-model-a', 'fixture-model-b']
+      );
+      assert.equal(session.model, 'fixture-model-b');
+      assert.deepEqual(session.models, ['fixture-model-a', 'fixture-model-b']);
+      assert.equal(session.provider, 'fixture-provider');
       const call = messages.find((m) => m.role === 'toolCall');
       assert.equal(call.toolName, 'shell');
       assert.equal(call.toolCallId, 'call-fx-1');

@@ -183,6 +183,7 @@ Click the **Prompts** tab (next to Sessions / Insights) to see every real human 
 | OMP         | `~/.omp/agent/sessions`       |
 | DeepSeek Harness | `~/.dsh/sessions` (honors `DSH_HOME`) |
 | Gemini CLI  | `~/.gemini/tmp`               |
+| Doubao      | `~/Library/Application Support/Doubao/Profile 2/.doubao/agent_mode/workspace/.sessions` |
 
 ### Custom directories
 
@@ -198,6 +199,7 @@ HERMES_DIR=/custom/path/hermes \
 OMP_DIR=/custom/path/omp \
 DSH_DIR=/custom/path/dsh/sessions \
 GEMINI_DIR=/custom/path/gemini/tmp \
+DOUBAO_DIR=/custom/path/doubao/.sessions \
 npm start
 ```
 
@@ -224,6 +226,8 @@ npm start
 | `GET /api/dsh/sessions/:id` | Get DeepSeek Harness session messages |
 | `GET /api/gemini/sessions` | List Gemini CLI sessions |
 | `GET /api/gemini/sessions/:id` | Get Gemini CLI session messages |
+| `GET /api/doubao/sessions` | List Doubao sessions grouped by project |
+| `GET /api/doubao/sessions/:id` | Get merged Doubao IndexedDB + trajectory messages |
 | `GET /api/spawn-map` | Build agent spawn relationship map |
 | `GET /api/insights` | Aggregate analytics (tool stats, error clusters, trends) |
 | `GET /api/prompts` | Real human prompts per session, grouped by directory |
@@ -252,7 +256,7 @@ All list/detail endpoints accept an optional `?dir=` parameter to override the d
 - **Backend:** Node.js + Express
 - **Frontend:** React + Vite + TypeScript under `frontend/` (default UI, served from `frontend/dist`)
 - **Legacy UI:** the original vanilla HTML/CSS/JS app under `public/`, served at `/legacy` — **frozen: security fixes only**. New features land in the React app exclusively; a feature change to the React renderer requires zero edits under `public/js/`. Shared logic (formatters, trace builder, markdown/escape pipeline) is authored once in `frontend/src/lib/pure.ts` and `frontend/src/lib/markdown.ts`, and `public/js/pure.js` is generated from them (`npm run build:legacy-pure`, also part of `build:ui`).
-- **Data:** Reads JSONL session files directly from disk
+- **Data:** Reads JSONL/SQLite session stores directly and maintains a privacy-minimized derived SQLite cache for Doubao IndexedDB
 - **Zero external CDN** — Everything is self-contained, works offline
 
 ---
@@ -268,6 +272,9 @@ All list/detail endpoints accept an optional `?dir=` parameter to override the d
 | OMP | JSONL | `~/.omp/agent/sessions/*/{timestamp}_{id}.jsonl` |
 | DeepSeek Harness | JSONL / zstd-compressed JSONL | `~/.dsh/sessions/{project}/{id}/session.jsonl[.zstd]` |
 | Gemini CLI | JSONL | `~/.gemini/tmp/{projectHash}/chats/session-*.jsonl` |
+| Doubao | Chromium IndexedDB + JSONL trajectory | `~/Library/Application Support/Doubao/Profile 2/IndexedDB/chrome_doubao-chat_0.indexeddb.leveldb` + `.sessions/{id}/agents/*/system/trajectory.jsonl` |
+
+Doubao uses IndexedDB as the live project/session/message/model source and trajectory logs as the historical tool/trace supplement. The first refresh requires either `dfindexeddb` on `PATH` or `uv`; with `uv`, AgentXRay creates an isolated Python 3.10 parser runtime under `~/.agentxray/cache`. Only project/session IDs and titles, message text/tool summaries, timestamps, section IDs, and model names are copied into `~/.agentxray/cache/doubao.sqlite`. Older message bodies can be unavailable when Chromium has already removed their blob files and no trajectory exists.
 
 dsh's `.jsonl.zstd` logs are a concatenation of independent Zstandard frames (one per append batch); AgentXRay scans the frame boundaries and decompresses every frame, tolerating a torn trailing frame after a crash. Reading compressed dsh logs requires Node.js ≥ 22.15 (built-in zstd); plain `session.jsonl` logs work on any supported Node.
 

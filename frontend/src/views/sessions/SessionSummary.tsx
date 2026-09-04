@@ -160,13 +160,20 @@ export function SessionSummary({
   const [collapsed, setCollapsed] = useState(() => loadStoredFlag(SUMMARY_COLLAPSED_KEY, true));
   const [pathCopied, setPathCopied] = useState(false);
 
-  const sessionFile = sessions?.find((s) => s.id === selectedSessionId)?.file;
+  const selectedSummary = sessions?.find((s) => s.id === selectedSessionId);
+  const sessionFile = selectedSummary?.file;
+  const localPaths = Array.from(
+    new Set(
+      [detail.session?.sourcePath, detail.session?.trajectoryPath, selectedSummary?.sourcePath, selectedSummary?.trajectoryPath, sessionFile]
+        .filter((value): value is string => typeof value === 'string' && Boolean(value))
+    )
+  );
 
   const msgs = detail.messages;
   const stats = useMemo(() => computeSessionStats(msgs), [msgs]);
   const tokenSummary = useMemo(() => summarizeTokens(msgs), [msgs]);
   const cost = useMemo(() => sessionCost(msgs), [msgs]);
-  const listModel = sessions?.find((s) => s.id === selectedSessionId)?.model;
+  const listModel = selectedSummary?.model || detail.session?.model;
 
   const total = timing.totalDurationMs;
   const toolMs = timing.totalToolDurationMs || 0;
@@ -190,14 +197,15 @@ export function SessionSummary({
           <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-muted-foreground">
             <span>{formatDate(detail.session?.timestamp)}</span>
             <span>{detail.session?.cwd || 'Unknown cwd'}</span>
-            {sessionFile ? (
+            {localPaths.map((localPath, index) => (
               <button
+                key={localPath}
                 type="button"
-                className="cursor-pointer truncate max-w-[300px] hover:text-foreground hover:underline"
-                title={`点击复制本地路径：${sessionFile}`}
+                className="cursor-pointer truncate max-w-[340px] hover:text-foreground hover:underline"
+                title={`点击复制本地路径：${localPath}`}
                 onClick={async () => {
                   try {
-                    await navigator.clipboard.writeText(sessionFile);
+                    await navigator.clipboard.writeText(localPath);
                     setPathCopied(true);
                     setTimeout(() => setPathCopied(false), 1500);
                   } catch (error) {
@@ -205,8 +213,14 @@ export function SessionSummary({
                   }
                 }}
               >
-                📁 {pathCopied ? '已复制!' : sessionFile}
+                {index === 0 ? '📁' : '↳'} {pathCopied ? '已复制!' : localPath}
               </button>
+            ))}
+            {detail.session?.dataSource ? (
+              <span className="rounded border border-border px-1">来源: {detail.session.dataSource}</span>
+            ) : null}
+            {detail.session?.contentAvailable === false ? (
+              <span className="rounded border border-[#e3b341]/60 px-1 text-[#b7791f]">本地未保留正文</span>
             ) : null}
             {listModel ? <span className="rounded border border-border px-1">🧠 {listModel}</span> : null}
             {total !== null ? (

@@ -12,6 +12,7 @@
     "lib",
     "public",
     "bin",
+    "scripts/doubao_indexeddb_import.py",
     "README.md",
     "frontend/dist"
   ],
