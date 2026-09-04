@@ -288,7 +288,7 @@ export function MessageBubble({ message, timing }: { message: SessionMessage; ti
           role={<span className="font-semibold text-[hsl(var(--assistant))]">Assistant</span>}
           meta={
             <>
-              <span className="text-muted-foreground">{message.model || 'unknown model'}</span>
+              <span className="text-muted-foreground">{message.model || 'model not recorded'}</span>
               {message.usage?.totalTokens ? (
                 <span className="rounded border border-border px-1 py-px text-[10px] text-muted-foreground">
                   {formatNumber(message.usage.totalTokens)} tokens

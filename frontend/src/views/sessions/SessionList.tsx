@@ -88,6 +88,7 @@ export function SessionList({
   matchedSessionIds?: Set<string> | null;
 }) {
   const selectedSessionId = useAppStore((s) => s.selectedSessionId);
+  const platform = useAppStore((s) => s.platform);
   const setSelectedSessionId = useAppStore((s) => s.setSelectedSessionId);
   const { data, isLoading, error } = useSessionsList();
   const sessions = data ?? [];
@@ -188,6 +189,32 @@ export function SessionList({
               </div>
             );
           })}
+        </div>
+      ) : platform === 'doubao' ? (
+        <div className="flex flex-col gap-3">
+          {Array.from(
+            filtered.reduce((groups, session) => {
+              const project = session.projectName || '未归属项目';
+              const items = groups.get(project) || [];
+              items.push(session);
+              groups.set(project, items);
+              return groups;
+            }, new Map<string, SessionSummary[]>())
+          ).map(([project, items]) => (
+            <section key={project} className="space-y-2">
+              <div className="sticky top-0 z-[1] rounded bg-background/95 px-1 py-1 text-[11px] font-semibold text-foreground backdrop-blur">
+                {project} <span className="font-normal text-muted-foreground">({items.length})</span>
+              </div>
+              {items.map((session) => (
+                <SessionCard
+                  key={session.id}
+                  session={session}
+                  active={session.id === selectedSessionId}
+                  onClick={() => setSelectedSessionId(session.id)}
+                />
+              ))}
+            </section>
+          ))}
         </div>
       ) : (
         <div className="flex flex-col gap-2">

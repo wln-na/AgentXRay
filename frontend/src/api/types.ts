@@ -45,6 +45,12 @@ export interface SessionSummary {
   model?: string | null;
   source?: string | null;
   spawnCount?: number | null;
+  projectId?: string | null;
+  projectName?: string | null;
+  sectionId?: string | null;
+  dataSource?: string | null;
+  sourcePath?: string | null;
+  trajectoryPath?: string | null;
   [key: string]: unknown;
 }
 
@@ -98,6 +104,16 @@ export interface SessionMeta {
   version?: number;
   model?: string | null;
   source?: string | null;
+  provider?: string | null;
+  models?: string[];
+  projectId?: string | null;
+  projectName?: string | null;
+  sectionId?: string | null;
+  dataSource?: string | null;
+  sourcePath?: string | null;
+  trajectoryPath?: string | null;
+  historyAvailable?: boolean;
+  contentAvailable?: boolean;
   [key: string]: unknown;
 }
 
