@@ -250,6 +250,7 @@ export function searchSessions(q: string, dirs?: Partial<DirSettings>): Promise<
       dirOmp: dirs?.ompDir,
       dirDsh: dirs?.dshDir,
       dirGemini: dirs?.geminiDir,
+      dirDoubao: dirs?.doubaoDir,
     })
   );
 }
