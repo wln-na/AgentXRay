@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { Moon, Sun } from 'lucide-react';
 import type { Platform } from '@/api/types';
 import { PLATFORM_LABELS, PLATFORMS } from '@/api/types';
 import { DEMO } from '@/demo/flag';
@@ -21,6 +22,8 @@ const PLATFORM_TIPS: Record<Platform, string> = {
 export function PlatformBar() {
   const platform = useAppStore((s) => s.platform);
   const setPlatform = useAppStore((s) => s.setPlatform);
+  const theme = useAppStore((s) => s.theme);
+  const toggleTheme = useAppStore((s) => s.toggleTheme);
   const [expanded, setExpanded] = useState(false);
   const { data: counts } = usePlatformProbe();
 
@@ -67,6 +70,16 @@ export function PlatformBar() {
           +{collapsed.length}
         </button>
       )}
+      <div className="ml-auto">
+        <button
+          type="button"
+          title={theme === 'dark' ? '切换到浅色主题' : '切换到深色主题'}
+          onClick={toggleTheme}
+          className="rounded-md border border-border bg-transparent p-1.5 text-muted-foreground transition-colors hover:border-primary/40 hover:text-foreground"
+        >
+          {theme === 'dark' ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
+        </button>
+      </div>
     </div>
   );
 }

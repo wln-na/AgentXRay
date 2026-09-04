@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="zh-CN" class="dark">
+<html lang="zh-CN">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
@@ -9,7 +9,7 @@
     <meta property="og:type" content="website" />
     <meta property="og:url" content="https://alloevil.github.io/AgentXRay/" />
     <meta property="og:title" content="AgentXRay — AI Agent 会话日志可视化面板" />
-    <meta property="og:description" content="多平台 AI agent 会话日志可视化 Web 面板：Claude Code、Codex、OpenClaw 零集成查看工具调用与会话回放。" />
+    <meta property="og:description" content="多平台 AI agent 会话日志可视化 Web 面板，直接读取 Claude Code、Codex、OpenClaw 落盘日志，零集成查看工具调用与会话回放。" />
     <meta property="og:image" content="https://raw.githubusercontent.com/alloevil/AgentXRay/master/screenshots/tool-calls.png" />
     <meta property="og:site_name" content="AgentXRay" />
     <meta name="twitter:card" content="summary_large_image" />
@@ -19,6 +19,17 @@
       rel="icon"
       href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🔬</text></svg>"
     />
+    <script>
+      // Apply saved theme before paint to avoid flash
+      (function () {
+        try {
+          var saved = localStorage.getItem('agent-xray-theme');
+          if (saved === 'dark' || (!saved && window.matchMedia('(prefers-color-scheme: dark)').matches)) {
+            document.documentElement.classList.add('dark');
+          }
+        } catch (e) {}
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>

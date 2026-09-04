@@ -105,6 +105,33 @@ function persist(settings: DirSettings, platform: Platform): void {
 export type MainView = 'sessions' | 'insights' | 'prompts' | 'library';
 export type InsightsScope = 'global' | 'session';
 export type SessionView = 'messages' | 'trace';
+export type Theme = 'light' | 'dark';
+
+export const THEME_KEY = 'agent-xray-theme';
+
+export function loadTheme(): Theme {
+  try {
+    const saved = localStorage.getItem(THEME_KEY);
+    if (saved === 'light' || saved === 'dark') return saved;
+  } catch {
+    /* ignore */
+  }
+  return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+}
+
+export function applyTheme(theme: Theme): void {
+  const root = document.documentElement;
+  if (theme === 'dark') {
+    root.classList.add('dark');
+  } else {
+    root.classList.remove('dark');
+  }
+  try {
+    localStorage.setItem(THEME_KEY, theme);
+  } catch {
+    /* ignore */
+  }
+}
 
 /** Prefill payload for the library create/edit form (LibraryFormDialog, views/library/). */
 export interface LibraryFormPrefill {
@@ -147,6 +174,7 @@ interface AppState {
   /** Sidebar toggles (sessions view): 5s list polling + SSE tail / scroll-to-top on new messages. */
   autoRefresh: boolean;
   autoScroll: boolean;
+  theme: Theme;
 
   setPlatform: (platform: Platform) => void;
   setSelectedAgent: (agent: string) => void;
@@ -164,6 +192,8 @@ interface AppState {
   clearPendingScrollMsgId: () => void;
   setAutoRefresh: (value: boolean) => void;
   setAutoScroll: (value: boolean) => void;
+  toggleTheme: () => void;
+  setTheme: (theme: Theme) => void;
 }
 
 const initial = loadPersisted();
@@ -183,6 +213,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   pendingScrollMsgId: null,
   autoRefresh: true,
   autoScroll: false,
+  theme: loadTheme(),
 
   setPlatform: (platform) => {
     if (platform === get().platform) return;
@@ -225,4 +256,13 @@ export const useAppStore = create<AppState>((set, get) => ({
   clearPendingScrollMsgId: () => set({ pendingScrollMsgId: null }),
   setAutoRefresh: (value) => set({ autoRefresh: value }),
   setAutoScroll: (value) => set({ autoScroll: value }),
+  toggleTheme: () => {
+    const next = get().theme === 'dark' ? 'light' : 'dark';
+    applyTheme(next);
+    set({ theme: next });
+  },
+  setTheme: (theme) => {
+    applyTheme(theme);
+    set({ theme });
+  },
 }));
