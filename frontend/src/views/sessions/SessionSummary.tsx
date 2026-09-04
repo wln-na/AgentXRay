@@ -249,10 +249,10 @@ export function SessionSummary({
           <button
             type="button"
             className={ACTION_BTN}
-            title={msgOrder === 'newest-first' ? '当前：最新在上，点击切换为最早在上' : '当前：最早在上，点击切换为最新在上'}
+            title={msgOrder === 'newest-first' ? '当前：最新在上；点击改为最早在上' : '当前：最早在上；点击改为最新在上'}
             onClick={() => setMsgOrder(msgOrder === 'newest-first' ? 'oldest-first' : 'newest-first')}
           >
-            {msgOrder === 'newest-first' ? '⬆️ 最新在上' : '⬇️ 最早在上'}
+            {msgOrder === 'newest-first' ? '⬇️ 改为最早在上' : '⬆️ 改为最新在上'}
           </button>
           <button
             type="button"
