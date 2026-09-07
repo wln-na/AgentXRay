@@ -402,6 +402,72 @@ test('same-timestamp user context fragments merge with the actual user input', (
   });
 });
 
+test('nearby Codex context merges forward but does not cross the two-second guard', () => {
+  const { compactUserContextFragments, splitUserMessageContext } = loadSessionsLib();
+  const context = '<environment_context>\n  <cwd>/fixtures/project-alpha</cwd>\n</environment_context>';
+  const merged = compactUserContextFragments([
+    {
+      id: 'context-1',
+      role: 'user',
+      timestamp: '2026-09-07T00:00:00.000Z',
+      content: [{ type: 'text', text: context }],
+    },
+    {
+      id: 'user-1',
+      role: 'user',
+      timestamp: '2026-09-07T00:00:01.030Z',
+      content: [{ type: 'text', text: 'actual Codex question' }],
+    },
+  ]);
+  assert.equal(merged.length, 1);
+  assert.equal(merged[0].id, 'user-1');
+  assert.equal(merged[0].timestamp, '2026-09-07T00:00:01.030Z');
+  assert.deepEqual(splitUserMessageContext(pure.getTextContent(merged[0].content)), {
+    input: 'actual Codex question',
+    contexts: [{ label: '运行环境上下文', text: context }],
+  });
+
+  const separated = compactUserContextFragments([
+    {
+      id: 'context-2',
+      role: 'user',
+      timestamp: '2026-09-07T00:00:00.000Z',
+      content: [{ type: 'text', text: context }],
+    },
+    {
+      id: 'user-2',
+      role: 'user',
+      timestamp: '2026-09-07T00:00:02.001Z',
+      content: [{ type: 'text', text: 'later question' }],
+    },
+  ]);
+  assert.equal(separated.length, 2);
+});
+
+test('Claude bridge tags and OpenClaw metadata split from actual user input', () => {
+  const { splitUserMessageContext } = loadSessionsLib();
+  const claude = splitUserMessageContext(
+    '<bridge_context>fixture bridge state</bridge_context>\n<user_message>actual Claude question</user_message>'
+  );
+  assert.equal(claude.input, 'actual Claude question');
+  assert.deepEqual(claude.contexts, [
+    { label: '桥接上下文', text: '<bridge_context>fixture bridge state</bridge_context>' },
+  ]);
+
+  const claudeSelfClosing = splitUserMessageContext(
+    '<sender type="user" />\n<agent-context>fixture agent state</agent-context>\n<user_message>actual self-closing question</user_message>'
+  );
+  assert.equal(claudeSelfClosing.input, 'actual self-closing question');
+  assert.deepEqual(claudeSelfClosing.contexts.map((item) => item.label).sort(), ['Agent 上下文', '发送者上下文']);
+
+  const openclaw = splitUserMessageContext(
+    'Conversation info (untrusted metadata):\n```json\n{"chat_type":"fixture"}\n```\n\nactual OpenClaw question'
+  );
+  assert.equal(openclaw.input, 'actual OpenClaw question');
+  assert.equal(openclaw.contexts.length, 1);
+  assert.equal(openclaw.contexts[0].label, '会话元数据');
+});
+
 // --- markdown/escape pipeline (single definition site: frontend/src/lib/markdown.ts,
 // bundled into public/js/pure.js for the legacy UI and these tests) ---
 

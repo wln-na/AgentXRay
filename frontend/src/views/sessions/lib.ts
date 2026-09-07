@@ -246,15 +246,27 @@ export function compactUserContextFragments(messages: SessionMessage[]): Session
   const compacted: SessionMessage[] = [];
   for (const message of messages) {
     const previous = compacted.at(-1);
-    if (previous?.role !== 'user' || message.role !== 'user' || previous.timestamp !== message.timestamp) {
+    if (previous?.role !== 'user' || message.role !== 'user') {
       compacted.push(message);
       continue;
     }
 
     const previousParts = splitUserMessageContext(getTextContent(previous.content));
     const currentParts = splitUserMessageContext(getTextContent(message.content));
+    const previousOnlyContext = !previousParts.input && previousParts.contexts.length > 0;
+    const currentHasInput = Boolean(currentParts.input);
+    const previousTime = parseTimestampMs(previous.timestamp);
+    const currentTime = parseTimestampMs(message.timestamp);
+    const exactTimestamp = previous.timestamp === message.timestamp;
+    const nearbyForwardContext =
+      previousOnlyContext &&
+      currentHasInput &&
+      previousTime !== null &&
+      currentTime !== null &&
+      currentTime >= previousTime &&
+      currentTime - previousTime <= 2000;
     const hasContextFragment = previousParts.contexts.length > 0 || currentParts.contexts.length > 0;
-    if (!hasContextFragment) {
+    if ((!exactTimestamp && !nearbyForwardContext) || !hasContextFragment) {
       compacted.push(message);
       continue;
     }
@@ -262,6 +274,7 @@ export function compactUserContextFragments(messages: SessionMessage[]): Session
     compacted[compacted.length - 1] = {
       ...previous,
       id: message.id || previous.id,
+      timestamp: message.timestamp || previous.timestamp,
       content: [...(previous.content || []), ...(message.content || [])],
       usage: message.usage || previous.usage,
     };
@@ -276,17 +289,57 @@ export interface UserMessageParts {
 
 const USER_CONTEXT_LABELS: Record<string, string> = {
   'system-reminder': '系统附带上下文',
-  'agents_md': '项目规则',
+  agents_md: '项目规则',
   'in-app-browser-context': '浏览器上下文',
   environment_context: '运行环境上下文',
   user_instructions: '用户规则上下文',
   information: '附件信息',
+  attachments: '附件信息',
+  image: '图片附件',
   'current-date': '日期上下文',
   'current-state': 'Agent 状态',
   constraint: '执行约束',
   usage_guide: '行为指南',
   retained_skills: 'Skill 上下文',
+  sender: '发送者上下文',
+  mentions: '提及对象',
+  available_bots: '可用 Agent',
+  botmux_reminder: 'Agent 提醒',
+  botmux_skills: 'Skill 上下文',
+  botmux_skills_refresh: 'Skill 更新上下文',
+  bridge_context: '桥接上下文',
+  bridge_instructions: '桥接规则',
+  'agent-context': 'Agent 上下文',
+  'mcp-context': 'MCP 上下文',
+  'skill-context': 'Skill 上下文',
+  'task-context': '任务上下文',
+  'permissions-context': '权限上下文',
+  'date-context': '日期上下文',
+  'file-context': '文件上下文',
+  'openclaw-context': '会话元数据',
+  'subagent-context': '子 Agent 上下文',
 };
+
+function extractTaggedContext(remaining: string, contexts: UserMessageParts['contexts']): string {
+  const tagNames = Object.keys(USER_CONTEXT_LABELS).join('|');
+  const pairedPattern = new RegExp(`<(${tagNames})(?:\\s[^>]*)?>[\\s\\S]*?<\\/\\1>`, 'gi');
+  const selfClosingPattern = new RegExp(`<(${tagNames})(?:\\s[^>]*)?\\/\\s*>`, 'gi');
+  const extract = (input: string, pattern: RegExp) =>
+    input.replace(pattern, (block, tag: string) => {
+      const normalizedTag = tag.toLowerCase();
+      contexts.push({ label: USER_CONTEXT_LABELS[normalizedTag] || normalizedTag, text: block.trim() });
+      return '\n';
+    });
+  return extract(extract(remaining, pairedPattern), selfClosingPattern);
+}
+
+function extractOpenClawContext(remaining: string, contexts: UserMessageParts['contexts']): string {
+  const metadataBlock = /^[A-Za-z][^\n]*(?:\([^\n]*\))?:\n```(?:json)?\n[\s\S]*?^```\s*$/gim;
+  return remaining.replace(metadataBlock, (block) => {
+    contexts.push({ label: '会话元数据', text: `<openclaw-context>\n${block.trim()}\n</openclaw-context>` });
+    return '\n';
+  });
+}
 
 export function splitUserMessageContext(text: string): UserMessageParts {
   const contexts: UserMessageParts['contexts'] = [];
@@ -296,16 +349,11 @@ export function splitUserMessageContext(text: string): UserMessageParts {
     contexts.push({ label: '项目规则', text: remaining.trim() });
     remaining = '';
   }
-  const tagNames = Object.keys(USER_CONTEXT_LABELS).join('|');
-  const pattern = new RegExp(`<(${tagNames})(?:\\s[^>]*)?>[\\s\\S]*?<\\/\\1>`, 'gi');
-  const input = remaining
-    .replace(pattern, (block, tag: string) => {
-      const normalizedTag = tag.toLowerCase();
-      contexts.push({ label: USER_CONTEXT_LABELS[normalizedTag] || normalizedTag, text: block.trim() });
-      return '\n';
-    })
-    .replace(/\n{3,}/g, '\n\n')
-    .trim();
+  remaining = extractTaggedContext(remaining, contexts);
+  remaining = extractOpenClawContext(remaining, contexts);
+  const userMessageWrapper = remaining.trim().match(/^<user_message(?:\s[^>]*)?>([\s\S]*?)<\/user_message>$/i);
+  if (userMessageWrapper) remaining = userMessageWrapper[1];
+  const input = remaining.replace(/\n{3,}/g, '\n\n').trim();
   return { input, contexts };
 }
 

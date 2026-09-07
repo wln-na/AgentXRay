@@ -138,6 +138,10 @@ describe('AgentXRay API', () => {
       for (const role of ['user', 'assistant', 'toolResult']) {
         assert.ok(roles.includes(role), `missing role ${role}`);
       }
+      const firstUser = messages.find((m) => m.id === 'ua-1');
+      assert.ok(firstUser.content.some((c) => c.text?.includes('<skill-context>')));
+      assert.ok(firstUser.content.some((c) => c.text?.includes('fixture-skill-a')));
+      assert.ok(!firstUser.content.some((c) => c.text?.includes('must-not-attach')));
       const assistant = messages.find((m) => m.role === 'assistant');
       const toolCall = assistant.content.find((c) => c.type === 'toolCall');
       assert.equal(toolCall.name, 'Task');
@@ -168,6 +172,29 @@ describe('AgentXRay API', () => {
     it('a Task-free session has no children', async () => {
       const children = await getJson(srv.base, `/api/claude-code/sessions/${CLAUDE_B}/children`);
       assert.deepEqual(children, []);
+    });
+  });
+
+  describe('sessions: openclaw', () => {
+    it('attaches trajectory prompt context by transcript leaf without listing trajectory as a session', async () => {
+      const agents = await getJson(srv.base, '/api/agents');
+      assert.ok(agents.includes('fixture-agent'));
+      const sessions = await getJson(srv.base, '/api/agents/fixture-agent/sessions');
+      assert.deepEqual(
+        sessions.map((session) => session.id),
+        ['openclaw-context-fixture']
+      );
+
+      const { messages } = await getJson(srv.base, '/api/agents/fixture-agent/sessions/openclaw-context-fixture');
+      const firstUser = messages.find((message) => message.id === 'openclaw-user-1');
+      assert.ok(firstUser.content.some((part) => part.text?.includes('Conversation info (untrusted metadata)')));
+      assert.equal(
+        firstUser.content.filter((part) => part.text?.includes('fixture: openclaw actual question')).length,
+        1
+      );
+      const secondUser = messages.find((message) => message.id === 'openclaw-user-2');
+      assert.equal(secondUser.content.length, 1);
+      assert.ok(!JSON.stringify(messages).includes('must not attach'));
     });
   });
 
@@ -287,8 +314,8 @@ describe('AgentXRay API', () => {
       assert.deepEqual(results, []);
 
       // Insights must not aggregate the escaped file either
-      const insights = await getJson(srv.base, '/api/insights?platform=openclaw&agent=..%2F..%2Fescape');
-      assert.equal(insights.totalSessions, 0);
+      const insights = await getJson(srv.base, '/api/insights?platform=openclaw&agent=..%2F..%2Fescape', 400);
+      assert.equal(insights.error, 'Invalid agent name');
     });
   });
 
