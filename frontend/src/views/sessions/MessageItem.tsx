@@ -269,8 +269,14 @@ export function MessageBubble({
           timestamp={message.timestamp}
           timing={timing}
         />
-        <div className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">用户实际输入</div>
-        {preview ? <Markdown text={preview} /> : <div className="text-xs text-muted-foreground">未记录独立的用户输入</div>}
+        {preview ? (
+          <>
+            <div className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">用户实际输入</div>
+            <Markdown text={preview} />
+          </>
+        ) : (
+          <div className="text-[11px] font-semibold text-muted-foreground">仅记录附带上下文</div>
+        )}
         {contexts.length ? (
           <details className="mt-2 rounded border border-border/70 bg-background/50 px-2 py-1.5">
             <summary className="cursor-pointer text-[11px] font-medium text-muted-foreground">

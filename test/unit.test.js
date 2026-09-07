@@ -1,10 +1,28 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const path = require('node:path');
+const { createRequire } = require('node:module');
 
-const textUtils = require(path.join(__dirname, '..', 'lib', 'text-utils'));
-const llmJson = require(path.join(__dirname, '..', 'lib', 'llm-json'));
-const pure = require(path.join(__dirname, '..', 'public', 'js', 'pure.js'));
+const ROOT = path.join(__dirname, '..');
+const textUtils = require(path.join(ROOT, 'lib', 'text-utils'));
+const llmJson = require(path.join(ROOT, 'lib', 'llm-json'));
+const pure = require(path.join(ROOT, 'public', 'js', 'pure.js'));
+
+function loadSessionsLib() {
+  const { buildSync } = createRequire(path.join(ROOT, 'frontend', 'package.json'))('esbuild');
+  const output = buildSync({
+    entryPoints: [path.join(ROOT, 'frontend', 'src', 'views', 'sessions', 'lib.ts')],
+    bundle: true,
+    write: false,
+    platform: 'node',
+    format: 'cjs',
+    target: 'node18',
+    alias: { '@': path.join(ROOT, 'frontend', 'src') },
+  }).outputFiles[0].text;
+  const compiled = { exports: {} };
+  new Function('module', 'exports', 'require', output)(compiled, compiled.exports, require);
+  return compiled.exports;
+}
 
 // --- lib/text-utils ---
 
@@ -337,6 +355,51 @@ test('buildTraceTurns drops turns without spans and sorts spans by start', () =>
       [...starts].sort((a, b) => a - b)
     );
   }
+});
+
+test('session stats detect Skill reads from structured tool paths without counting tool output text', () => {
+  const { computeSessionStats } = loadSessionsLib();
+  const stats = computeSessionStats([
+    {
+      id: 'assistant-1',
+      role: 'assistant',
+      timestamp: '2026-09-07T00:00:00.000Z',
+      content: [
+        {
+          type: 'toolCall',
+          id: 'read-skill',
+          name: 'file_operation',
+          path: '/Users/example/.skills/browser-use-automation-mac/SKILL.md',
+          content: 'Documentation mentions /tmp/not-loaded/SKILL.md',
+        },
+      ],
+    },
+  ]);
+  assert.deepEqual(stats.skillNames, { 'browser-use-automation-mac': 1 });
+});
+
+test('same-timestamp user context fragments merge with the actual user input', () => {
+  const { compactUserContextFragments, splitUserMessageContext } = loadSessionsLib();
+  const messages = compactUserContextFragments([
+    {
+      id: '',
+      role: 'user',
+      timestamp: '2026-09-07T00:00:00.000Z',
+      content: [{ type: 'text', text: '<system-reminder>context</system-reminder>' }],
+    },
+    {
+      id: 'user-1',
+      role: 'user',
+      timestamp: '2026-09-07T00:00:00.000Z',
+      content: [{ type: 'text', text: 'actual question' }],
+    },
+  ]);
+  assert.equal(messages.length, 1);
+  assert.equal(messages[0].id, 'user-1');
+  assert.deepEqual(splitUserMessageContext(pure.getTextContent(messages[0].content)), {
+    input: 'actual question',
+    contexts: [{ label: '系统附带上下文', text: '<system-reminder>context</system-reminder>' }],
+  });
 });
 
 // --- markdown/escape pipeline (single definition site: frontend/src/lib/markdown.ts,

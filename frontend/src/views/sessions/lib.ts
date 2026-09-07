@@ -242,6 +242,33 @@ export function compactAssistantFragments(messages: SessionMessage[]): SessionMe
   return compacted;
 }
 
+export function compactUserContextFragments(messages: SessionMessage[]): SessionMessage[] {
+  const compacted: SessionMessage[] = [];
+  for (const message of messages) {
+    const previous = compacted.at(-1);
+    if (previous?.role !== 'user' || message.role !== 'user' || previous.timestamp !== message.timestamp) {
+      compacted.push(message);
+      continue;
+    }
+
+    const previousParts = splitUserMessageContext(getTextContent(previous.content));
+    const currentParts = splitUserMessageContext(getTextContent(message.content));
+    const hasContextFragment = previousParts.contexts.length > 0 || currentParts.contexts.length > 0;
+    if (!hasContextFragment) {
+      compacted.push(message);
+      continue;
+    }
+
+    compacted[compacted.length - 1] = {
+      ...previous,
+      id: message.id || previous.id,
+      content: [...(previous.content || []), ...(message.content || [])],
+      usage: message.usage || previous.usage,
+    };
+  }
+  return compacted;
+}
+
 export interface UserMessageParts {
   input: string;
   contexts: { label: string; text: string }[];
@@ -283,18 +310,26 @@ export function splitUserMessageContext(text: string): UserMessageParts {
 }
 
 function skillNamesFromValue(value: unknown): string[] {
-  let text = '';
-  try {
-    const serialized = typeof value === 'string' ? value : JSON.stringify(value);
-    text = typeof serialized === 'string' ? serialized : '';
-  } catch {
-    return [];
-  }
   const names = new Set<string>();
   const pattern = /(?:^|[\\/])([^\\/"'\s]+)[\\/]SKILL\.md\b/gi;
-  for (const match of text.matchAll(pattern)) {
-    if (match[1]) names.add(match[1]);
-  }
+  const scan = (candidate: unknown) => {
+    if (typeof candidate === 'string') {
+      for (const match of candidate.matchAll(pattern)) {
+        if (match[1]) names.add(match[1]);
+      }
+      return;
+    }
+    if (Array.isArray(candidate)) {
+      for (const item of candidate) scan(item);
+      return;
+    }
+    if (!candidate || typeof candidate !== 'object') return;
+    for (const [childKey, childValue] of Object.entries(candidate)) {
+      if (['content', 'summary', 'text'].includes(childKey)) continue;
+      scan(childValue);
+    }
+  };
+  scan(value);
   return [...names];
 }
 
@@ -344,7 +379,7 @@ export function computeSessionStats(msgs: SessionMessage[]): SessionStats {
         stats.toolCallCount++;
         const name = c.name || 'unknown';
         stats.toolNames[name] = (stats.toolNames[name] || 0) + 1;
-        for (const skill of skillNamesFromValue(c.arguments ?? c.input)) {
+        for (const skill of skillNamesFromValue(c)) {
           stats.skillNames[skill] = (stats.skillNames[skill] || 0) + 1;
         }
         if (isSpawnPart(c)) stats.spawnCount++;

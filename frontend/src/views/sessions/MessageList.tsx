@@ -7,7 +7,7 @@ import { formatDurationCompact, getTextContent, parseTimestampMs } from '@/lib/p
 import { cn } from '@/lib/utils';
 import { useAppStore } from '@/store';
 import type { MsgFilter, TimingAnalysis } from './lib';
-import { applyMsgFilter, compactAssistantFragments, messageAnchorId } from './lib';
+import { applyMsgFilter, compactAssistantFragments, compactUserContextFragments, messageAnchorId } from './lib';
 import { GraphLane, MessageBubble, ToolCallPart } from './MessageItem';
 import type { MessageUnit, RetryInfo, TurnUnit } from './messageUnits';
 import { buildMessageUnits, buildRetryChains } from './messageUnits';
@@ -179,7 +179,8 @@ export function MessageList({
 
   const units = useMemo<MessageUnit[]>(() => {
     const filtered = applyMsgFilter(timing.visibleMessages, msgFilter);
-    const compacted = compactAssistantFragments(filtered);
+    const compactedUsers = compactUserContextFragments(filtered);
+    const compacted = compactAssistantFragments(compactedUsers);
     const built = buildMessageUnits(compacted, isCodex);
     // newest-first = reverse (latest on top); oldest-first = natural order
     return msgOrder === 'newest-first' ? built.reverse() : built;
