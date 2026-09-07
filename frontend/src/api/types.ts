@@ -75,6 +75,28 @@ export interface MessageContentPart {
   [key: string]: unknown;
 }
 
+export interface ContextUsageBreakdownItem {
+  key: 'conversation' | 'system' | 'tools' | 'skills' | string;
+  label: string;
+  tokens?: number | null;
+  percent?: number | null;
+  estimated?: boolean;
+}
+
+export interface ContextUsage {
+  used?: number | null;
+  limit?: number | null;
+  percent?: number | null;
+  source?: 'native' | 'estimated' | 'unavailable' | string;
+  input?: number | null;
+  cacheRead?: number | null;
+  cacheWrite?: number | null;
+  output?: number | null;
+  breakdownStatus?: 'native' | 'estimated' | 'unavailable' | string;
+  breakdown?: ContextUsageBreakdownItem[];
+  note?: string | null;
+}
+
 export interface MessageUsage {
   input?: number;
   output?: number;
@@ -130,6 +152,7 @@ export interface SessionMeta {
   historyAvailable?: boolean;
   contentAvailable?: boolean;
   tokenUsage?: MessageUsage | null;
+  contextUsage?: ContextUsage | null;
   [key: string]: unknown;
 }
 
@@ -138,6 +161,7 @@ export interface SessionDetail {
   session: SessionMeta;
   messages: SessionMessage[];
   tokenUsage?: MessageUsage | null;
+  contextUsage?: ContextUsage | null;
 }
 
 /** Item of GET /api/{omp,claude-code}/sessions/:id/children */
@@ -497,4 +521,77 @@ export interface VersionInfo {
 /** GET /api/otlp/:platform/:sessionId — OTLP/JSON export */
 export interface OtlpExport {
   resourceSpans: unknown[];
+}
+
+// ---------- Context reconstruction ----------
+
+/** One decomposed component of a reconstructed system prompt. */
+export interface ContextPromptComponent {
+  type: string; // 'builtin' | 'environment' | 'user-instructions' | 'base-instructions' | 'project-instructions' | 'dynamic-injection' | …
+  label: string;
+  present: boolean;
+  content: string | null;
+  source: string | null;
+  note: string | null;
+}
+
+/** Reconstructed system prompt with decomposed components. */
+export interface ContextSystemPrompt {
+  source: string; // 'trajectory' | 'indexeddb' | 'reconstructed' | 'partial'
+  content: string;
+  components: ContextPromptComponent[];
+}
+
+/** Recoverable message history included in the reconstructed request. */
+export interface ContextHistorySummary {
+  total: number;
+  turns: number;
+  user: number;
+  assistant: number;
+  toolCall: number;
+  toolResult: number;
+  reasoning: number;
+  other: number;
+}
+
+export interface ContextHistory {
+  summary: ContextHistorySummary;
+  included: boolean;
+  items?: SessionMessage[];
+  target?: SessionMessage | null;
+  compaction?: {
+    applied: boolean;
+    timestamp: string | null;
+    source: string;
+  } | null;
+}
+
+/** Available tool definitions (only some platforms can recover these). */
+export interface ContextTools {
+  available: boolean;
+  count: number;
+  source: string | null;
+  definitions: unknown[] | null;
+}
+
+/** Reconstruction metadata — transparent about confidence and gaps. */
+export interface ContextMetadata {
+  confidence: 'high' | 'medium' | 'low';
+  reconstructedAt: string;
+  sources: string[];
+  missingItems: string[];
+  note: string;
+  platform: string;
+}
+
+/** GET /api/:platform/sessions/:sessionId/context?messageIndex=N */
+export interface ContextSnapshot {
+  platform: string;
+  sessionId: string;
+  messageIndex: number;
+  targetMessageId: string | null;
+  systemPrompt: ContextSystemPrompt;
+  messages: ContextHistory;
+  tools: ContextTools;
+  metadata: ContextMetadata;
 }

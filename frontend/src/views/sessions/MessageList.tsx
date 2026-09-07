@@ -48,7 +48,23 @@ function Chip({ className, title, children }: { className?: string; title?: stri
   );
 }
 
-function TurnGroup({ unit, timing, isCodex }: { unit: TurnUnit; timing: TimingAnalysis; isCodex: boolean }) {
+function TurnGroup({
+  unit,
+  timing,
+  isCodex,
+  contextEnabled,
+  contextPlatform,
+  contextSessionId,
+  contextDir,
+}: {
+  unit: TurnUnit;
+  timing: TimingAnalysis;
+  isCodex: boolean;
+  contextEnabled: boolean;
+  contextPlatform?: Platform;
+  contextSessionId?: string;
+  contextDir?: string;
+}) {
   const toolCount = unit.tools.length;
   const resultCount = unit.steps.filter((s) => s.role === 'toolResult').length;
   const errCount = unit.steps.filter((s) => s.role === 'toolResult' && s.isError).length;
@@ -95,6 +111,10 @@ function TurnGroup({ unit, timing, isCodex }: { unit: TurnUnit; timing: TimingAn
             message={unit.assistant}
             timing={timing.timingByMessage.get(unit.assistant)}
             showEmbeddedToolCalls={false}
+            contextEnabled={contextEnabled}
+            contextPlatform={contextPlatform}
+            contextSessionId={contextSessionId}
+            contextDir={contextDir}
           />
         ) : null}
         <details className="turn-group group mt-1 rounded-md border border-border bg-card/40">
@@ -147,7 +167,14 @@ function TurnGroup({ unit, timing, isCodex }: { unit: TurnUnit; timing: TimingAn
                   <GraphLane message={step} />
                   <div className="min-w-0 flex-1">
                     {retryInfo && retryInfo.totalAttempts > 1 ? <RetryAnnotation info={retryInfo} /> : null}
-                    <MessageBubble message={step} timing={timing.timingByMessage.get(step)} />
+                    <MessageBubble
+                      message={step}
+                      timing={timing.timingByMessage.get(step)}
+                      contextEnabled={contextEnabled}
+                      contextPlatform={contextPlatform}
+                      contextSessionId={contextSessionId}
+                      contextDir={contextDir}
+                    />
                   </div>
                 </div>
               );
@@ -162,6 +189,8 @@ function TurnGroup({ unit, timing, isCodex }: { unit: TurnUnit; timing: TimingAn
 export function MessageList({
   messages,
   platform,
+  sessionId,
+  dir,
   msgFilter,
   timing,
   visibleUnitCount,
@@ -169,6 +198,8 @@ export function MessageList({
 }: {
   messages: SessionMessage[];
   platform: Platform;
+  sessionId?: string;
+  dir?: string;
   msgFilter: MsgFilter;
   timing: TimingAnalysis;
   visibleUnitCount: number;
@@ -176,6 +207,8 @@ export function MessageList({
 }) {
   const isCodex = platform === 'codex' || platform === 'omp' || platform === 'dsh' || platform === 'gemini';
   const msgOrder = useAppStore((s) => s.msgOrder);
+  // Context reconstruction is currently only supported for codex.
+  const contextEnabled = platform === 'codex' && Boolean(sessionId);
 
   const units = useMemo<MessageUnit[]>(() => {
     const filtered = applyMsgFilter(timing.visibleMessages, msgFilter);
@@ -200,11 +233,27 @@ export function MessageList({
           <div key={unit.msg.id || i} className="flex gap-2" id={`row-${messageAnchorId(unit.msg) || ''}`}>
             <GraphLane message={unit.msg} />
             <div className="min-w-0 flex-1">
-              <MessageBubble message={unit.msg} timing={timing.timingByMessage.get(unit.msg)} />
+              <MessageBubble
+                message={unit.msg}
+                timing={timing.timingByMessage.get(unit.msg)}
+                contextEnabled={contextEnabled}
+                contextPlatform={platform}
+                contextSessionId={sessionId}
+                contextDir={dir}
+              />
             </div>
           </div>
         ) : (
-          <TurnGroup key={unit.assistant.id || i} unit={unit} timing={timing} isCodex={isCodex} />
+          <TurnGroup
+            key={unit.assistant.id || i}
+            unit={unit}
+            timing={timing}
+            isCodex={isCodex}
+            contextEnabled={contextEnabled}
+            contextPlatform={platform}
+            contextSessionId={sessionId}
+            contextDir={dir}
+          />
         )
       )}
       {remaining > 0 ? (

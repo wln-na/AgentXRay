@@ -3,12 +3,13 @@
 // Collapses are native <details> so DOM-driven jumps (legacy parity) can expand them.
 
 import { createContext, useContext } from 'react';
-import type { MessageContentPart, SessionMessage } from '@/api/types';
+import type { MessageContentPart, Platform, SessionMessage } from '@/api/types';
 import { Markdown } from '@/components/Markdown';
 import { formatDurationCompact, getTextContent } from '@/lib/pure';
 import { cn } from '@/lib/utils';
 import type { TimingMeta } from './lib';
 import { formatDate, formatNumber, messageAnchorId, splitUserMessageContext, truncateId } from './lib';
+import { ContextPanel } from './ContextPanel';
 /** scrollToMessage from SessionsView: expands pagination + clears filter + flashes. */
 export const MessageActionsContext = createContext<{ scrollToMessage: (id: string) => void }>({
   scrollToMessage: () => {},
@@ -248,10 +249,19 @@ export function MessageBubble({
   message,
   timing,
   showEmbeddedToolCalls = true,
+  contextEnabled = false,
+  contextPlatform,
+  contextSessionId,
+  contextDir,
 }: {
   message: SessionMessage;
   timing: TimingMeta | undefined;
   showEmbeddedToolCalls?: boolean;
+  /** When true, user messages show a "reconstructed context" panel */
+  contextEnabled?: boolean;
+  contextPlatform?: Platform;
+  contextSessionId?: string;
+  contextDir?: string;
 }) {
   const text = getTextContent(message.content);
   const anchor = messageAnchorId(message) || '';
@@ -289,6 +299,21 @@ export function MessageBubble({
                   <pre className={PRE_CLASS}>{context.text}</pre>
                 </section>
               ))}
+            </div>
+          </details>
+        ) : null}
+        {contextEnabled && contextPlatform && contextSessionId ? (
+          <details className="mt-2 rounded border border-[#9BBBF4]/40 bg-[#9BBBF4]/5 px-2 py-1.5">
+            <summary className="cursor-pointer text-[11px] font-medium text-[#5B7FC9]">
+              完整上下文（重建）
+            </summary>
+            <div className="mt-2">
+              <ContextPanel
+                platform={contextPlatform}
+                sessionId={contextSessionId}
+                messageId={message.id || undefined}
+                dir={contextDir}
+              />
             </div>
           </details>
         ) : null}

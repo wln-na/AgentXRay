@@ -10,6 +10,7 @@ import { formatCost, formatDurationCompact } from '@/lib/pure';
 import { cn } from '@/lib/utils';
 import { dirForPlatform, loadStoredFlag, saveStoredFlag, SUMMARY_COLLAPSED_KEY, useAppStore } from '@/store';
 import { ChildAgentsSection } from '@/views/trace/ChildAgentsSection';
+import { ContextUsageCard } from './ContextUsageCard';
 import type { ExportFormat } from './exports';
 import { runExport } from './exports';
 import type { MsgFilter, TimingAnalysis } from './lib';
@@ -180,6 +181,7 @@ export function SessionSummary({
   const msgs = detail.messages;
   const stats = useMemo(() => computeSessionStats(msgs), [msgs]);
   const tokenUsage = detail.tokenUsage || detail.session?.tokenUsage;
+  const contextUsage = detail.contextUsage || detail.session?.contextUsage;
   const tokenSummary = useMemo(() => summarizeTokens(msgs, tokenUsage), [msgs, tokenUsage]);
   const cost = useMemo(() => sessionCost(msgs), [msgs]);
   const listModel = selectedSummary?.model || detail.session?.model;
@@ -415,6 +417,14 @@ export function SessionSummary({
                 <div className="mt-1 text-[10px] text-muted-foreground">按会话中读取 SKILL.md 的记录统计</div>
               </div>
             ) : null}
+            <ContextUsageCard
+              usage={contextUsage}
+              unavailableNote={
+                detail.session?.dataSource === 'indexeddb'
+                  ? 'Doubao 的 trajectory 与 IndexedDB 本地记录未提供 Token usage，无法计算上下文用量。'
+                  : undefined
+              }
+            />
             <div className="rounded-md border border-border/70 p-2.5">
               <div className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Tokens</div>
               <div className="flex flex-wrap gap-1">

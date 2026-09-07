@@ -20,6 +20,7 @@ const mountLibraryRoutes = require('./lib/routes/library');
 const mountBackupRoutes = require('./lib/routes/backup');
 const mountWatchRoutes = require('./lib/routes/watch');
 const mountLlmRoutes = require('./lib/routes/llm');
+const mountContextRoutes = require('./lib/routes/context');
 
 const app = express();
 const PORT = process.env.PORT || 3800;
@@ -68,6 +69,7 @@ mountLibraryRoutes(app);
 mountBackupRoutes(app);
 mountWatchRoutes(app);
 mountLlmRoutes(app);
+mountContextRoutes(app);
 
 // SPA fallback: unknown paths render the appropriate UI shell
 app.get('*', (req, res) => {

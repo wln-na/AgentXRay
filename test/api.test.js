@@ -11,6 +11,7 @@ const { startServer, getJson, sendJson } = require('./helpers.js');
 
 const CODEX1 = '01900000-0000-7000-8000-000000000001';
 const CODEX2 = '01900000-0000-7000-8000-000000000002';
+const CODEX3 = '01900000-0000-7000-8000-000000000006';
 const CODEX_CHILD = '01900000-0000-7000-8000-000000000003';
 const CODEX_GRANDCHILD = '01900000-0000-7000-8000-000000000005';
 const CODEX_ARCHIVED = '01900000-0000-7000-8000-000000000004';
@@ -44,12 +45,12 @@ describe('AgentXRay API', () => {
   describe('sessions: codex', () => {
     it('lists sessions newest-first with metadata', async () => {
       const sessions = await getJson(srv.base, '/api/codex/sessions');
-      assert.equal(sessions.length, 3);
+      assert.equal(sessions.length, 4);
       assert.deepEqual(
         sessions.map((s) => s.id),
-        [CODEX2, CODEX1, CODEX_ARCHIVED]
+        [CODEX3, CODEX2, CODEX1, CODEX_ARCHIVED]
       );
-      const s1 = sessions[1];
+      const s1 = sessions.find((s) => s.id === CODEX1);
       assert.equal(s1.timestamp, '2026-01-15T10:00:00.000Z');
       assert.equal(s1.cwd, '/fixtures/project-alpha');
       assert.equal(s1.userCount, 2);
@@ -136,6 +137,26 @@ describe('AgentXRay API', () => {
       assert.deepEqual(result.details, { status: 'ok', exitCode: 0, durationMs: 400 });
     });
 
+    it('reconstructs the recoverable Codex request and respects compaction boundaries', async () => {
+      const detail = await getJson(srv.base, `/api/codex/sessions/${CODEX3}`);
+      const targetIndex = detail.messages.findIndex(
+        (message) => message.role === 'user' && JSON.stringify(message.content).includes('hello from project-beta')
+      );
+      const context = await getJson(srv.base, `/api/codex/sessions/${CODEX3}/context?messageIndex=${targetIndex}`);
+      assert.equal(context.messages.included, true);
+      assert.equal(context.messages.target.role, 'user');
+      assert.equal(context.messages.compaction.applied, true);
+      assert.equal(context.messages.compaction.source, 'compacted.payload.replacement_history');
+      assert.deepEqual(
+        context.messages.items.map((message) => message.role),
+        ['user', 'assistant']
+      );
+      assert.ok(JSON.stringify(context.messages.items).includes('compressed earlier request'));
+      assert.ok(!JSON.stringify(context.messages.items).includes('environment_context'));
+      assert.ok(context.systemPrompt.content.includes('Always use TypeScript'));
+      assert.ok(context.metadata.missingItems.includes('工具定义 (tool definitions)'));
+    });
+
     it('aggregates only the latest Codex token snapshot per file', async () => {
       const insights = await getJson(srv.base, '/api/insights?platform=codex');
       assert.deepEqual(insights.tokenUsage, {
@@ -160,11 +181,13 @@ describe('AgentXRay API', () => {
       assert.equal(a.toolCallCount, 1);
       assert.equal(a.toolResultCount, 1);
       assert.equal(a.cwd, '/fixtures/project-beta');
+      assert.equal(a.model, 'claude-fixture-1');
       assert.ok(a.firstUserMessage.startsWith('fixture: claude-prompt-one'));
     });
 
     it('serves a session detail with tool_use/tool_result normalized', async () => {
-      const { session, messages } = await getJson(srv.base, `/api/claude-code/sessions/${CLAUDE_A}`);
+      const detail = await getJson(srv.base, `/api/claude-code/sessions/${CLAUDE_A}`);
+      const { session, messages, tokenUsage, contextUsage } = detail;
       assert.equal(session.id, CLAUDE_A);
       const roles = messages.map((m) => m.role);
       for (const role of ['user', 'assistant', 'toolResult']) {
@@ -178,10 +201,31 @@ describe('AgentXRay API', () => {
       const toolCall = assistant.content.find((c) => c.type === 'toolCall');
       assert.equal(toolCall.name, 'Task');
       assert.equal(toolCall.id, 'toolu-fx-1');
-      assert.equal(assistant.usage.input_tokens, 10);
+      assert.equal(assistant.usage.input, 10);
+      assert.equal(assistant.usage.output, 20);
       const result = messages.find((m) => m.role === 'toolResult');
       assert.equal(result.toolCallId, 'toolu-fx-1');
       assert.equal(result.content[0].text, 'hello');
+      assert.deepEqual(tokenUsage, {
+        input: 22,
+        output: 26,
+        cacheRead: 230,
+        cacheWrite: 340,
+        totalTokens: 618,
+      });
+      assert.equal(contextUsage.used, 512);
+      assert.equal(contextUsage.limit, 1000);
+      assert.equal(contextUsage.percent, 51.2);
+      assert.equal(contextUsage.breakdownStatus, 'unavailable');
+      assert.equal(session.contextUsage.used, 512);
+    });
+
+    it('deduplicates streamed Claude usage snapshots in insights', async () => {
+      const insights = await getJson(srv.base, '/api/insights?platform=claude-code');
+      assert.equal(insights.tokenUsage.input, 27);
+      assert.equal(insights.tokenUsage.output, 34);
+      assert.equal(insights.tokenUsage.cacheRead, 230);
+      assert.equal(insights.tokenUsage.cacheWrite, 340);
     });
 
     it('exposes subagents via the children endpoints', async () => {
@@ -354,8 +398,8 @@ describe('AgentXRay API', () => {
   describe('prompts + hidden prompts', () => {
     it('hiding one text collapses every identical occurrence, and unhiding restores it', async () => {
       const beforeData = await getJson(srv.base, '/api/prompts?platform=codex');
-      assert.equal(beforeData.totalPrompts, 4);
-      assert.equal(beforeData.totalSessions, 3);
+      assert.equal(beforeData.totalPrompts, 5);
+      assert.equal(beforeData.totalSessions, 4);
       assert.equal(beforeData.groups[0].directory, '/fixtures/project-alpha');
 
       // The duplicate text lives in both codex sessions: one hide removes both
@@ -370,7 +414,7 @@ describe('AgentXRay API', () => {
 
       const afterHide = await getJson(srv.base, '/api/prompts?platform=codex');
       assert.equal(afterHide.totalPrompts, beforeData.totalPrompts - 2);
-      assert.equal(afterHide.totalSessions, 2); // duplicate-only main session drops; archived main remains
+      assert.equal(afterHide.totalSessions, 3); // duplicate-only main session drops; archived + new beta remain
 
       // Store lives under the temp HOME, never the real ~/.agentxray
       assert.ok(await exists(path.join(srv.home, '.agentxray', 'hidden-prompts.json')));
@@ -526,6 +570,9 @@ describe('backup', () => {
   let srv;
   before(async () => {
     srv = await startServer();
+    // Clear any archive created by the 10s auto-backup timer so the test
+    // starts from a clean slate regardless of test ordering.
+    await fsp.rm(path.join(srv.home, '.agentxray', 'archive'), { recursive: true, force: true });
   });
   after(async () => {
     await srv.stop();
@@ -533,11 +580,11 @@ describe('backup', () => {
 
   it('copies every session log once, then skips everything on the second run', async () => {
     const first = await sendJson(srv.base, 'POST', '/api/backup', undefined);
-    // codex 5 (4 active incl. child + grandchild, plus 1 archived) + claude 2 + history.jsonl + omp 2 + dsh 2 + gemini 3
-    assert.equal(first.copied, 15);
+    // codex 6 (5 active incl. child + grandchild + new beta, plus 1 archived) + claude 2 + history.jsonl + omp 2 + dsh 2 + gemini 3
+    assert.equal(first.copied, 16);
     assert.equal(first.skipped, 0);
-    assert.equal(first.total, 15);
-    assert.deepEqual(first.byPlatform.codex, { copied: 5, skipped: 0 });
+    assert.equal(first.total, 16);
+    assert.deepEqual(first.byPlatform.codex, { copied: 6, skipped: 0 });
     assert.deepEqual(first.byPlatform['claude-code'], { copied: 3, skipped: 0 });
     assert.deepEqual(first.byPlatform.omp, { copied: 2, skipped: 0 });
     assert.deepEqual(first.byPlatform.dsh, { copied: 2, skipped: 0 });
@@ -548,12 +595,12 @@ describe('backup', () => {
 
     const second = await sendJson(srv.base, 'POST', '/api/backup', undefined);
     assert.equal(second.copied, 0);
-    assert.equal(second.skipped, 15);
-    assert.equal(second.total, 15);
+    assert.equal(second.skipped, 16);
+    assert.equal(second.total, 16);
 
     const status = await getJson(srv.base, '/api/backup/status');
     assert.equal(status.archiveDir, first.archiveDir);
-    assert.equal(status.files, 15);
+    assert.equal(status.files, 16);
     assert.ok(status.bytes > 0);
     assert.ok(typeof status.lastBackup === 'string');
   });

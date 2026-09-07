@@ -5,6 +5,7 @@ import type {
   BackupResult,
   BackupStatus,
   ChildAgentSummary,
+  ContextSnapshot,
   FabricPatternsData,
   HiddenPromptsData,
   HidePromptsResult,
@@ -402,4 +403,25 @@ export function watchUrl(opts: {
     agent: opts.agent,
     dir: opts.dir,
   });
+}
+
+// ---------- Context reconstruction ----------
+
+/**
+ * GET /api/:platform/sessions/:sessionId/context
+ * Reconstruct the full system prompt + history a model likely saw before a
+ * given user turn. Pass either messageIndex or messageId to anchor.
+ */
+export function getSessionContext(
+  platform: Platform,
+  sessionId: string,
+  target: { messageIndex?: number; messageId?: string; dir?: string }
+): Promise<ContextSnapshot> {
+  return fetchJson(
+    withParams(`/api/${encodeURIComponent(platform)}/sessions/${encodeURIComponent(sessionId)}/context`, {
+      messageIndex: target.messageIndex,
+      messageId: target.messageId,
+      dir: target.dir,
+    })
+  );
 }

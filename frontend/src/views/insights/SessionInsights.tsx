@@ -9,6 +9,7 @@ import { Badge } from '@/components/ui/badge';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { formatDurationCompact } from '@/lib/pure';
 import { dirForPlatform, useAppStore } from '@/store';
+import { ContextUsageCard } from '@/views/sessions/ContextUsageCard';
 import { InsightSection, ScopeChip, StatCard, UsageBar, fmtTokens, formatNumber } from './bits';
 import { computeSessionInsights } from './sessionStats';
 
@@ -57,6 +58,7 @@ export function SessionInsights() {
   const session = query.data.session || {};
   const st = computeSessionInsights(msgs);
   const tokenUsage = query.data.tokenUsage || session.tokenUsage;
+  const contextUsage = query.data.contextUsage || session.contextUsage;
   const tokenInput = tokenUsage?.input ?? st.totalInputTokens;
   const tokenOutput = tokenUsage?.output ?? st.totalOutputTokens;
   const tokenCacheRead = tokenUsage?.cacheRead ?? st.totalCacheRead;
@@ -104,6 +106,15 @@ export function SessionInsights() {
         <StatCard value={st.retries.length} label="Retries" />
         <StatCard value={fmtTokens(tokenTotal)} label="Tokens" tone="token" />
       </div>
+
+      <ContextUsageCard
+        usage={contextUsage}
+        unavailableNote={
+          session.dataSource === 'indexeddb'
+            ? 'Doubao 的 trajectory 与 IndexedDB 本地记录未提供 Token usage，无法计算上下文用量。'
+            : undefined
+        }
+      />
 
       <div className="grid gap-4 lg:grid-cols-2">
         <InsightSection title="Tool Statistics">

@@ -274,6 +274,7 @@ export function SessionsView() {
               <MessageList
                 messages={activeDetail.messages}
                 platform={platform}
+                sessionId={activeDetail.session?.id}
                 msgFilter={msgFilter}
                 timing={timing}
                 visibleUnitCount={visibleUnitCount}
