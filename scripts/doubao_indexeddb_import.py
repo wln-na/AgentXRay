@@ -2,8 +2,8 @@
 """Build AgentXRay's read-only Doubao cache from a Chromium IndexedDB snapshot.
 
 Only a narrow allow-list is persisted: project/session identifiers, names and
-workspace roots, message text/tool summaries, timestamps, section identifiers,
-and model names.
+workspace roots, message text/tool summaries, user-visible request context,
+timestamps, section identifiers, and model names.
 Raw request metadata (cookies, tokens, IPs, device IDs, log IDs) is never stored.
 """
 
@@ -19,6 +19,7 @@ import sys
 import tempfile
 from pathlib import Path
 from typing import Any, Iterable
+from urllib.parse import urlsplit, urlunsplit
 
 SCHEMA_VERSION = "3"
 
@@ -150,6 +151,141 @@ def parse_general_task_param(value: Any) -> dict[str, Any]:
     return parse_json_object(value)
 
 
+def safe_context_url(value: Any) -> str | None:
+    if not isinstance(value, str) or not value:
+        return None
+    try:
+        parsed = urlsplit(value)
+    except ValueError:
+        return None
+    if parsed.scheme not in {"http", "https", "file"}:
+        return None
+    hostname = parsed.hostname or ""
+    if parsed.scheme in {"http", "https"} and not hostname:
+        return None
+    port = f":{parsed.port}" if parsed.port else ""
+    netloc = f"{hostname}{port}"
+    return urlunsplit((parsed.scheme, netloc, parsed.path, "", ""))
+
+
+def xml_context(tag: str, content: str, attributes: dict[str, str] | None = None) -> str | None:
+    text = content.strip()
+    if not text:
+        return None
+    serialized_attributes = "".join(
+        f" {key}={json.dumps(value, ensure_ascii=False)}"
+        for key, value in (attributes or {}).items()
+        if value
+    )
+    return f"<{tag}{serialized_attributes}>\n{text}\n</{tag}>"
+
+
+def parse_user_context_items(value: Any) -> list[str]:
+    """Extract only user-visible context fields from one task request."""
+    if isinstance(value, str):
+        try:
+            value = json.loads(value)
+        except (TypeError, ValueError):
+            value = []
+    output: list[str] = []
+    for item in js_values(value):
+        context = as_dict(item)
+        context_type = str(context.get("context_type") or "")
+        params = as_dict(context.get("context_param"))
+        if context_type != "12":
+            continue
+        browser = parse_json_object(params.get("browser_context"))
+        active_tab = as_dict(browser.get("active_tab"))
+        tab_count = browser.get("open_tab_count")
+        lines = ["# In app browser:"]
+        if isinstance(tab_count, (int, float)):
+            lines.append(f"- The user has the in-app browser open with {int(tab_count)} tabs.")
+        title = active_tab.get("title")
+        url = safe_context_url(active_tab.get("url"))
+        if isinstance(title, str) and title:
+            lines.append(f"- Current title: {title}")
+        if url:
+            lines.append(f"- Current URL: {url}")
+        rendered = xml_context("in-app-browser-context", "\n".join(lines))
+        if rendered:
+            output.append(rendered)
+    return output
+
+
+def parse_task_input_context(container: dict[str, Any]) -> list[str]:
+    """Extract project rules and project identity that were part of this task input."""
+    option = as_dict(container.get("option"))
+    ext = as_dict(container.get("ext"))
+    general_candidates = (
+        option.get("general_task_param"),
+        ext.get("general_task_param"),
+        container.get("general_task_param"),
+    )
+    task_input: dict[str, Any] = {}
+    for candidate in general_candidates:
+        general_task_param = parse_general_task_param(candidate)
+        task_input = parse_json_object(general_task_param.get("task_input_json"))
+        if task_input:
+            break
+    output: list[str] = []
+
+    agents_md = as_dict(task_input.get("agents_md"))
+    for file_value in js_values(agents_md.get("files")):
+        file_item = as_dict(file_value)
+        content = file_item.get("content")
+        file_path = file_item.get("file_path")
+        if not isinstance(content, str) or not content.strip():
+            continue
+        attributes = {"path": file_path} if isinstance(file_path, str) and file_path else None
+        rendered = xml_context("agents_md", content, attributes)
+        if rendered:
+            output.append(rendered)
+
+    project_context = as_dict(task_input.get("project_context"))
+    project_name = project_context.get("project_name")
+    folders: list[str] = []
+    for folder_value in js_values(project_context.get("folders")):
+        folder = as_dict(folder_value)
+        path = folder.get("path")
+        if isinstance(path, str) and path:
+            folders.append(path)
+    project_lines = []
+    if isinstance(project_name, str) and project_name:
+        project_lines.append(f"Project: {project_name}")
+    if folders:
+        project_lines.append("Folders:\n" + "\n".join(f"- {path}" for path in folders))
+    rendered_project = xml_context("current-state", "\n".join(project_lines))
+    if rendered_project:
+        output.append(rendered_project)
+    return output
+
+
+def message_request_context(message: dict[str, Any]) -> list[str]:
+    ext = as_dict(as_dict(message.get("extra")).get("ext"))
+    output = [*parse_user_context_items(ext.get("user_context")), *parse_task_input_context(ext)]
+    seen: set[str] = set()
+    return [item for item in output if item not in seen and not seen.add(item)]
+
+
+def task_request_context(task: dict[str, Any]) -> list[str]:
+    sync_task = as_dict(as_dict(task.get("requestQuery")).get("syncTask"))
+    output = [*parse_user_context_items(sync_task.get("user_context")), *parse_task_input_context(sync_task)]
+    seen: set[str] = set()
+    return [item for item in output if item not in seen and not seen.add(item)]
+
+
+def request_user_message_ids(task: dict[str, Any]) -> set[str]:
+    sync_task = as_dict(as_dict(task.get("requestQuery")).get("syncTask"))
+    ids: set[str] = set()
+    for value in js_values(sync_task.get("messages")):
+        item = as_dict(value)
+        for field in ("message_id", "local_message_id"):
+            candidate = item.get(field)
+            if candidate not in (None, ""):
+                ids.add(str(candidate))
+    return ids
+
+
 def task_context(task: dict[str, Any]) -> dict[str, str | None]:
     request = as_dict(as_dict(as_dict(task.get("requestQuery")).get("syncTask")))
     client_meta = as_dict(request.get("client_meta"))
@@ -247,10 +383,47 @@ def extract_projects(payload: dict[str, Any], sequence: int, projects: dict[str,
                 })
 
 
+def context_text_part(text: str) -> dict[str, str]:
+    return {"type": "text", "text": text}
+
+
+def is_context_text_part(part: Any) -> bool:
+    return (
+        isinstance(part, dict)
+        and part.get("type") == "text"
+        and isinstance(part.get("text"), str)
+        and part["text"].startswith(("<agents_md", "<in-app-browser-context", "<current-state"))
+    )
+
+
+def retain_context_parts(current: list[Any], cached: list[Any]) -> list[Any]:
+    """Keep task-bound context and cached body when later UI state is partial."""
+    current_has_body = any(not is_context_text_part(part) for part in current)
+    merged = list(current) if current_has_body else [dict(part) if isinstance(part, dict) else part for part in cached]
+    current_text = "\n".join(
+        str(part.get("text") or "") for part in merged if isinstance(part, dict) and part.get("type") == "text"
+    )
+    context_sources = cached if current_has_body else current
+    for part in context_sources:
+        if not is_context_text_part(part):
+            continue
+        text = part["text"]
+        if text not in current_text:
+            merged.append(dict(part))
+            current_text += f"\n{text}"
+    return merged
+
+
 def upsert_message(messages: dict[str, dict[str, Any]], item: dict[str, Any]) -> None:
     current = messages.get(item["id"])
-    if current is None or (item["sequence"], item["sort_index"]) >= (current["sequence"], current["sort_index"]):
+    if current is None:
         messages[item["id"]] = item
+        return
+    if (item["sequence"], item["sort_index"]) >= (current["sequence"], current["sort_index"]):
+        item["content"] = retain_context_parts(item.get("content") or [], current.get("content") or [])
+        messages[item["id"]] = item
+        return
+    current["content"] = retain_context_parts(current.get("content") or [], item.get("content") or [])
 
 
 def extract_task_state(
@@ -291,15 +464,57 @@ def extract_task_state(
         session["sequence"] = max(int(session.get("sequence", -1)), sequence)
         session["source_task_id"] = str(task.get("sessionId") or task_id)
 
-        role_maps = (("user", as_dict(task.get("sentMessages"))), ("assistant", as_dict(task.get("receivedMessages"))))
+        request_context = task_request_context(task)
+        request_ids = request_user_message_ids(task)
+        sent_mapping = as_dict(task.get("sentMessages"))
+        context_target_ids: set[str] = set()
+        for message_id, value in sent_mapping.items():
+            message = as_dict(value)
+            extra = as_dict(message.get("extra"))
+            identifiers = {
+                str(candidate)
+                for candidate in (
+                    message_id,
+                    extra.get("message_id"),
+                    extra.get("local_message_id"),
+                    message.get("messageId"),
+                )
+                if candidate not in (None, "")
+            }
+            if identifiers & request_ids:
+                context_target_ids.add(str(extra.get("message_id") or message.get("messageId") or message_id))
+        if request_context and not context_target_ids and len(sent_mapping) == 1:
+            only_message_id, only_value = next(iter(sent_mapping.items()))
+            only_message = as_dict(only_value)
+            only_extra = as_dict(only_message.get("extra"))
+            context_target_ids.add(str(only_extra.get("message_id") or only_message.get("messageId") or only_message_id))
+
+        role_maps = (("user", sent_mapping), ("assistant", as_dict(task.get("receivedMessages"))))
         for role, mapping in role_maps:
             for index, (message_id, value) in enumerate(mapping.items()):
                 message = as_dict(value)
                 extra = as_dict(message.get("extra"))
                 parts = extract_text_and_tools(message)
+                actual_id = str(extra.get("message_id") or message.get("messageId") or message_id)
+                message_context = message_request_context(message) if role == "user" else []
+                attached_context = [
+                    *message_context,
+                    *(request_context if role == "user" and actual_id in context_target_ids else []),
+                ]
+                if role == "user" and attached_context:
+                    existing_text = "\n".join(
+                        str(part.get("text") or "")
+                        for part in parts
+                        if isinstance(part, dict) and part.get("type") == "text"
+                    )
+                    seen_context: set[str] = set()
+                    parts.extend(
+                        context_text_part(text)
+                        for text in attached_context
+                        if text not in existing_text and text not in seen_context and not seen_context.add(text)
+                    )
                 if not parts:
                     continue
-                actual_id = extra.get("message_id") or message.get("messageId") or message_id
                 timestamp = iso_time(extra.get("create_time") or task.get("querySendTimestamp") or task.get("createTime"))
                 section_id = extra.get("section_id") or ctx["section_id"]
                 message_key = message_model_key(message, ctx["model_key"])
@@ -443,8 +658,12 @@ def merge_existing_cache(
 
 def write_cache(output: Path, source: Path, projects: dict[str, dict[str, Any]], sessions: dict[str, dict[str, Any]], messages: dict[str, dict[str, Any]], models: dict[str, str], warning_count: int) -> None:
     merge_existing_cache(output, projects, sessions, messages, models)
-    temp_output = output.with_suffix(output.suffix + ".next")
-    for extra in (temp_output, Path(str(temp_output) + "-wal"), Path(str(temp_output) + "-shm")):
+    output.parent.mkdir(parents=True, exist_ok=True)
+    temp_fd, temp_name = tempfile.mkstemp(prefix=f"{output.name}.", suffix=".next", dir=output.parent)
+    os.close(temp_fd)
+    temp_output = Path(temp_name)
+    temp_output.unlink(missing_ok=True)
+    for extra in (Path(str(temp_output) + "-wal"), Path(str(temp_output) + "-shm")):
         extra.unlink(missing_ok=True)
     db = open_database(temp_output)
     try:

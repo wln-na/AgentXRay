@@ -52,6 +52,16 @@ test('Doubao importer builds a privacy-minimized cache with project, session, me
     ]
   );
   assert.match(messages[0].content_json, /fixture question/);
+  const userContent = JSON.parse(messages[0].content_json);
+  const userText = userContent.map((part) => part.text || '').join('\n');
+  assert.match(userText, /<agents_md path="\/Users\/example\/Projects\/fixture-project\/AGENTS\.md">/);
+  assert.match(userText, /Run tests before delivery\./);
+  assert.match(userText, /<in-app-browser-context>/);
+  assert.match(userText, /https:\/\/example\.test\/fixture/);
+  assert.match(userText, /https:\/\/example\.test\/message/);
+  assert.doesNotMatch(userText, /access_token|fixture-secret|#private/);
+  assert.match(userText, /<current-state>/);
+  assert.match(userText, /Project: Fixture Project/);
   assert.match(messages[1].content_json, /fixture_tool/);
   const assistantContent = JSON.parse(messages[1].content_json);
   const fileOperation = assistantContent.find((part) => part.id === 'fixture-file-tool');
@@ -94,6 +104,14 @@ test('Doubao importer builds a privacy-minimized cache with project, session, me
   assert.equal(adapter.session.projectPath, '/Users/example/Projects/fixture-project');
   assert.equal(adapter.session.cwd, '/Users/example/Projects/fixture-project');
   assert.equal(adapter.detail.projectPath, '/Users/example/Projects/fixture-project');
+  const apiUserText = adapter.messages
+    .find((message) => message.role === 'user')
+    .content.map((part) => part.text || '')
+    .join('\n');
+  assert.match(apiUserText, /fixture question/);
+  assert.match(apiUserText, /<agents_md/);
+  assert.match(apiUserText, /<in-app-browser-context>/);
+  assert.match(apiUserText, /https:\/\/example\.test\/message/);
   const apiFileOperation = adapter.messages
     .flatMap((message) => message.content || [])
     .find((part) => part.id === 'fixture-file-tool');
@@ -109,7 +127,15 @@ test('Doubao importer builds a privacy-minimized cache with project, session, me
   assert.equal(apiBashOperation.durationSource, 'estimated');
 
   const cacheBytes = fs.readFileSync(output, 'utf8');
-  for (const forbidden of ['inner_user_ip', 'local_device_id', 'trace_id', 'cookie', 'authorization']) {
+  for (const forbidden of [
+    'inner_user_ip',
+    'local_device_id',
+    'trace_id',
+    'cookie',
+    'authorization',
+    'fixture-local-user',
+    'fixture-secret',
+  ]) {
     assert.equal(cacheBytes.includes(forbidden), false, `cache leaked ${forbidden}`);
   }
 });
