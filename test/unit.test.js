@@ -251,13 +251,18 @@ test('buildTraceTurns: reasoning does not advance the clock', () => {
 });
 
 test('buildTraceTurns pairs standalone toolCall→toolResult and flags errors', () => {
-  const turns = pure.buildTraceTurns(syntheticMessages());
+  const messages = syntheticMessages();
+  messages.find((message) => message.toolCallId === 'call-1' && message.role === 'toolCall').details = {
+    estimatedDurationMs: 9000,
+  };
+  const turns = pure.buildTraceTurns(messages);
   const tool = turns[0].spans.find((s) => s.toolCallId === 'call-1');
   assert.ok(tool, 'expected tool span for call-1');
   assert.equal(tool.kind, 'tool-error');
   assert.equal(tool.label, 'bash');
   assert.equal(tool.start, T0 + 6000);
   assert.equal(tool.end, T0 + 8000);
+  assert.equal(tool.durationSource, 'measured');
 });
 
 test('buildTraceTurns pairs content-part tool_use→tool_result in the owning turn', () => {
@@ -268,6 +273,23 @@ test('buildTraceTurns pairs content-part tool_use→tool_result in the owning tu
   assert.equal(tool.label, 'Read');
   assert.equal(tool.start, T0 + 23000);
   assert.equal(tool.end, T0 + 25000);
+  assert.equal(tool.durationSource, 'measured');
+});
+
+test('buildTraceTurns uses explicit estimates only when no measured tool result exists', () => {
+  const msgs = [
+    { id: 'u1', role: 'user', timestamp: iso(0), content: [{ type: 'text', text: 'q' }] },
+    {
+      id: 'a1',
+      role: 'assistant',
+      timestamp: iso(1000),
+      content: [{ type: 'toolCall', id: 'estimated', name: 'Bash', estimatedDurationMs: 3000 }],
+    },
+  ];
+  const turns = pure.buildTraceTurns(msgs);
+  const span = turns[0].spans.find((s) => s.toolCallId === 'estimated');
+  assert.equal(span.end, T0 + 4000);
+  assert.equal(span.durationSource, 'estimated');
 });
 
 test('buildTraceTurns: unanswered call gets a 50ms floor span', () => {
@@ -280,6 +302,7 @@ test('buildTraceTurns: unanswered call gets a 50ms floor span', () => {
   const span = turns[0].spans.find((s) => s.toolCallId === 'lonely');
   assert.equal(span.end, T0 + 1000 + 50);
   assert.equal(span.kind, 'tool');
+  assert.equal(span.durationSource, 'unknown');
 });
 
 test('buildTraceTurns attaches agentSpans to the turn they started in', () => {

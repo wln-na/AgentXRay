@@ -100,6 +100,13 @@ test('Doubao importer builds a privacy-minimized cache with project, session, me
   assert.equal(apiFileOperation.summary, '已读取 fixture.txt');
   assert.equal(apiFileOperation.path, '/Users/example/Projects/fixture-project/fixture.txt');
   assert.match(apiFileOperation.content, /fixture file content/);
+  assert.equal(apiFileOperation.estimatedDurationMs, 1000);
+  assert.equal(apiFileOperation.durationSource, 'estimated');
+  const apiBashOperation = adapter.messages
+    .flatMap((message) => message.content || [])
+    .find((part) => part.id === 'fixture-bash-tool');
+  assert.equal(apiBashOperation.estimatedDurationMs, 3000);
+  assert.equal(apiBashOperation.durationSource, 'estimated');
 
   const cacheBytes = fs.readFileSync(output, 'utf8');
   for (const forbidden of ['inner_user_ip', 'local_device_id', 'trace_id', 'cookie', 'authorization']) {

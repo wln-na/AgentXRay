@@ -29,6 +29,13 @@ function spanIcon(kind: TraceSpan['kind']): string {
   return kind === 'chat' ? '🤖' : kind === 'agent' ? '🌳' : '🔧';
 }
 
+function spanDurationText(span: TraceSpan): string {
+  const duration = formatDurationCompact(span.end - span.start);
+  if (span.durationSource === 'estimated') return `约 ${duration}（估算）`;
+  if (span.durationSource === 'unknown') return '耗时未知';
+  return duration;
+}
+
 function TurnCard({
   turn,
   onSpanClick,
@@ -56,14 +63,13 @@ function TurnCard({
         {turn.spans.map((s, i) => {
           const left = ((s.start - turn.start) / dur) * 100;
           const width = Math.max(((s.end - s.start) / dur) * 100, 0.4);
-          const durText = formatDurationCompact(s.end - s.start);
-          const showDur = width < 78; // avoid overflowing the track for near-full bars
+          const durText = spanDurationText(s);
           const isAgent = s.kind === 'agent';
           const title = isAgent
             ? `子 Agent ${s.label} — ${durText}，点击查看其执行记录`
             : `${s.label} — ${durText}，点击查看详情`;
           return (
-            <div key={i} className="mb-1 grid grid-cols-[170px_1fr] items-center gap-2.5">
+            <div key={i} className="mb-1 grid grid-cols-[170px_minmax(0,1fr)_110px] items-center gap-2.5">
               <div
                 className="truncate text-right font-mono text-xs text-muted-foreground"
                 title={s.label}
@@ -87,13 +93,14 @@ function TurnCard({
                     }
                   }}
                 >
-                  {showDur && (
-                    <span className="absolute -top-px left-[calc(100%+6px)] whitespace-nowrap font-mono text-[0.68rem] leading-[14px] text-muted-foreground">
-                      {durText}
-                    </span>
-                  )}
                 </div>
               </div>
+              <span
+                className="whitespace-nowrap text-right font-mono text-[0.68rem] text-muted-foreground"
+                title={durText}
+              >
+                {durText}
+              </span>
             </div>
           );
         })}
