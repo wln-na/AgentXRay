@@ -56,6 +56,13 @@ export function SessionInsights() {
   const msgs = query.data.messages;
   const session = query.data.session || {};
   const st = computeSessionInsights(msgs);
+  const tokenUsage = query.data.tokenUsage || session.tokenUsage;
+  const tokenInput = tokenUsage?.input ?? st.totalInputTokens;
+  const tokenOutput = tokenUsage?.output ?? st.totalOutputTokens;
+  const tokenCacheRead = tokenUsage?.cacheRead ?? st.totalCacheRead;
+  const tokenCacheWrite = tokenUsage?.cacheWrite ?? 0;
+  const tokenReasoning = tokenUsage?.reasoning ?? 0;
+  const tokenTotal = tokenUsage?.totalTokens ?? tokenInput + tokenOutput;
 
   const errorRate = st.toolResultCount > 0 ? ((st.errorCount / st.toolResultCount) * 100).toFixed(1) : '0.0';
   const maxCalls = st.toolStats.length > 0 ? st.toolStats[0].calls : 1;
@@ -95,7 +102,7 @@ export function SessionInsights() {
         <StatCard value={st.toolCallCount} label="Tool Calls" />
         <StatCard value={`${errorRate}%`} label="Error Rate" tone={st.errorCount > 0 ? 'error' : undefined} />
         <StatCard value={st.retries.length} label="Retries" />
-        <StatCard value={fmtTokens(st.totalInputTokens + st.totalOutputTokens)} label="Tokens" tone="token" />
+        <StatCard value={fmtTokens(tokenTotal)} label="Tokens" tone="token" />
       </div>
 
       <div className="grid gap-4 lg:grid-cols-2">
@@ -178,14 +185,21 @@ export function SessionInsights() {
           )}
         </InsightSection>
 
-        {st.totalInputTokens + st.totalOutputTokens + st.totalCacheRead > 0 && (
+        {tokenTotal + tokenCacheRead + tokenCacheWrite + tokenReasoning > 0 && (
           <InsightSection title="Token Breakdown">
             <div className="flex flex-wrap gap-2">
-              <Badge variant="secondary">Input: {formatNumber(st.totalInputTokens)}</Badge>
-              <Badge variant="secondary">Output: {formatNumber(st.totalOutputTokens)}</Badge>
-              {st.totalCacheRead > 0 && (
-                <Badge variant="secondary">Cache Read: {formatNumber(st.totalCacheRead)}</Badge>
+              <Badge variant="secondary">Input: {formatNumber(tokenInput)}</Badge>
+              <Badge variant="secondary">Output: {formatNumber(tokenOutput)}</Badge>
+              {tokenCacheRead > 0 && (
+                <Badge variant="secondary">Cache Read: {formatNumber(tokenCacheRead)}</Badge>
               )}
+              {tokenCacheWrite > 0 && (
+                <Badge variant="secondary">Cache Write: {formatNumber(tokenCacheWrite)}</Badge>
+              )}
+              {tokenReasoning > 0 && (
+                <Badge variant="secondary">Reasoning: {formatNumber(tokenReasoning)}</Badge>
+              )}
+              <Badge variant="secondary">Total: {formatNumber(tokenTotal)}</Badge>
             </div>
           </InsightSection>
         )}

@@ -59,6 +59,15 @@ describe('AgentXRay API', () => {
       assert.deepEqual(s1.topTools, [{ name: 'shell', count: 1 }]);
       assert.equal(s1.childCount, 2);
       assert.equal(s1.lastActivity, '2026-01-15T10:00:14.000Z');
+      assert.deepEqual(s1.tokenUsage, {
+        input: 250,
+        output: 45,
+        cacheRead: 110,
+        cacheWrite: 9,
+        reasoning: 13,
+        totalTokens: 295,
+        contextWindow: 200000,
+      });
       const archived = sessions.find((s) => s.id === CODEX_ARCHIVED);
       assert.equal(archived.archived, true);
       assert.ok(archived.filePath.includes('.codex/archived_sessions/'));
@@ -90,8 +99,8 @@ describe('AgentXRay API', () => {
       assert.equal(grandchildDetail.session.rootThreadId, CODEX1);
     });
 
-    it('serves a session detail with normalized roles', async () => {
-      const { session, messages } = await getJson(srv.base, `/api/codex/sessions/${CODEX1}`);
+    it('serves a session detail with normalized roles and the latest cumulative token snapshot', async () => {
+      const { session, messages, tokenUsage } = await getJson(srv.base, `/api/codex/sessions/${CODEX1}`);
       assert.equal(session.id, CODEX1);
       assert.equal(session.cwd, '/fixtures/project-alpha');
       const roles = messages.map((m) => m.role);
@@ -106,6 +115,18 @@ describe('AgentXRay API', () => {
       assert.equal(session.model, 'fixture-model-b');
       assert.deepEqual(session.models, ['fixture-model-a', 'fixture-model-b']);
       assert.equal(session.provider, 'fixture-provider');
+      const expectedTokenUsage = {
+        input: 250,
+        output: 45,
+        cacheRead: 110,
+        cacheWrite: 9,
+        reasoning: 13,
+        totalTokens: 295,
+        contextWindow: 200000,
+      };
+      assert.deepEqual(session.tokenUsage, expectedTokenUsage);
+      assert.deepEqual(tokenUsage, expectedTokenUsage);
+      assert.ok(messages.every((message) => message.usage === null));
       const call = messages.find((m) => m.role === 'toolCall');
       assert.equal(call.toolName, 'shell');
       assert.equal(call.toolCallId, 'call-fx-1');
@@ -113,6 +134,17 @@ describe('AgentXRay API', () => {
       assert.equal(result.toolCallId, 'call-fx-1');
       assert.equal(result.isError, false);
       assert.deepEqual(result.details, { status: 'ok', exitCode: 0, durationMs: 400 });
+    });
+
+    it('aggregates only the latest Codex token snapshot per file', async () => {
+      const insights = await getJson(srv.base, '/api/insights?platform=codex');
+      assert.deepEqual(insights.tokenUsage, {
+        input: 250,
+        output: 45,
+        cacheRead: 110,
+        cacheWrite: 9,
+        reasoning: 13,
+      });
     });
   });
 

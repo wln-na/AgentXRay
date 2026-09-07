@@ -1,6 +1,6 @@
 // Pure helpers for the sessions view — ported from public/js/app.js (algorithms unchanged).
 
-import type { MessageContentPart, Platform, SessionMessage, SessionSummary } from '@/api/types';
+import type { MessageContentPart, MessageUsage, Platform, SessionMessage, SessionSummary } from '@/api/types';
 import { getTextContent, parseTimestampMs } from '@/lib/pure';
 
 export type MsgFilter = null | 'user' | 'assistant' | 'toolCall' | 'toolResult' | 'error' | 'spawn';
@@ -187,7 +187,16 @@ export function buildTimingAnalysis(messagesData: SessionMessage[] | null | unde
   };
 }
 
-export function summarizeTokens(messagesData: SessionMessage[]): Record<string, number> {
+export function summarizeTokens(
+  messagesData: SessionMessage[],
+  sessionUsage?: MessageUsage | null
+): Record<string, number> {
+  if (sessionUsage) {
+    return Object.entries(sessionUsage).reduce<Record<string, number>>((acc, [key, value]) => {
+      if (typeof value === 'number') acc[key] = value;
+      return acc;
+    }, {});
+  }
   return messagesData.reduce<Record<string, number>>((acc, message) => {
     const usage = message.usage || {};
     Object.entries(usage).forEach(([key, value]) => {

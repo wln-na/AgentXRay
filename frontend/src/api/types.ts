@@ -80,6 +80,8 @@ export interface MessageUsage {
   output?: number;
   cacheRead?: number;
   cacheWrite?: number;
+  reasoning?: number;
+  contextWindow?: number;
   /** number on some platforms; omp emits an object with per-bucket dollars + total */
   cost?: number | { total?: number; [key: string]: unknown } | null;
   totalTokens?: number;
@@ -127,6 +129,7 @@ export interface SessionMeta {
   agentNickname?: string | null;
   historyAvailable?: boolean;
   contentAvailable?: boolean;
+  tokenUsage?: MessageUsage | null;
   [key: string]: unknown;
 }
 
@@ -134,6 +137,7 @@ export interface SessionMeta {
 export interface SessionDetail {
   session: SessionMeta;
   messages: SessionMessage[];
+  tokenUsage?: MessageUsage | null;
 }
 
 /** Item of GET /api/{omp,claude-code}/sessions/:id/children */
@@ -221,7 +225,15 @@ export interface Insights {
   totalToolCalls: number;
   totalCost: number;
   errorRate: number;
-  tokenUsage: { input?: number; output?: number; cacheRead?: number; [key: string]: number | undefined };
+  tokenUsage: {
+    input?: number;
+    output?: number;
+    cacheRead?: number;
+    cacheWrite?: number;
+    reasoning?: number;
+    totalTokens?: number;
+    [key: string]: number | undefined;
+  };
   toolStats: ToolStat[];
   errorClusters: ErrorCluster[];
   trend: TrendPoint[];

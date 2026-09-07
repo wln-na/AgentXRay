@@ -179,7 +179,8 @@ export function SessionSummary({
 
   const msgs = detail.messages;
   const stats = useMemo(() => computeSessionStats(msgs), [msgs]);
-  const tokenSummary = useMemo(() => summarizeTokens(msgs), [msgs]);
+  const tokenUsage = detail.tokenUsage || detail.session?.tokenUsage;
+  const tokenSummary = useMemo(() => summarizeTokens(msgs, tokenUsage), [msgs, tokenUsage]);
   const cost = useMemo(() => sessionCost(msgs), [msgs]);
   const listModel = selectedSummary?.model || detail.session?.model;
 
@@ -418,14 +419,26 @@ export function SessionSummary({
               <div className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Tokens</div>
               <div className="flex flex-wrap gap-1">
                 {Object.keys(tokenSummary).length ? (
-                  Object.entries(tokenSummary).map(([key, value]) => (
-                    <span
-                      key={key}
-                      className="rounded border border-border px-1.5 py-0.5 text-[11px] text-muted-foreground"
-                    >
-                      {key}: {formatNumber(value)}
-                    </span>
-                  ))
+                  Object.entries(tokenSummary).map(([key, value]) => {
+                    const label =
+                      {
+                        input: 'Input',
+                        output: 'Output',
+                        cacheRead: 'Cache Read',
+                        cacheWrite: 'Cache Write',
+                        reasoning: 'Reasoning',
+                        totalTokens: 'Total',
+                        contextWindow: 'Context Window',
+                      }[key] || key;
+                    return (
+                      <span
+                        key={key}
+                        className="rounded border border-border px-1.5 py-0.5 text-[11px] text-muted-foreground"
+                      >
+                        {label}: {formatNumber(value)}
+                      </span>
+                    );
+                  })
                 ) : (
                   <span className="rounded border border-border px-1.5 py-0.5 text-[11px] text-muted-foreground">
                     No token data
