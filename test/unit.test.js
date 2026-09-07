@@ -378,6 +378,41 @@ test('session stats detect Skill reads from structured tool paths without counti
   assert.deepEqual(stats.skillNames, { 'browser-use-automation-mac': 1 });
 });
 
+test('session stats only count actual Skill file reads in shell commands', () => {
+  const { computeSessionStats } = loadSessionsLib();
+  const stats = computeSessionStats([
+    {
+      id: 'call-heredoc',
+      role: 'toolCall',
+      toolName: 'exec_command',
+      details: {
+        cmd: "cat > report.md <<'MD'\nExample: <name>/SKILL.md and token-optimizer/SKILL.md\nMD",
+      },
+    },
+    {
+      id: 'call-read',
+      role: 'toolCall',
+      toolName: 'exec_command',
+      details: {
+        cmd: "sed -n '1,120p' ~/.agents/skills/token-optimizer/SKILL.md",
+      },
+    },
+    {
+      id: 'call-loop',
+      role: 'toolCall',
+      toolName: 'exec_command',
+      details: {
+        cmd: "for d in agent-reach api-mock; do sed -n '1,30p' ~/.agents/skills-archive/$d/SKILL.md; done",
+      },
+    },
+  ]);
+  assert.deepEqual(stats.skillNames, {
+    'token-optimizer': 1,
+    'agent-reach': 1,
+    'api-mock': 1,
+  });
+});
+
 test('same-timestamp user context fragments merge with the actual user input', () => {
   const { compactUserContextFragments, splitUserMessageContext } = loadSessionsLib();
   const messages = compactUserContextFragments([

@@ -368,23 +368,61 @@ export function splitUserMessageContext(text: string): UserMessageParts {
 
 function skillNamesFromValue(value: unknown): string[] {
   const names = new Set<string>();
-  const pattern = /(?:^|[\\/])([^\\/"'\s]+)[\\/]SKILL\.md\b/gi;
-  const scan = (candidate: unknown) => {
+  const skillPathPattern = /(?:^|[\\/])([^\\/"'\s<>$]+)[\\/]SKILL\.md\b/gi;
+  const addPathMatches = (text: string) => {
+    for (const match of text.matchAll(skillPathPattern)) {
+      const name = match[1];
+      if (name && /^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(name)) names.add(name);
+    }
+  };
+  const stripHeredocs = (command: string) =>
+    command.replace(/<<\s*['"]?([A-Za-z_][A-Za-z0-9_]*)['"]?\s*\n[\s\S]*?\n\1(?=\n|$)/g, '');
+  const scanCommand = (rawCommand: string) => {
+    let command = stripHeredocs(rawCommand);
+    command = command.replace(
+      /\bfor\s+([A-Za-z_][A-Za-z0-9_]*)\s+in\s+([^;\n]+);\s*do([\s\S]*?)\bdone\b/g,
+      (whole, variable: string, rawItems: string, body: string) => {
+        const variablePath = new RegExp(`\\$\\{?${variable}\\}?[\\\\/]SKILL\\.md\\b`);
+        const readsSkill = /\b(?:cat|sed|head|tail|less|more|bat|batcat|nl|awk|grep|rg)\b/.test(body);
+        if (readsSkill && variablePath.test(body)) {
+          for (const item of rawItems.trim().split(/\s+/)) {
+            const name = item.replace(/^['"]|['"]$/g, '');
+            if (/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(name)) names.add(name);
+          }
+        }
+        return whole.replace(body, '');
+      }
+    );
+    for (const segment of command.split(/(?:\n|;|&&|\|\|)/)) {
+      if (!/\b(?:cat|sed|head|tail|less|more|bat|batcat|nl|awk|grep|rg)\b/.test(segment)) continue;
+      addPathMatches(segment);
+    }
+  };
+  const scan = (candidate: unknown, key = '') => {
     if (typeof candidate === 'string') {
-      for (const match of candidate.matchAll(pattern)) {
-        if (match[1]) names.add(match[1]);
+      if (key === 'cmd' || key === 'command') {
+        scanCommand(candidate);
+        return;
+      }
+      if (['path', 'file_path', 'filename', 'notebook_path'].includes(key)) {
+        addPathMatches(candidate);
+        return;
+      }
+      if (key === '' || key === 'arguments' || key === 'input' || key === 'details') {
+        try {
+          scan(JSON.parse(candidate), key);
+        } catch {
+          // Unstructured prose and tool output are not evidence of a Skill read.
+        }
       }
       return;
     }
     if (Array.isArray(candidate)) {
-      for (const item of candidate) scan(item);
+      for (const item of candidate) scan(item, key);
       return;
     }
     if (!candidate || typeof candidate !== 'object') return;
-    for (const [childKey, childValue] of Object.entries(candidate)) {
-      if (['content', 'summary', 'text'].includes(childKey)) continue;
-      scan(childValue);
-    }
+    for (const [childKey, childValue] of Object.entries(candidate)) scan(childValue, childKey);
   };
   scan(value);
   return [...names];
