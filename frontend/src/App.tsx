@@ -1,4 +1,4 @@
-import { lazy, Suspense } from 'react';
+import { lazy, Suspense, useState } from 'react';
 import { Copy } from 'lucide-react';
 import { toast } from 'sonner';
 import { PlatformBar } from '@/components/PlatformBar';
@@ -38,6 +38,7 @@ export default function App() {
   useVersionPoller();
   const view = useAppStore((s) => s.view);
   const setView = useAppStore((s) => s.setView);
+  const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
 
   return (
     <TooltipProvider delayDuration={300}>
@@ -69,17 +70,17 @@ export default function App() {
             </a>
           </div>
         ) : null}
-        <PlatformBar />
-        <div className="grid min-h-0 flex-1 grid-cols-[280px_minmax(0,1fr)]">
-          <Sidebar />
-          <main className="flex min-h-0 flex-col overflow-hidden">
+        <PlatformBar onOpenSessions={() => setMobileSidebarOpen(true)} />
+        <div className="grid min-h-0 flex-1 grid-cols-1 lg:grid-cols-[280px_minmax(0,1fr)]">
+          <Sidebar mobileOpen={mobileSidebarOpen} onMobileOpenChange={setMobileSidebarOpen} />
+          <main className="flex min-h-0 min-w-0 flex-col overflow-hidden">
             <Tabs
               value={view}
               onValueChange={(v) => setView(v as MainView)}
               className="flex min-h-0 flex-1 flex-col"
             >
-              <div className="border-b border-border px-4 pt-3">
-                <TabsList className="bg-transparent p-0">
+              <div className="overflow-x-auto border-b border-border px-2 pt-2 sm:px-4 sm:pt-3">
+                <TabsList className="min-w-max bg-transparent p-0">
                   {TABS.map((tab) => (
                     <TabsTrigger
                       key={tab.view}
@@ -94,7 +95,7 @@ export default function App() {
               </div>
               <Suspense fallback={<ViewFallback />}>
                 {view === 'sessions' ? (
-                  <TabsContent value="sessions" forceMount className="mt-0 min-h-0 flex-1 overflow-auto p-4">
+                  <TabsContent value="sessions" forceMount className="mt-0 min-h-0 flex-1 overflow-auto p-2 sm:p-4">
                     <SessionsView />
                   </TabsContent>
                 ) : null}

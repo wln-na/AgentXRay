@@ -13,7 +13,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { formatDurationCompact, parseTimestampMs } from '@/lib/pure';
+import { parseTimestampMs } from '@/lib/pure';
 import { cn } from '@/lib/utils';
 import { useAppStore } from '@/store';
 import { filterSessionList, formatDate } from './lib';
@@ -23,30 +23,11 @@ const VIRT_THRESHOLD = 200; // below this many sessions, render everything
 const VIRT_OVERSCAN = 10; // extra cards above/below the visible range
 const VIRT_ESTIMATE = 96; // estimated card height incl. gap
 
-const SOURCE_ICONS: Record<string, string> = {
-  cli: '⌨️',
-  telegram: '✈️',
-  discord: '🎮',
-  weixin: '💬',
-  wechat: '💬',
-  slack: '💼',
-  web: '🌐',
-  feishu: '🐦',
-  whatsapp: '📱',
-};
-
 function chipTexts(session: SessionSummary): string[] {
   const chips: string[] = [];
-  if (session.userCount) chips.push(`👤 ${session.userCount}`);
-  if (session.assistantCount) chips.push(`🤖 ${session.assistantCount}`);
-  if (session.toolCallCount) chips.push(`🔧 ${session.toolCallCount}`);
-  if (session.spawnCount) chips.push(`🌳 ${session.spawnCount} spawn`);
-  if (session.childCount) chips.push(`🌳 ${session.childCount} 子 Agent`);
-  if (session.model) chips.push(`🧠 ${session.model.split('/').pop()}`);
-  if (session.source) chips.push(`${SOURCE_ICONS[session.source.toLowerCase()] || '📡'} ${session.source}`);
-  const startMs = parseTimestampMs(session.timestamp);
-  const endMs = parseTimestampMs(session.lastActivity);
-  if (startMs && endMs && endMs - startMs >= 5000) chips.push(`⏱ ${formatDurationCompact(endMs - startMs)}`);
+  if (session.model) chips.push(session.model.split('/').pop() || session.model);
+  if (session.toolCallCount) chips.push(`${session.toolCallCount} 次工具`);
+  if (session.childCount || session.spawnCount) chips.push(`${session.childCount || session.spawnCount} 个子 Agent`);
   return chips;
 }
 
@@ -68,15 +49,17 @@ const SessionCard = memo(function SessionCard({
   return (
     <div
       tabIndex={0}
+      role="button"
+      aria-current={active ? 'true' : undefined}
       data-session-id={session.id}
       onClick={onClick}
       onKeyDown={(e) => {
         if (e.key === 'Enter') onClick();
       }}
       className={cn(
-        'cursor-pointer rounded-md border px-2.5 py-2 text-xs transition-colors',
+        'cursor-pointer rounded-md border px-2.5 py-2 text-xs transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
         active
-          ? 'border-primary/70 bg-primary/10'
+          ? 'border-primary bg-primary/10 shadow-[inset_3px_0_0_hsl(var(--primary))]'
           : 'border-border bg-card/60 hover:border-primary/40 hover:bg-card'
       )}
     >
@@ -90,14 +73,14 @@ const SessionCard = memo(function SessionCard({
           <span className="rounded border border-border px-1 py-px text-[10px] uppercase">{session.status}</span>
         ) : null}
       </div>
+      <div className="mt-1 truncate font-medium text-foreground">{session.title || session.id}</div>
       <div className="mt-1 flex flex-wrap gap-1">
         {chipTexts(session).map((chip) => (
-          <span key={chip} className="rounded bg-secondary px-1 py-px text-[10px] text-muted-foreground">
+          <span key={chip} className="rounded bg-secondary px-1.5 py-0.5 text-[10px] text-muted-foreground">
             {chip}
           </span>
         ))}
       </div>
-      <div className="mt-1 truncate font-medium text-foreground">{session.title || session.id}</div>
       {preview ? <div className="mt-0.5 line-clamp-2 text-[11px] text-muted-foreground">{preview}</div> : null}
     </div>
   );
@@ -285,15 +268,22 @@ export function SessionList({
   filterTerm,
   matchedSessionIds,
   isSearching = false,
+  onSessionSelected,
 }: {
   filterTerm: string;
   matchedSessionIds?: Set<string> | null;
   isSearching?: boolean;
+  onSessionSelected?: () => void;
 }) {
   const selectedSessionId = useAppStore((s) => s.selectedSessionId);
   const platform = useAppStore((s) => s.platform);
   const selectedAgent = useAppStore((s) => s.selectedAgent);
   const setSelectedSessionId = useAppStore((s) => s.setSelectedSessionId);
+  const selectSession = (id: string) => {
+    setSelectedSessionId(id);
+    onSessionSelected?.();
+  };
+
   const { data, isLoading, error, refetch } = useSessionsList();
   const sessions = data ?? [];
   const [selectedProject, setSelectedProject] = useState(ALL_PROJECTS);
@@ -582,7 +572,7 @@ export function SessionList({
                 <SessionCard
                   session={session}
                   active={session.id === selectedSessionId}
-                  onSelect={setSelectedSessionId}
+                  onSelect={selectSession}
                 />
               </div>
             );

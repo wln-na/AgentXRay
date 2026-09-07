@@ -202,73 +202,39 @@ export function SessionSummary({
 
   return (
     <div className="rounded-lg border border-border bg-card/60 p-3" data-testid="session-summary">
-      <div className="flex flex-wrap items-start justify-between gap-2">
-        <div className="min-w-0">
-          <h2 className="truncate text-sm font-semibold">{detail.session?.id || selectedSessionId}</h2>
-          <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-muted-foreground">
-            <span>{formatDate(detail.session?.timestamp)}</span>
-            <span>{detail.session?.cwd || 'Unknown cwd'}</span>
-            {localPaths.map((localPath, index) => (
-              <button
-                key={localPath}
-                type="button"
-                className="cursor-pointer truncate max-w-[340px] hover:text-foreground hover:underline"
-                title={`点击复制本地路径：${localPath}`}
-                onClick={async () => {
-                  try {
-                    await navigator.clipboard.writeText(localPath);
-                    setPathCopied(true);
-                    setTimeout(() => setPathCopied(false), 1500);
-                  } catch (error) {
-                    toast.error('复制失败: ' + (error as Error).message);
-                  }
-                }}
-              >
-                {index === 0 ? '📁' : '↳'} {pathCopied ? '已复制!' : localPath}
-              </button>
-            ))}
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="min-w-0 flex-1">
+          <h2 className="truncate text-base font-semibold" title={selectedSummary?.title || detail.session?.id || selectedSessionId}>
+            {selectedSummary?.title || detail.session?.id || selectedSessionId}
+          </h2>
+          <div className="mt-1.5 flex flex-wrap items-center gap-1.5 text-[11px] text-muted-foreground">
+            <span className="rounded border border-border px-1.5 py-0.5">{formatDate(detail.session?.timestamp)}</span>
+            {selectedSummary?.projectName || detail.session?.projectName || detail.session?.cwd ? (
+              <span className="max-w-[260px] truncate rounded border border-border px-1.5 py-0.5" title={selectedSummary?.projectPath || detail.session?.projectPath || detail.session?.cwd || ''}>
+                {selectedSummary?.projectName || detail.session?.projectName || detail.session?.cwd}
+              </span>
+            ) : null}
+            {listModel ? <span className="rounded border border-border px-1.5 py-0.5">模型：{listModel}</span> : null}
+            <span className="rounded border border-border px-1.5 py-0.5">消息：{msgs.length}</span>
+            <span className="rounded border border-border px-1.5 py-0.5">工具：{stats.toolCallCount}</span>
             {selectedSummary?.archived || detail.session?.archived ? (
-              <span className="rounded border border-amber-500/50 bg-amber-500/10 px-1 text-amber-700 dark:text-amber-300">
+              <span className="rounded border border-amber-500/50 bg-amber-500/10 px-1.5 py-0.5 text-amber-700 dark:text-amber-300">
                 已归档
               </span>
             ) : null}
-            {detail.session?.dataSource ? (
-              <span className="rounded border border-border px-1">来源: {detail.session.dataSource}</span>
-            ) : null}
             {detail.session?.contentAvailable === false ? (
-              <span className="rounded border border-[#e3b341]/60 px-1 text-[#b7791f]">本地未保留正文</span>
+              <span className="rounded border border-[#e3b341]/60 px-1.5 py-0.5 text-[#b7791f]">本地未保留正文</span>
             ) : null}
-            {listModel ? <span className="rounded border border-border px-1">🧠 {listModel}</span> : null}
-            {total !== null ? (
-              <span title="Wall-clock time from first to last message">⏱ Total: {formatDurationCompact(total)}</span>
-            ) : null}
-            {total !== null && timing.totalToolDurationMs !== null && total > 0 ? (
-              <span title="Estimated breakdown: tool execution time vs model inference time (model = total − tool exec)">
-                🔧 Tool exec: {formatDurationCompact(toolMs)} ({Math.round((toolMs / total) * 100)}%) · 🤖 Model:{' '}
-                {formatDurationCompact(modelMs)} ({Math.round((modelMs / total) * 100)}%)
-              </span>
-            ) : null}
-            {timing.slowestStep ? (
-              <button
-                type="button"
-                className="cursor-pointer text-[#e3b341] hover:underline"
-                title="Click to jump — total agent work time for this turn (user msg → last agent response)"
-                onClick={() => timing.slowestStep?.messageId && onScrollToMessage(timing.slowestStep.messageId)}
-              >
-                🐌 Slowest turn: +{formatDurationCompact(timing.slowestStep.deltaMs)} ({timing.slowestStep.label})
-              </button>
-            ) : null}
-            <span>耗时分析看 Trace 视图</span>
           </div>
         </div>
-        <div className="flex items-start gap-2">
+        <div className="flex flex-wrap items-center justify-end gap-2">
           <button
             type="button"
             className={ACTION_BTN}
             title={msgOrder === 'newest-first' ? '当前：最新在上；点击改为最早在上' : '当前：最早在上；点击改为最新在上'}
             onClick={() => setMsgOrder(msgOrder === 'newest-first' ? 'oldest-first' : 'newest-first')}
           >
-            {msgOrder === 'newest-first' ? '⬇️ 改为最早在上' : '⬆️ 改为最新在上'}
+            {msgOrder === 'newest-first' ? '改为最早在上' : '改为最新在上'}
           </button>
           <button
             type="button"
@@ -277,7 +243,7 @@ export function SessionSummary({
             onClick={toggleCollapsed}
             data-testid="summary-toggle"
           >
-            {collapsed ? '▸ 详情' : '▾ 收起'}
+            {collapsed ? '更多信息' : '收起信息'}
           </button>
           <ResumeButton cwd={detail.session?.cwd} />
           <ExportMenu detail={detail} />
@@ -286,6 +252,53 @@ export function SessionSummary({
 
       {!collapsed ? (
         <div className="mt-3 space-y-3" data-testid="summary-body">
+          <div className="rounded-md border border-border/70 p-2.5 text-[11px] text-muted-foreground">
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+              <span>会话 ID：{detail.session?.id || selectedSessionId}</span>
+              {detail.session?.dataSource ? <span>来源：{detail.session.dataSource}</span> : null}
+              {total !== null ? <span>总耗时：{formatDurationCompact(total)}</span> : null}
+              {total !== null && timing.totalToolDurationMs !== null && total > 0 ? (
+                <span>
+                  工具执行：{formatDurationCompact(toolMs)}（{Math.round((toolMs / total) * 100)}%） · 模型：
+                  {formatDurationCompact(modelMs)}（{Math.round((modelMs / total) * 100)}%）
+                </span>
+              ) : null}
+              {timing.slowestStep ? (
+                <button
+                  type="button"
+                  className="text-[#b7791f] hover:underline"
+                  title="跳转到耗时最长的一轮"
+                  onClick={() => timing.slowestStep?.messageId && onScrollToMessage(timing.slowestStep.messageId)}
+                >
+                  最慢一轮：{formatDurationCompact(timing.slowestStep.deltaMs)}（{timing.slowestStep.label}）
+                </button>
+              ) : null}
+            </div>
+            {localPaths.length ? (
+              <div className="mt-2 space-y-1 border-t border-border/60 pt-2">
+                <div className="font-medium text-foreground">本地路径</div>
+                {localPaths.map((localPath) => (
+                  <button
+                    key={localPath}
+                    type="button"
+                    className="block max-w-full truncate text-left hover:text-foreground hover:underline"
+                    title={`点击复制本地路径：${localPath}`}
+                    onClick={async () => {
+                      try {
+                        await navigator.clipboard.writeText(localPath);
+                        setPathCopied(true);
+                        setTimeout(() => setPathCopied(false), 1500);
+                      } catch (error) {
+                        toast.error('复制失败: ' + (error as Error).message);
+                      }
+                    }}
+                  >
+                    {pathCopied ? '已复制!' : localPath}
+                  </button>
+                ))}
+              </div>
+            ) : null}
+          </div>
           <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
             <div className="rounded-md border border-border/70 p-2.5">
               <div className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
