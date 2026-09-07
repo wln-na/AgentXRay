@@ -8,7 +8,7 @@ import { cn } from '@/lib/utils';
 import { useAppStore } from '@/store';
 import type { MsgFilter, TimingAnalysis } from './lib';
 import { applyMsgFilter, compactAssistantFragments, messageAnchorId } from './lib';
-import { GraphLane, MessageBubble } from './MessageItem';
+import { GraphLane, MessageBubble, ToolCallPart } from './MessageItem';
 import type { MessageUnit, RetryInfo, TurnUnit } from './messageUnits';
 import { buildMessageUnits, buildRetryChains } from './messageUnits';
 
@@ -90,15 +90,19 @@ function TurnGroup({ unit, timing, isCodex }: { unit: TurnUnit; timing: TimingAn
     <div className="flex gap-2" id={`row-${messageAnchorId(unit.assistant) || ''}`}>
       <GraphLane message={unit.assistant} />
       <div className="min-w-0 flex-1">
-        {assistantText ? <MessageBubble message={unit.assistant} timing={timing.timingByMessage.get(unit.assistant)} /> : null}
+        {assistantText ? (
+          <MessageBubble
+            message={unit.assistant}
+            timing={timing.timingByMessage.get(unit.assistant)}
+            showEmbeddedToolCalls={false}
+          />
+        ) : null}
         <details className="turn-group group mt-1 rounded-md border border-border bg-card/40">
           <summary className="flex cursor-pointer list-none flex-wrap items-center gap-2 px-2 py-1.5 text-xs [&::-webkit-details-marker]:hidden">
             <span className="text-[10px] text-muted-foreground transition-transform group-open:rotate-90">▶</span>
-            <strong>
-              🔧 {toolCount} tool call{toolCount > 1 ? 's' : ''}
-            </strong>
+            <strong>🔧 {toolCount} 次工具调用</strong>
             <span className="text-muted-foreground">
-              · {resultCount} result{resultCount > 1 ? 's' : ''}
+              · {resultCount > 0 ? `${resultCount} 条独立结果` : isCodex ? '未记录结果' : '结果随调用展示'}
             </span>
             <span className="flex flex-wrap items-center gap-1">
               {batchDur !== null ? (
@@ -133,6 +137,9 @@ function TurnGroup({ unit, timing, isCodex }: { unit: TurnUnit; timing: TimingAn
             </span>
           </summary>
           <div className="space-y-2 border-t border-border/60 p-2">
+            {unit.tools.map((tool, i) =>
+              'role' in tool ? null : <ToolCallPart key={tool.id || i} part={tool} />
+            )}
             {unit.steps.map((step, i) => {
               const retryInfo = retryMap.get(step);
               return (

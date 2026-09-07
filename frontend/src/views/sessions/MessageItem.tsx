@@ -244,7 +244,15 @@ export function GraphLane({ message }: { message: SessionMessage }) {
   );
 }
 
-export function MessageBubble({ message, timing }: { message: SessionMessage; timing: TimingMeta | undefined }) {
+export function MessageBubble({
+  message,
+  timing,
+  showEmbeddedToolCalls = true,
+}: {
+  message: SessionMessage;
+  timing: TimingMeta | undefined;
+  showEmbeddedToolCalls?: boolean;
+}) {
   const text = getTextContent(message.content);
   const anchor = messageAnchorId(message) || '';
 
@@ -352,9 +360,9 @@ export function MessageBubble({ message, timing }: { message: SessionMessage; ti
           </details>
         ) : null}
         {text ? <Markdown text={text} /> : null}
-        {toolCalls.map((part, i) => (
-          <ToolCallPart key={part.id || i} part={part} />
-        ))}
+        {showEmbeddedToolCalls
+          ? toolCalls.map((part, i) => <ToolCallPart key={part.id || i} part={part} />)
+          : null}
       </article>
     );
   }
