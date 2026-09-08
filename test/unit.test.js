@@ -1,12 +1,17 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const path = require('node:path');
+const fs = require('node:fs');
+const fsp = require('node:fs/promises');
+const os = require('node:os');
 const { createRequire } = require('node:module');
 
 const ROOT = path.join(__dirname, '..');
 const textUtils = require(path.join(ROOT, 'lib', 'text-utils'));
 const llmJson = require(path.join(ROOT, 'lib', 'llm-json'));
 const pure = require(path.join(ROOT, 'public', 'js', 'pure.js'));
+const config = require(path.join(ROOT, 'lib', 'config'));
+const codex = require(path.join(ROOT, 'lib', 'platforms', 'codex'));
 
 function loadSessionsLib() {
   const { buildSync } = createRequire(path.join(ROOT, 'frontend', 'package.json'))('esbuild');
@@ -612,4 +617,282 @@ test('renderMarkdownHtml renders headings, lists, links and fenced code', () => 
   assert.ok(html.includes('<ol><li>one</li></ol>'));
   assert.ok(html.includes('<a href="https://e.co/a&amp;b" target="_blank" rel="noopener">x</a>'));
   assert.ok(html.includes('<pre><code data-lang="js">code&lt;&gt;\n</code></pre>'));
+});
+
+// --- lib/context.js: same-timestamp filtering ---
+
+const { sliceMessagesBeforeTarget, filterMessagesBeforeTimestamp } = require(path.join(ROOT, 'lib', 'context'));
+
+test('sliceMessagesBeforeTarget returns index-based slice including same-timestamp messages', () => {
+  const ts = '2026-09-07T00:00:00.000Z';
+  const messages = [
+    { id: 'u1', role: 'user', timestamp: '2026-09-07T00:00:00.000Z', content: [] },
+    { id: 'a1', role: 'assistant', timestamp: ts, content: [] },
+    { id: 'u2', role: 'user', timestamp: ts, content: [] }, // same ms as a1
+    { id: 'a2', role: 'assistant', timestamp: '2026-09-07T00:00:01.000Z', content: [] },
+  ];
+  const { priorMessages, targetMessage } = sliceMessagesBeforeTarget(messages, { messageIndex: 2 });
+  assert.equal(targetMessage.id, 'u2');
+  // Index-based slice includes a1 even though it shares u2's timestamp
+  assert.equal(priorMessages.length, 2);
+  assert.equal(priorMessages[1].id, 'a1');
+});
+
+test('filterMessagesBeforeTimestamp excludes same-timestamp messages from prior history', () => {
+  const ts = '2026-09-07T00:00:00.000Z';
+  const messages = [
+    { id: 'u1', role: 'user', timestamp: '2026-09-06T00:00:00.000Z', content: [] },
+    { id: 'a1', role: 'assistant', timestamp: ts, content: [] },
+    { id: 'u2', role: 'user', timestamp: ts, content: [] }, // target, same ms as a1
+  ];
+  const { priorMessages: raw, targetMessage } = sliceMessagesBeforeTarget(messages, { messageIndex: 2 });
+  const targetTs = Date.parse(targetMessage.timestamp);
+  const filtered = filterMessagesBeforeTimestamp(raw, targetTs);
+  // a1 shares the target timestamp and must be excluded
+  assert.equal(filtered.length, 1);
+  assert.equal(filtered[0].id, 'u1');
+});
+
+test('filterMessagesBeforeTimestamp keeps messages without timestamps', () => {
+  const messages = [
+    { id: 'x', role: 'assistant', content: [] }, // no timestamp
+    { id: 'y', role: 'assistant', timestamp: '2026-09-07T00:00:00.000Z', content: [] },
+  ];
+  const filtered = filterMessagesBeforeTimestamp(messages, Date.parse('2026-09-07T00:00:00.000Z'));
+  assert.equal(filtered.length, 1);
+  assert.equal(filtered[0].id, 'x');
+});
+
+test('filterMessagesBeforeTimestamp returns array unchanged when targetTs is null', () => {
+  const messages = [{ id: 'a', role: 'user', timestamp: '2026-09-07T00:00:00.000Z', content: [] }];
+  assert.equal(filterMessagesBeforeTimestamp(messages, null), messages);
+});
+
+// --- lib/search.js: limit resolution ---
+
+const { resolveSearchLimit } = require(path.join(ROOT, 'lib', 'search'));
+
+test('resolveSearchLimit defaults to 50 for missing, empty and non-numeric values', () => {
+  assert.equal(resolveSearchLimit(undefined), 50);
+  assert.equal(resolveSearchLimit(''), 50);
+  assert.equal(resolveSearchLimit('abc'), 50);
+  assert.equal(resolveSearchLimit(NaN), 50);
+  // parseInt-based parsing accepts leading digits: '12abc' → 12
+  assert.equal(resolveSearchLimit('12abc'), 12);
+});
+
+test('resolveSearchLimit rejects zero and negative values', () => {
+  assert.equal(resolveSearchLimit('0'), 50);
+  assert.equal(resolveSearchLimit('-5'), 50);
+  assert.equal(resolveSearchLimit('-100'), 50);
+});
+
+test('resolveSearchLimit clamps valid values to [1, 100]', () => {
+  assert.equal(resolveSearchLimit('1'), 1);
+  assert.equal(resolveSearchLimit('25'), 25);
+  assert.equal(resolveSearchLimit('100'), 100);
+  assert.equal(resolveSearchLimit('150'), 100); // capped
+  assert.equal(resolveSearchLimit('9999'), 100);
+});
+
+// --- lib/insights.js: LRU cache eviction ---
+
+const { insightsCache, setInsightsCache, INSIGHTS_CACHE_MAX } = require(path.join(ROOT, 'lib', 'insights'));
+
+test('setInsightsCache evicts oldest keys when exceeding LRU cap', () => {
+  insightsCache.clear();
+  // Fill to cap
+  for (let i = 0; i < INSIGHTS_CACHE_MAX; i++) {
+    setInsightsCache(`key-${i}`, { idx: i });
+  }
+  assert.equal(insightsCache.size, INSIGHTS_CACHE_MAX);
+  assert.ok(insightsCache.has('key-0'));
+
+  // Insert one more → oldest (key-0) should be evicted
+  setInsightsCache(`key-${INSIGHTS_CACHE_MAX}`, { idx: INSIGHTS_CACHE_MAX });
+  assert.equal(insightsCache.size, INSIGHTS_CACHE_MAX);
+  assert.ok(!insightsCache.has('key-0'), 'oldest key should be evicted');
+  assert.ok(insightsCache.has('key-1'), 'second-oldest should remain');
+  assert.ok(insightsCache.has(`key-${INSIGHTS_CACHE_MAX}`), 'newest should be present');
+
+  // Re-inserting an existing key moves it to the end (Map re-insert on set),
+  // so the next eviction should drop key-1, not the re-inserted key.
+  setInsightsCache('key-1', { idx: 1, refreshed: true });
+  setInsightsCache('key-overflow', {});
+  assert.ok(!insightsCache.has('key-2'), 'key-2 should now be the oldest and evicted');
+  assert.ok(insightsCache.has('key-1'), 're-inserted key-1 should survive');
+
+  insightsCache.clear();
+});
+
+test('buildInsightsResponse includes cachedAt timestamp', () => {
+  const { buildInsightsResponse } = require(path.join(ROOT, 'lib', 'insights'));
+  const before = Date.now();
+  const resp = buildInsightsResponse(1, 2, 3, 4, 5, 6, 7, 8, 9, {}, [], {});
+  const after = Date.now();
+  assert.ok(typeof resp.cachedAt === 'number');
+  assert.ok(resp.cachedAt >= before && resp.cachedAt <= after);
+});
+
+// --- lib/config.js: assertSafePath ---
+
+test('assertSafePath accepts a path inside allowedRoot', async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'ax-safe-'));
+  try {
+    const inner = path.join(root, 'sub', 'file.jsonl');
+    await config.assertSafePath(path.resolve(inner), root); // should not throw
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('assertSafePath rejects a path outside allowedRoot', async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'ax-safe-'));
+  try {
+    const outside = path.join(path.dirname(root), 'escape', 'file.jsonl');
+    await assert.rejects(() => config.assertSafePath(path.resolve(outside), root), /escapes allowed scope/);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('assertSafePath accepts a non-existent path inside allowedRoot (prefix-only)', async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'ax-safe-'));
+  try {
+    const notYet = path.join(root, 'not-yet-created', 'dir');
+    await config.assertSafePath(path.resolve(notYet), root); // should not throw
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('assertSafePath rejects a symlink that escapes allowedRoot', async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'ax-safe-'));
+  const outside = fs.mkdtempSync(path.join(os.tmpdir(), 'ax-outside-'));
+  try {
+    const linkPath = path.join(root, 'escape-link');
+    fs.symlinkSync(outside, linkPath);
+    await assert.rejects(() => config.assertSafePath(path.resolve(linkPath), root), /escapes allowed scope/);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+    fs.rmSync(outside, { recursive: true, force: true });
+  }
+});
+
+// --- lib/platforms/codex.js: extractCodexUserPromptText ---
+
+test('extractCodexUserPromptText returns null for environment_context injection', () => {
+  const payload = {
+    role: 'user',
+    content: [{ type: 'input_text', text: '<environment_context>\n  <cwd>/x</cwd>\n</environment_context>' }],
+  };
+  assert.equal(codex.extractCodexUserPromptText(payload), null);
+});
+
+test('extractCodexUserPromptText returns null for user_instructions injection', () => {
+  const payload = {
+    role: 'user',
+    content: [{ type: 'input_text', text: '<user_instructions>\nBe helpful\n</user_instructions>' }],
+  };
+  assert.equal(codex.extractCodexUserPromptText(payload), null);
+});
+
+test('extractCodexUserPromptText extracts real user text from array content', () => {
+  const payload = {
+    role: 'user',
+    content: [{ type: 'input_text', text: 'Please fix the login bug' }],
+  };
+  assert.equal(codex.extractCodexUserPromptText(payload), 'Please fix the login bug');
+});
+
+test('extractCodexUserPromptText handles string content', () => {
+  const payload = { role: 'user', content: 'hello world' };
+  assert.equal(codex.extractCodexUserPromptText(payload), 'hello world');
+});
+
+test('extractCodexUserPromptText returns null for empty content', () => {
+  assert.equal(codex.extractCodexUserPromptText({}), null);
+  assert.equal(codex.extractCodexUserPromptText({ content: [] }), null);
+  assert.equal(codex.extractCodexUserPromptText({ content: '' }), null);
+});
+
+// --- lib/platforms/codex.js: codexArchivedDir ---
+
+test('codexArchivedDir returns default CODEX_ARCHIVED_DIR for default baseDir', () => {
+  assert.equal(codex.codexArchivedDir(config.CODEX_DIR), config.CODEX_ARCHIVED_DIR);
+  assert.equal(codex.codexArchivedDir(null), config.CODEX_ARCHIVED_DIR);
+  assert.equal(codex.codexArchivedDir(undefined), config.CODEX_ARCHIVED_DIR);
+});
+
+test('codexArchivedDir returns archived_sessions child for custom baseDir', () => {
+  const custom = path.join(config.HOME, 'my-custom-codex');
+  const result = codex.codexArchivedDir(custom);
+  assert.equal(result, path.join(custom, 'archived_sessions'));
+});
+
+// --- lib/platforms/codex.js: findCodexSessionFileFast ---
+
+function makeTempCodexDir() {
+  // Must be under HOME because findCodexSessionFileFast validates against HOME.
+  const base = fs.mkdtempSync(path.join(config.HOME, '.agentxray-codextest-'));
+  fs.mkdirSync(path.join(base, 'archived_sessions'));
+  return base;
+}
+
+test('findCodexSessionFileFast matches exact session filename in active dir', async () => {
+  const base = makeTempCodexDir();
+  try {
+    const sessionName = 'rollout-2026-03-31T13-18-02-019d4253-d114-7da1-89b7-826bb51867b6';
+    fs.writeFileSync(path.join(base, `${sessionName}.jsonl`), '{}');
+    const found = await codex.findCodexSessionFileFast(base, sessionName);
+    assert.equal(found, path.join(base, `${sessionName}.jsonl`));
+  } finally {
+    fs.rmSync(base, { recursive: true, force: true });
+  }
+});
+
+test('findCodexSessionFileFast matches by uuid suffix', async () => {
+  const base = makeTempCodexDir();
+  try {
+    const uuid = '019d4253-d114-7da1-89b7-826bb51867b6';
+    const fullName = `rollout-2026-03-31T13-18-02-${uuid}`;
+    fs.writeFileSync(path.join(base, `${fullName}.jsonl`), '{}');
+    const found = await codex.findCodexSessionFileFast(base, uuid);
+    assert.equal(found, path.join(base, `${fullName}.jsonl`));
+  } finally {
+    fs.rmSync(base, { recursive: true, force: true });
+  }
+});
+
+test('findCodexSessionFileFast finds file in archived_sessions dir', async () => {
+  const base = makeTempCodexDir();
+  try {
+    const sessionName = 'rollout-2026-01-01T00-00-00-abcdef01-1234-5678-9abc-def012345678';
+    fs.writeFileSync(path.join(base, 'archived_sessions', `${sessionName}.jsonl`), '{}');
+    const found = await codex.findCodexSessionFileFast(base, sessionName);
+    assert.equal(found, path.join(base, 'archived_sessions', `${sessionName}.jsonl`));
+  } finally {
+    fs.rmSync(base, { recursive: true, force: true });
+  }
+});
+
+test('findCodexSessionFileFast returns null for non-existent session', async () => {
+  const base = makeTempCodexDir();
+  try {
+    fs.writeFileSync(path.join(base, 'rollout-other.jsonl'), '{}');
+    const found = await codex.findCodexSessionFileFast(base, 'nonexistent-session-id');
+    assert.equal(found, null);
+  } finally {
+    fs.rmSync(base, { recursive: true, force: true });
+  }
+});
+
+test('findCodexSessionFileFast returns null for empty sessionId', async () => {
+  const base = makeTempCodexDir();
+  try {
+    assert.equal(await codex.findCodexSessionFileFast(base, ''), null);
+    assert.equal(await codex.findCodexSessionFileFast(base, null), null);
+  } finally {
+    fs.rmSync(base, { recursive: true, force: true });
+  }
 });

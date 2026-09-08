@@ -1,4 +1,4 @@
-import { lazy, Suspense, useState } from 'react';
+import { lazy, Suspense, useEffect, useState } from 'react';
 import { Copy } from 'lucide-react';
 import { toast } from 'sonner';
 import { PlatformBar } from '@/components/PlatformBar';
@@ -39,6 +39,11 @@ export default function App() {
   const view = useAppStore((s) => s.view);
   const setView = useAppStore((s) => s.setView);
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
+
+  // Close mobile drawer when the user switches top-level tabs
+  useEffect(() => {
+    if (mobileSidebarOpen) setMobileSidebarOpen(false);
+  }, [view]);
 
   return (
     <TooltipProvider delayDuration={300}>

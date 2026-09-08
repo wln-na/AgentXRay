@@ -15,8 +15,8 @@ const CONFIDENCE_STYLES: Record<string, { label: string; className: string }> = 
   low: { label: '低', className: 'border-red-600/40 bg-red-600/10 text-red-600' },
 };
 
-function PromptComponent({ component, index }: { component: ContextSnapshot['systemPrompt']['components'][number]; index: number }) {
-  const [expanded, setExpanded] = useState(component.present && index < 2);
+function PromptComponent({ component }: { component: ContextSnapshot['systemPrompt']['components'][number] }) {
+  const [expanded, setExpanded] = useState(false);
   const hasContent = component.present && component.content && component.content.length > 0;
 
   return (
@@ -24,6 +24,7 @@ function PromptComponent({ component, index }: { component: ContextSnapshot['sys
       <button
         type="button"
         onClick={() => setExpanded((v) => !v)}
+        aria-expanded={expanded}
         className="flex w-full cursor-pointer items-center justify-between gap-2 px-2 py-1.5 text-left"
       >
         <span className="flex min-w-0 items-center gap-1.5">
@@ -158,7 +159,7 @@ export function ContextPanel({
         </div>
         <div className="space-y-1">
           {snapshot.systemPrompt.components.map((component, i) => (
-            <PromptComponent key={`${component.type}-${i}`} component={component} index={i} />
+            <PromptComponent key={`${component.type}-${i}`} component={component} />
           ))}
         </div>
       </div>

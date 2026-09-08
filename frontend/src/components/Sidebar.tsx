@@ -157,6 +157,12 @@ export function Sidebar({
     return () => document.removeEventListener('keydown', handler);
   }, []);
 
+  // Close mobile drawer when platform changes (e.g. via PlatformBar)
+  useEffect(() => {
+    if (mobileOpen) onMobileOpenChange(false);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [platform]);
+
   useEffect(() => {
     if (!mobileOpen) return;
     const onKeyDown = (event: KeyboardEvent) => {

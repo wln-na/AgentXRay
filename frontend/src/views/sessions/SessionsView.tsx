@@ -2,7 +2,7 @@
 // scroll-to-message (local + cross-view via pendingScrollMsgId), SSE tail.
 
 import { Activity, MessageSquare } from 'lucide-react';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { usePlatformProbe } from '@/hooks/usePlatformProbe';
 import { useAppStore } from '@/store';
 import { ChildAgentBanner } from '@/views/trace/ChildAgentsSection';
@@ -146,7 +146,11 @@ export function SessionsView() {
 
   const activeKey = `${platform}:${selectedSessionId}:${viewingChildAgent ?? ''}`;
   const activeDetail = activeQuery.data;
-  const timing = buildTimingAnalysis(activeDetail?.messages);
+  const timing = useMemo(() => buildTimingAnalysis(activeDetail?.messages), [activeDetail]);
+  const parentTiming = useMemo(
+    () => (viewingChildAgent ? buildTimingAnalysis(parentQuery.data?.messages) : timing),
+    [viewingChildAgent, parentQuery.data, timing]
+  );
 
   // New transcript loaded → legacy loadSession: all messages if ≤200, else first 60
   useEffect(() => {
@@ -220,7 +224,7 @@ export function SessionsView() {
         {parentQuery.data ? (
           <SessionSummary
             detail={parentQuery.data}
-            timing={viewingChildAgent ? buildTimingAnalysis(parentQuery.data.messages) : timing}
+            timing={parentTiming}
             msgFilter={msgFilter}
             setMsgFilter={setMsgFilter}
             onScrollToMessage={scrollToMessage}
