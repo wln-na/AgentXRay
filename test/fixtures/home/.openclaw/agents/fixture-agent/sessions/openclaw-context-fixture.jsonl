@@ -1,0 +1,4 @@
+{"type":"session","id":"openclaw-context-fixture","timestamp":"2026-01-19T09:00:00.000Z","cwd":"/fixtures/project-openclaw","version":"1.0.0"}
+{"type":"message","id":"openclaw-user-1","parentId":"leaf-user-1","timestamp":"2026-01-19T09:00:01.010Z","message":{"role":"user","content":[{"type":"text","text":"fixture: openclaw actual question"}]}}
+{"type":"message","id":"openclaw-assistant-1","parentId":"openclaw-user-1","timestamp":"2026-01-19T09:00:02.000Z","message":{"role":"assistant","model":"fixture-openclaw-model","content":[{"type":"text","text":"fixture: answer"}]}}
+{"type":"message","id":"openclaw-user-2","parentId":"leaf-no-context","timestamp":"2026-01-19T09:00:03.000Z","message":{"role":"user","content":[{"type":"text","text":"fixture: second question"}]}}

@@ -35,6 +35,7 @@ export const EMPTY_SETTINGS: DirSettings = {
   openclawDir: '',
   codexDir: '',
   claudeCodeDir: '',
+  claudeDesktopDir: '',
   hermesDir: '',
   ompDir: '',
   dshDir: '',
@@ -50,6 +51,8 @@ export function dirForPlatform(settings: DirSettings, platform: Platform): strin
       return settings.codexDir;
     case 'claude-code':
       return settings.claudeCodeDir;
+    case 'claude-desktop':
+      return settings.claudeDesktopDir;
     case 'hermes':
       return settings.hermesDir;
     case 'omp':
@@ -78,6 +81,7 @@ function loadPersisted(): { settings: DirSettings; platform: Platform; hasStored
       result.settings.openclawDir = typeof parsed.openclawDir === 'string' ? parsed.openclawDir : '';
       result.settings.codexDir = typeof parsed.codexDir === 'string' ? parsed.codexDir : '';
       result.settings.claudeCodeDir = typeof parsed.claudeCodeDir === 'string' ? parsed.claudeCodeDir : '';
+      result.settings.claudeDesktopDir = typeof parsed.claudeDesktopDir === 'string' ? parsed.claudeDesktopDir : '';
       result.settings.hermesDir = typeof parsed.hermesDir === 'string' ? parsed.hermesDir : '';
       result.settings.ompDir = typeof parsed.ompDir === 'string' ? parsed.ompDir : '';
       result.settings.dshDir = typeof parsed.dshDir === 'string' ? parsed.dshDir : '';

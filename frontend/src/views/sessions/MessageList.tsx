@@ -7,8 +7,8 @@ import { formatDurationCompact, getTextContent, parseTimestampMs } from '@/lib/p
 import { cn } from '@/lib/utils';
 import { useAppStore } from '@/store';
 import type { MsgFilter, TimingAnalysis } from './lib';
-import { applyMsgFilter, messageAnchorId } from './lib';
-import { GraphLane, MessageBubble } from './MessageItem';
+import { applyMsgFilter, compactAssistantFragments, compactUserContextFragments, messageAnchorId } from './lib';
+import { GraphLane, MessageBubble, ToolCallPart } from './MessageItem';
 import type { MessageUnit, RetryInfo, TurnUnit } from './messageUnits';
 import { buildMessageUnits, buildRetryChains } from './messageUnits';
 
@@ -48,9 +48,25 @@ function Chip({ className, title, children }: { className?: string; title?: stri
   );
 }
 
-function TurnGroup({ unit, timing, isCodex }: { unit: TurnUnit; timing: TimingAnalysis; isCodex: boolean }) {
+function TurnGroup({
+  unit,
+  timing,
+  isCodex,
+  contextEnabled,
+  contextPlatform,
+  contextSessionId,
+  contextDir,
+}: {
+  unit: TurnUnit;
+  timing: TimingAnalysis;
+  isCodex: boolean;
+  contextEnabled: boolean;
+  contextPlatform?: Platform;
+  contextSessionId?: string;
+  contextDir?: string;
+}) {
   const toolCount = unit.tools.length;
-  const stepCount = unit.steps.length;
+  const resultCount = unit.steps.filter((s) => s.role === 'toolResult').length;
   const errCount = unit.steps.filter((s) => s.role === 'toolResult' && s.isError).length;
   const { retryCount, retryMap } = buildRetryChains(unit);
 
@@ -90,15 +106,23 @@ function TurnGroup({ unit, timing, isCodex }: { unit: TurnUnit; timing: TimingAn
     <div className="flex gap-2" id={`row-${messageAnchorId(unit.assistant) || ''}`}>
       <GraphLane message={unit.assistant} />
       <div className="min-w-0 flex-1">
-        {assistantText ? <MessageBubble message={unit.assistant} timing={timing.timingByMessage.get(unit.assistant)} /> : null}
+        {assistantText ? (
+          <MessageBubble
+            message={unit.assistant}
+            timing={timing.timingByMessage.get(unit.assistant)}
+            showEmbeddedToolCalls={false}
+            contextEnabled={contextEnabled}
+            contextPlatform={contextPlatform}
+            contextSessionId={contextSessionId}
+            contextDir={contextDir}
+          />
+        ) : null}
         <details className="turn-group group mt-1 rounded-md border border-border bg-card/40">
           <summary className="flex cursor-pointer list-none flex-wrap items-center gap-2 px-2 py-1.5 text-xs [&::-webkit-details-marker]:hidden">
             <span className="text-[10px] text-muted-foreground transition-transform group-open:rotate-90">▶</span>
-            <strong>
-              🔧 {toolCount} tool call{toolCount > 1 ? 's' : ''}
-            </strong>
+            <strong>🔧 {toolCount} 次工具调用</strong>
             <span className="text-muted-foreground">
-              · {stepCount} result{stepCount > 1 ? 's' : ''}
+              · {resultCount > 0 ? `${resultCount} 条独立结果` : isCodex ? '未记录结果' : '结果随调用展示'}
             </span>
             <span className="flex flex-wrap items-center gap-1">
               {batchDur !== null ? (
@@ -133,6 +157,9 @@ function TurnGroup({ unit, timing, isCodex }: { unit: TurnUnit; timing: TimingAn
             </span>
           </summary>
           <div className="space-y-2 border-t border-border/60 p-2">
+            {unit.tools.map((tool, i) =>
+              'role' in tool ? null : <ToolCallPart key={tool.id || i} part={tool} />
+            )}
             {unit.steps.map((step, i) => {
               const retryInfo = retryMap.get(step);
               return (
@@ -140,7 +167,14 @@ function TurnGroup({ unit, timing, isCodex }: { unit: TurnUnit; timing: TimingAn
                   <GraphLane message={step} />
                   <div className="min-w-0 flex-1">
                     {retryInfo && retryInfo.totalAttempts > 1 ? <RetryAnnotation info={retryInfo} /> : null}
-                    <MessageBubble message={step} timing={timing.timingByMessage.get(step)} />
+                    <MessageBubble
+                      message={step}
+                      timing={timing.timingByMessage.get(step)}
+                      contextEnabled={contextEnabled}
+                      contextPlatform={contextPlatform}
+                      contextSessionId={contextSessionId}
+                      contextDir={contextDir}
+                    />
                   </div>
                 </div>
               );
@@ -155,6 +189,8 @@ function TurnGroup({ unit, timing, isCodex }: { unit: TurnUnit; timing: TimingAn
 export function MessageList({
   messages,
   platform,
+  sessionId,
+  dir,
   msgFilter,
   timing,
   visibleUnitCount,
@@ -162,6 +198,8 @@ export function MessageList({
 }: {
   messages: SessionMessage[];
   platform: Platform;
+  sessionId?: string;
+  dir?: string;
   msgFilter: MsgFilter;
   timing: TimingAnalysis;
   visibleUnitCount: number;
@@ -169,10 +207,15 @@ export function MessageList({
 }) {
   const isCodex = platform === 'codex' || platform === 'omp' || platform === 'dsh' || platform === 'gemini';
   const msgOrder = useAppStore((s) => s.msgOrder);
+  // Context reconstruction is supported for Codex and both Claude adapters.
+  const contextEnabled =
+    (platform === 'codex' || platform === 'claude-code' || platform === 'claude-desktop') && Boolean(sessionId);
 
   const units = useMemo<MessageUnit[]>(() => {
     const filtered = applyMsgFilter(timing.visibleMessages, msgFilter);
-    const built = buildMessageUnits(filtered, isCodex);
+    const compactedUsers = compactUserContextFragments(filtered);
+    const compacted = compactAssistantFragments(compactedUsers);
+    const built = buildMessageUnits(compacted, isCodex);
     // newest-first = reverse (latest on top); oldest-first = natural order
     return msgOrder === 'newest-first' ? built.reverse() : built;
   }, [timing, msgFilter, isCodex, msgOrder]);
@@ -191,11 +234,27 @@ export function MessageList({
           <div key={unit.msg.id || i} className="flex gap-2" id={`row-${messageAnchorId(unit.msg) || ''}`}>
             <GraphLane message={unit.msg} />
             <div className="min-w-0 flex-1">
-              <MessageBubble message={unit.msg} timing={timing.timingByMessage.get(unit.msg)} />
+              <MessageBubble
+                message={unit.msg}
+                timing={timing.timingByMessage.get(unit.msg)}
+                contextEnabled={contextEnabled}
+                contextPlatform={platform}
+                contextSessionId={sessionId}
+                contextDir={dir}
+              />
             </div>
           </div>
         ) : (
-          <TurnGroup key={unit.assistant.id || i} unit={unit} timing={timing} isCodex={isCodex} />
+          <TurnGroup
+            key={unit.assistant.id || i}
+            unit={unit}
+            timing={timing}
+            isCodex={isCodex}
+            contextEnabled={contextEnabled}
+            contextPlatform={platform}
+            contextSessionId={sessionId}
+            contextDir={dir}
+          />
         )
       )}
       {remaining > 0 ? (

@@ -1,10 +1,33 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const path = require('node:path');
+const fs = require('node:fs');
+const fsp = require('node:fs/promises');
+const os = require('node:os');
+const { createRequire } = require('node:module');
 
-const textUtils = require(path.join(__dirname, '..', 'lib', 'text-utils'));
-const llmJson = require(path.join(__dirname, '..', 'lib', 'llm-json'));
-const pure = require(path.join(__dirname, '..', 'public', 'js', 'pure.js'));
+const ROOT = path.join(__dirname, '..');
+const textUtils = require(path.join(ROOT, 'lib', 'text-utils'));
+const llmJson = require(path.join(ROOT, 'lib', 'llm-json'));
+const pure = require(path.join(ROOT, 'public', 'js', 'pure.js'));
+const config = require(path.join(ROOT, 'lib', 'config'));
+const codex = require(path.join(ROOT, 'lib', 'platforms', 'codex'));
+
+function loadSessionsLib() {
+  const { buildSync } = createRequire(path.join(ROOT, 'frontend', 'package.json'))('esbuild');
+  const output = buildSync({
+    entryPoints: [path.join(ROOT, 'frontend', 'src', 'views', 'sessions', 'lib.ts')],
+    bundle: true,
+    write: false,
+    platform: 'node',
+    format: 'cjs',
+    target: 'node18',
+    alias: { '@': path.join(ROOT, 'frontend', 'src') },
+  }).outputFiles[0].text;
+  const compiled = { exports: {} };
+  new Function('module', 'exports', 'require', output)(compiled, compiled.exports, require);
+  return compiled.exports;
+}
 
 // --- lib/text-utils ---
 
@@ -251,13 +274,18 @@ test('buildTraceTurns: reasoning does not advance the clock', () => {
 });
 
 test('buildTraceTurns pairs standalone toolCall→toolResult and flags errors', () => {
-  const turns = pure.buildTraceTurns(syntheticMessages());
+  const messages = syntheticMessages();
+  messages.find((message) => message.toolCallId === 'call-1' && message.role === 'toolCall').details = {
+    estimatedDurationMs: 9000,
+  };
+  const turns = pure.buildTraceTurns(messages);
   const tool = turns[0].spans.find((s) => s.toolCallId === 'call-1');
   assert.ok(tool, 'expected tool span for call-1');
   assert.equal(tool.kind, 'tool-error');
   assert.equal(tool.label, 'bash');
   assert.equal(tool.start, T0 + 6000);
   assert.equal(tool.end, T0 + 8000);
+  assert.equal(tool.durationSource, 'measured');
 });
 
 test('buildTraceTurns pairs content-part tool_use→tool_result in the owning turn', () => {
@@ -268,6 +296,23 @@ test('buildTraceTurns pairs content-part tool_use→tool_result in the owning tu
   assert.equal(tool.label, 'Read');
   assert.equal(tool.start, T0 + 23000);
   assert.equal(tool.end, T0 + 25000);
+  assert.equal(tool.durationSource, 'measured');
+});
+
+test('buildTraceTurns uses explicit estimates only when no measured tool result exists', () => {
+  const msgs = [
+    { id: 'u1', role: 'user', timestamp: iso(0), content: [{ type: 'text', text: 'q' }] },
+    {
+      id: 'a1',
+      role: 'assistant',
+      timestamp: iso(1000),
+      content: [{ type: 'toolCall', id: 'estimated', name: 'Bash', estimatedDurationMs: 3000 }],
+    },
+  ];
+  const turns = pure.buildTraceTurns(msgs);
+  const span = turns[0].spans.find((s) => s.toolCallId === 'estimated');
+  assert.equal(span.end, T0 + 4000);
+  assert.equal(span.durationSource, 'estimated');
 });
 
 test('buildTraceTurns: unanswered call gets a 50ms floor span', () => {
@@ -280,6 +325,7 @@ test('buildTraceTurns: unanswered call gets a 50ms floor span', () => {
   const span = turns[0].spans.find((s) => s.toolCallId === 'lonely');
   assert.equal(span.end, T0 + 1000 + 50);
   assert.equal(span.kind, 'tool');
+  assert.equal(span.durationSource, 'unknown');
 });
 
 test('buildTraceTurns attaches agentSpans to the turn they started in', () => {
@@ -314,6 +360,226 @@ test('buildTraceTurns drops turns without spans and sorts spans by start', () =>
       [...starts].sort((a, b) => a - b)
     );
   }
+});
+
+test('session stats detect Skill reads from structured tool paths without counting tool output text', () => {
+  const { computeSessionStats } = loadSessionsLib();
+  const stats = computeSessionStats([
+    {
+      id: 'assistant-1',
+      role: 'assistant',
+      timestamp: '2026-09-07T00:00:00.000Z',
+      content: [
+        {
+          type: 'toolCall',
+          id: 'read-skill',
+          name: 'file_operation',
+          path: '/Users/example/.skills/browser-use-automation-mac/SKILL.md',
+          content: 'Documentation mentions /tmp/not-loaded/SKILL.md',
+        },
+      ],
+    },
+  ]);
+  assert.deepEqual(stats.skillNames, { 'browser-use-automation-mac': 1 });
+  assert.deepEqual(stats.skillFileReads, {});
+});
+
+test('session stats detect Claude native Skill tool calls without counting the available Skill list', () => {
+  const { computeSessionStats } = loadSessionsLib();
+  const stats = computeSessionStats([
+    {
+      id: 'user-context',
+      role: 'user',
+      content: [
+        {
+          type: 'text',
+          text: '<skill-context>{"names":["available-only"]}</skill-context>',
+        },
+      ],
+    },
+    {
+      id: 'assistant-skill',
+      role: 'assistant',
+      content: [
+        {
+          type: 'toolCall',
+          id: 'skill-call',
+          name: 'Skill',
+          arguments: { skill: 'frontend-design' },
+        },
+      ],
+    },
+    {
+      id: 'standalone-skill',
+      role: 'toolCall',
+      toolName: 'Skill',
+      details: { skill_name: 'pdf' },
+      content: [],
+    },
+  ]);
+  assert.equal(stats.toolCallCount, 2);
+  assert.deepEqual(stats.toolNames, { Skill: 2 });
+  assert.deepEqual(stats.skillNames, { 'frontend-design': 1, pdf: 1 });
+  assert.deepEqual(stats.skillFileReads, {});
+});
+
+test('session stats aggregate MCP calls by server and keep dependent Skill file reads separate', () => {
+  const { computeSessionStats } = loadSessionsLib();
+  const stats = computeSessionStats([
+    {
+      id: 'assistant-mcp',
+      role: 'assistant',
+      content: [
+        {
+          type: 'toolCall',
+          id: 'mcp-1',
+          name: 'mcp__workspace__bash',
+          arguments: { command: 'pwd' },
+        },
+        {
+          type: 'toolCall',
+          id: 'mcp-2',
+          name: 'mcp__aws__aws___list_regions',
+          arguments: {},
+        },
+        {
+          type: 'toolCall',
+          id: 'read-reference',
+          name: 'Read',
+          arguments: { file_path: '/Users/example/.claude/skills/aws-expert/references/iam.md' },
+        },
+      ],
+    },
+  ]);
+  assert.deepEqual(stats.mcpServers, { workspace: 1, aws: 1 });
+  assert.deepEqual(stats.skillNames, {});
+  assert.deepEqual(stats.skillFileReads, { 'aws-expert': 1 });
+});
+
+test('session stats only count actual Skill file reads in shell commands', () => {
+  const { computeSessionStats } = loadSessionsLib();
+  const stats = computeSessionStats([
+    {
+      id: 'call-heredoc',
+      role: 'toolCall',
+      toolName: 'exec_command',
+      details: {
+        cmd: "cat > report.md <<'MD'\nExample: <name>/SKILL.md and token-optimizer/SKILL.md\nMD",
+      },
+    },
+    {
+      id: 'call-read',
+      role: 'toolCall',
+      toolName: 'exec_command',
+      details: {
+        cmd: "sed -n '1,120p' ~/.agents/skills/token-optimizer/SKILL.md",
+      },
+    },
+    {
+      id: 'call-loop',
+      role: 'toolCall',
+      toolName: 'exec_command',
+      details: {
+        cmd: "for d in agent-reach api-mock; do sed -n '1,30p' ~/.agents/skills-archive/$d/SKILL.md; done",
+      },
+    },
+  ]);
+  assert.deepEqual(stats.skillNames, {
+    'token-optimizer': 1,
+    'agent-reach': 1,
+    'api-mock': 1,
+  });
+  assert.deepEqual(stats.skillFileReads, {});
+});
+
+test('same-timestamp user context fragments merge with the actual user input', () => {
+  const { compactUserContextFragments, splitUserMessageContext } = loadSessionsLib();
+  const messages = compactUserContextFragments([
+    {
+      id: '',
+      role: 'user',
+      timestamp: '2026-09-07T00:00:00.000Z',
+      content: [{ type: 'text', text: '<system-reminder>context</system-reminder>' }],
+    },
+    {
+      id: 'user-1',
+      role: 'user',
+      timestamp: '2026-09-07T00:00:00.000Z',
+      content: [{ type: 'text', text: 'actual question' }],
+    },
+  ]);
+  assert.equal(messages.length, 1);
+  assert.equal(messages[0].id, 'user-1');
+  assert.deepEqual(splitUserMessageContext(pure.getTextContent(messages[0].content)), {
+    input: 'actual question',
+    contexts: [{ label: '系统附带上下文', text: '<system-reminder>context</system-reminder>' }],
+  });
+});
+
+test('nearby Codex context merges forward but does not cross the two-second guard', () => {
+  const { compactUserContextFragments, splitUserMessageContext } = loadSessionsLib();
+  const context = '<environment_context>\n  <cwd>/fixtures/project-alpha</cwd>\n</environment_context>';
+  const merged = compactUserContextFragments([
+    {
+      id: 'context-1',
+      role: 'user',
+      timestamp: '2026-09-07T00:00:00.000Z',
+      content: [{ type: 'text', text: context }],
+    },
+    {
+      id: 'user-1',
+      role: 'user',
+      timestamp: '2026-09-07T00:00:01.030Z',
+      content: [{ type: 'text', text: 'actual Codex question' }],
+    },
+  ]);
+  assert.equal(merged.length, 1);
+  assert.equal(merged[0].id, 'user-1');
+  assert.equal(merged[0].timestamp, '2026-09-07T00:00:01.030Z');
+  assert.deepEqual(splitUserMessageContext(pure.getTextContent(merged[0].content)), {
+    input: 'actual Codex question',
+    contexts: [{ label: '运行环境上下文', text: context }],
+  });
+
+  const separated = compactUserContextFragments([
+    {
+      id: 'context-2',
+      role: 'user',
+      timestamp: '2026-09-07T00:00:00.000Z',
+      content: [{ type: 'text', text: context }],
+    },
+    {
+      id: 'user-2',
+      role: 'user',
+      timestamp: '2026-09-07T00:00:02.001Z',
+      content: [{ type: 'text', text: 'later question' }],
+    },
+  ]);
+  assert.equal(separated.length, 2);
+});
+
+test('Claude bridge tags and OpenClaw metadata split from actual user input', () => {
+  const { splitUserMessageContext } = loadSessionsLib();
+  const claude = splitUserMessageContext(
+    '<bridge_context>fixture bridge state</bridge_context>\n<user_message>actual Claude question</user_message>'
+  );
+  assert.equal(claude.input, 'actual Claude question');
+  assert.deepEqual(claude.contexts, [
+    { label: '桥接上下文', text: '<bridge_context>fixture bridge state</bridge_context>' },
+  ]);
+
+  const claudeSelfClosing = splitUserMessageContext(
+    '<sender type="user" />\n<agent-context>fixture agent state</agent-context>\n<user_message>actual self-closing question</user_message>'
+  );
+  assert.equal(claudeSelfClosing.input, 'actual self-closing question');
+  assert.deepEqual(claudeSelfClosing.contexts.map((item) => item.label).sort(), ['Agent 上下文', '发送者上下文']);
+
+  const openclaw = splitUserMessageContext(
+    'Conversation info (untrusted metadata):\n```json\n{"chat_type":"fixture"}\n```\n\nactual OpenClaw question'
+  );
+  assert.equal(openclaw.input, 'actual OpenClaw question');
+  assert.equal(openclaw.contexts.length, 1);
+  assert.equal(openclaw.contexts[0].label, '会话元数据');
 });
 
 // --- markdown/escape pipeline (single definition site: frontend/src/lib/markdown.ts,
@@ -351,4 +617,282 @@ test('renderMarkdownHtml renders headings, lists, links and fenced code', () => 
   assert.ok(html.includes('<ol><li>one</li></ol>'));
   assert.ok(html.includes('<a href="https://e.co/a&amp;b" target="_blank" rel="noopener">x</a>'));
   assert.ok(html.includes('<pre><code data-lang="js">code&lt;&gt;\n</code></pre>'));
+});
+
+// --- lib/context.js: same-timestamp filtering ---
+
+const { sliceMessagesBeforeTarget, filterMessagesBeforeTimestamp } = require(path.join(ROOT, 'lib', 'context'));
+
+test('sliceMessagesBeforeTarget returns index-based slice including same-timestamp messages', () => {
+  const ts = '2026-09-07T00:00:00.000Z';
+  const messages = [
+    { id: 'u1', role: 'user', timestamp: '2026-09-07T00:00:00.000Z', content: [] },
+    { id: 'a1', role: 'assistant', timestamp: ts, content: [] },
+    { id: 'u2', role: 'user', timestamp: ts, content: [] }, // same ms as a1
+    { id: 'a2', role: 'assistant', timestamp: '2026-09-07T00:00:01.000Z', content: [] },
+  ];
+  const { priorMessages, targetMessage } = sliceMessagesBeforeTarget(messages, { messageIndex: 2 });
+  assert.equal(targetMessage.id, 'u2');
+  // Index-based slice includes a1 even though it shares u2's timestamp
+  assert.equal(priorMessages.length, 2);
+  assert.equal(priorMessages[1].id, 'a1');
+});
+
+test('filterMessagesBeforeTimestamp excludes same-timestamp messages from prior history', () => {
+  const ts = '2026-09-07T00:00:00.000Z';
+  const messages = [
+    { id: 'u1', role: 'user', timestamp: '2026-09-06T00:00:00.000Z', content: [] },
+    { id: 'a1', role: 'assistant', timestamp: ts, content: [] },
+    { id: 'u2', role: 'user', timestamp: ts, content: [] }, // target, same ms as a1
+  ];
+  const { priorMessages: raw, targetMessage } = sliceMessagesBeforeTarget(messages, { messageIndex: 2 });
+  const targetTs = Date.parse(targetMessage.timestamp);
+  const filtered = filterMessagesBeforeTimestamp(raw, targetTs);
+  // a1 shares the target timestamp and must be excluded
+  assert.equal(filtered.length, 1);
+  assert.equal(filtered[0].id, 'u1');
+});
+
+test('filterMessagesBeforeTimestamp keeps messages without timestamps', () => {
+  const messages = [
+    { id: 'x', role: 'assistant', content: [] }, // no timestamp
+    { id: 'y', role: 'assistant', timestamp: '2026-09-07T00:00:00.000Z', content: [] },
+  ];
+  const filtered = filterMessagesBeforeTimestamp(messages, Date.parse('2026-09-07T00:00:00.000Z'));
+  assert.equal(filtered.length, 1);
+  assert.equal(filtered[0].id, 'x');
+});
+
+test('filterMessagesBeforeTimestamp returns array unchanged when targetTs is null', () => {
+  const messages = [{ id: 'a', role: 'user', timestamp: '2026-09-07T00:00:00.000Z', content: [] }];
+  assert.equal(filterMessagesBeforeTimestamp(messages, null), messages);
+});
+
+// --- lib/search.js: limit resolution ---
+
+const { resolveSearchLimit } = require(path.join(ROOT, 'lib', 'search'));
+
+test('resolveSearchLimit defaults to 50 for missing, empty and non-numeric values', () => {
+  assert.equal(resolveSearchLimit(undefined), 50);
+  assert.equal(resolveSearchLimit(''), 50);
+  assert.equal(resolveSearchLimit('abc'), 50);
+  assert.equal(resolveSearchLimit(NaN), 50);
+  // parseInt-based parsing accepts leading digits: '12abc' → 12
+  assert.equal(resolveSearchLimit('12abc'), 12);
+});
+
+test('resolveSearchLimit rejects zero and negative values', () => {
+  assert.equal(resolveSearchLimit('0'), 50);
+  assert.equal(resolveSearchLimit('-5'), 50);
+  assert.equal(resolveSearchLimit('-100'), 50);
+});
+
+test('resolveSearchLimit clamps valid values to [1, 100]', () => {
+  assert.equal(resolveSearchLimit('1'), 1);
+  assert.equal(resolveSearchLimit('25'), 25);
+  assert.equal(resolveSearchLimit('100'), 100);
+  assert.equal(resolveSearchLimit('150'), 100); // capped
+  assert.equal(resolveSearchLimit('9999'), 100);
+});
+
+// --- lib/insights.js: LRU cache eviction ---
+
+const { insightsCache, setInsightsCache, INSIGHTS_CACHE_MAX } = require(path.join(ROOT, 'lib', 'insights'));
+
+test('setInsightsCache evicts oldest keys when exceeding LRU cap', () => {
+  insightsCache.clear();
+  // Fill to cap
+  for (let i = 0; i < INSIGHTS_CACHE_MAX; i++) {
+    setInsightsCache(`key-${i}`, { idx: i });
+  }
+  assert.equal(insightsCache.size, INSIGHTS_CACHE_MAX);
+  assert.ok(insightsCache.has('key-0'));
+
+  // Insert one more → oldest (key-0) should be evicted
+  setInsightsCache(`key-${INSIGHTS_CACHE_MAX}`, { idx: INSIGHTS_CACHE_MAX });
+  assert.equal(insightsCache.size, INSIGHTS_CACHE_MAX);
+  assert.ok(!insightsCache.has('key-0'), 'oldest key should be evicted');
+  assert.ok(insightsCache.has('key-1'), 'second-oldest should remain');
+  assert.ok(insightsCache.has(`key-${INSIGHTS_CACHE_MAX}`), 'newest should be present');
+
+  // Re-inserting an existing key moves it to the end (Map re-insert on set),
+  // so the next eviction should drop key-1, not the re-inserted key.
+  setInsightsCache('key-1', { idx: 1, refreshed: true });
+  setInsightsCache('key-overflow', {});
+  assert.ok(!insightsCache.has('key-2'), 'key-2 should now be the oldest and evicted');
+  assert.ok(insightsCache.has('key-1'), 're-inserted key-1 should survive');
+
+  insightsCache.clear();
+});
+
+test('buildInsightsResponse includes cachedAt timestamp', () => {
+  const { buildInsightsResponse } = require(path.join(ROOT, 'lib', 'insights'));
+  const before = Date.now();
+  const resp = buildInsightsResponse(1, 2, 3, 4, 5, 6, 7, 8, 9, {}, [], {});
+  const after = Date.now();
+  assert.ok(typeof resp.cachedAt === 'number');
+  assert.ok(resp.cachedAt >= before && resp.cachedAt <= after);
+});
+
+// --- lib/config.js: assertSafePath ---
+
+test('assertSafePath accepts a path inside allowedRoot', async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'ax-safe-'));
+  try {
+    const inner = path.join(root, 'sub', 'file.jsonl');
+    await config.assertSafePath(path.resolve(inner), root); // should not throw
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('assertSafePath rejects a path outside allowedRoot', async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'ax-safe-'));
+  try {
+    const outside = path.join(path.dirname(root), 'escape', 'file.jsonl');
+    await assert.rejects(() => config.assertSafePath(path.resolve(outside), root), /escapes allowed scope/);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('assertSafePath accepts a non-existent path inside allowedRoot (prefix-only)', async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'ax-safe-'));
+  try {
+    const notYet = path.join(root, 'not-yet-created', 'dir');
+    await config.assertSafePath(path.resolve(notYet), root); // should not throw
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('assertSafePath rejects a symlink that escapes allowedRoot', async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'ax-safe-'));
+  const outside = fs.mkdtempSync(path.join(os.tmpdir(), 'ax-outside-'));
+  try {
+    const linkPath = path.join(root, 'escape-link');
+    fs.symlinkSync(outside, linkPath);
+    await assert.rejects(() => config.assertSafePath(path.resolve(linkPath), root), /escapes allowed scope/);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+    fs.rmSync(outside, { recursive: true, force: true });
+  }
+});
+
+// --- lib/platforms/codex.js: extractCodexUserPromptText ---
+
+test('extractCodexUserPromptText returns null for environment_context injection', () => {
+  const payload = {
+    role: 'user',
+    content: [{ type: 'input_text', text: '<environment_context>\n  <cwd>/x</cwd>\n</environment_context>' }],
+  };
+  assert.equal(codex.extractCodexUserPromptText(payload), null);
+});
+
+test('extractCodexUserPromptText returns null for user_instructions injection', () => {
+  const payload = {
+    role: 'user',
+    content: [{ type: 'input_text', text: '<user_instructions>\nBe helpful\n</user_instructions>' }],
+  };
+  assert.equal(codex.extractCodexUserPromptText(payload), null);
+});
+
+test('extractCodexUserPromptText extracts real user text from array content', () => {
+  const payload = {
+    role: 'user',
+    content: [{ type: 'input_text', text: 'Please fix the login bug' }],
+  };
+  assert.equal(codex.extractCodexUserPromptText(payload), 'Please fix the login bug');
+});
+
+test('extractCodexUserPromptText handles string content', () => {
+  const payload = { role: 'user', content: 'hello world' };
+  assert.equal(codex.extractCodexUserPromptText(payload), 'hello world');
+});
+
+test('extractCodexUserPromptText returns null for empty content', () => {
+  assert.equal(codex.extractCodexUserPromptText({}), null);
+  assert.equal(codex.extractCodexUserPromptText({ content: [] }), null);
+  assert.equal(codex.extractCodexUserPromptText({ content: '' }), null);
+});
+
+// --- lib/platforms/codex.js: codexArchivedDir ---
+
+test('codexArchivedDir returns default CODEX_ARCHIVED_DIR for default baseDir', () => {
+  assert.equal(codex.codexArchivedDir(config.CODEX_DIR), config.CODEX_ARCHIVED_DIR);
+  assert.equal(codex.codexArchivedDir(null), config.CODEX_ARCHIVED_DIR);
+  assert.equal(codex.codexArchivedDir(undefined), config.CODEX_ARCHIVED_DIR);
+});
+
+test('codexArchivedDir returns archived_sessions child for custom baseDir', () => {
+  const custom = path.join(config.HOME, 'my-custom-codex');
+  const result = codex.codexArchivedDir(custom);
+  assert.equal(result, path.join(custom, 'archived_sessions'));
+});
+
+// --- lib/platforms/codex.js: findCodexSessionFileFast ---
+
+function makeTempCodexDir() {
+  // Must be under HOME because findCodexSessionFileFast validates against HOME.
+  const base = fs.mkdtempSync(path.join(config.HOME, '.agentxray-codextest-'));
+  fs.mkdirSync(path.join(base, 'archived_sessions'));
+  return base;
+}
+
+test('findCodexSessionFileFast matches exact session filename in active dir', async () => {
+  const base = makeTempCodexDir();
+  try {
+    const sessionName = 'rollout-2026-03-31T13-18-02-019d4253-d114-7da1-89b7-826bb51867b6';
+    fs.writeFileSync(path.join(base, `${sessionName}.jsonl`), '{}');
+    const found = await codex.findCodexSessionFileFast(base, sessionName);
+    assert.equal(found, path.join(base, `${sessionName}.jsonl`));
+  } finally {
+    fs.rmSync(base, { recursive: true, force: true });
+  }
+});
+
+test('findCodexSessionFileFast matches by uuid suffix', async () => {
+  const base = makeTempCodexDir();
+  try {
+    const uuid = '019d4253-d114-7da1-89b7-826bb51867b6';
+    const fullName = `rollout-2026-03-31T13-18-02-${uuid}`;
+    fs.writeFileSync(path.join(base, `${fullName}.jsonl`), '{}');
+    const found = await codex.findCodexSessionFileFast(base, uuid);
+    assert.equal(found, path.join(base, `${fullName}.jsonl`));
+  } finally {
+    fs.rmSync(base, { recursive: true, force: true });
+  }
+});
+
+test('findCodexSessionFileFast finds file in archived_sessions dir', async () => {
+  const base = makeTempCodexDir();
+  try {
+    const sessionName = 'rollout-2026-01-01T00-00-00-abcdef01-1234-5678-9abc-def012345678';
+    fs.writeFileSync(path.join(base, 'archived_sessions', `${sessionName}.jsonl`), '{}');
+    const found = await codex.findCodexSessionFileFast(base, sessionName);
+    assert.equal(found, path.join(base, 'archived_sessions', `${sessionName}.jsonl`));
+  } finally {
+    fs.rmSync(base, { recursive: true, force: true });
+  }
+});
+
+test('findCodexSessionFileFast returns null for non-existent session', async () => {
+  const base = makeTempCodexDir();
+  try {
+    fs.writeFileSync(path.join(base, 'rollout-other.jsonl'), '{}');
+    const found = await codex.findCodexSessionFileFast(base, 'nonexistent-session-id');
+    assert.equal(found, null);
+  } finally {
+    fs.rmSync(base, { recursive: true, force: true });
+  }
+});
+
+test('findCodexSessionFileFast returns null for empty sessionId', async () => {
+  const base = makeTempCodexDir();
+  try {
+    assert.equal(await codex.findCodexSessionFileFast(base, ''), null);
+    assert.equal(await codex.findCodexSessionFileFast(base, null), null);
+  } finally {
+    fs.rmSync(base, { recursive: true, force: true });
+  }
 });

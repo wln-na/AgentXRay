@@ -1,0 +1,2 @@
+{"type":"context.compiled","runId":"fixture-run-1","sessionId":"openclaw-context-fixture","ts":"2026-01-19T09:00:01.000Z","data":{"transcriptLeafId":"leaf-user-1","prompt":"Conversation info (untrusted metadata):\n```json\n{\n  \"chat_type\": \"fixture\"\n}\n```\n\nfixture: openclaw actual question","messages":[],"imagesCount":0}}
+{"type":"context.compiled","runId":"fixture-run-orphan","sessionId":"openclaw-context-fixture","ts":"2026-01-19T09:00:04.000Z","data":{"transcriptLeafId":"leaf-orphan","prompt":"must not attach","messages":[],"imagesCount":0}}

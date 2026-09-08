@@ -1,6 +1,6 @@
 # AgentXRay
 
-AI Agent 会话 X 光透视工具，支持 **OpenClaw**、**Codex**、**Claude Code**、**Hermes**、**OMP**、**DeepSeek Harness** 和 **Gemini CLI** —— 一个界面全搞定。
+AI Agent 会话 X 光透视工具，支持 **OpenClaw**、**Codex**、**Claude Code**、**Claude Desktop**、**Hermes**、**OMP**、**DeepSeek Harness**、**Gemini CLI** 和 **Doubao** —— 一个界面全搞定。
 
 [English](README.md) | 中文
 
@@ -12,7 +12,7 @@ AgentXRay 是一个 **local-first 的查看器，看的是你已经拥有的 age
 
 LangSmith、Langfuse 这类观测平台面向的是*你自己写的* agent：接入 SDK、埋点插桩，trace 上报到托管后端。做自研 agent 时它们很好用 —— 但 Claude Code、Codex、Gemini CLI 这些现成的 CLI coding agent 不是你的代码，没法插桩。它们本来就把完整会话日志写在你的磁盘上，AgentXRay 直接读这些日志：零接入、零配置，数据不出本机。
 
-相比自己翻原始 JSONL，AgentXRay 把七种日志格式归一化到一个界面里：工具调用与结果自动配对、token 用量按会话汇总、跨平台全文搜索、prompt 提取、trace 时间线 —— 这些从一份 50MB 的会话日志里手工还原起来非常费劲。
+相比自己翻原始日志，AgentXRay 把九个平台的数据源归一化到一个界面里：工具调用与结果自动配对、token 用量按会话汇总、跨平台全文搜索、prompt 提取、trace 时间线 —— 这些从一份 50MB 的会话日志里手工还原起来非常费劲。
 
 如果你在生产环境构建和运营自己的 agent，请用 tracing 平台；如果你想看清 coding agent 到底干了什么，用 AgentXRay。
 
@@ -20,14 +20,14 @@ LangSmith、Langfuse 这类观测平台面向的是*你自己写的* agent：接
 
 ## 功能特性
 
-- **多平台支持** — 一个界面统一查看 OpenClaw、Codex、Claude Code、Hermes、OMP、DeepSeek Harness、Gemini CLI 的会话日志（dsh 的多帧 zstd 压缩日志透明解压；Gemini CLI 的 `/rewind` 回滚记录会先折叠，回滚掉的历史不会重复渲染）
+- **多平台支持** — 一个界面统一查看 OpenClaw、Codex、Claude Code、Claude Desktop Agent/Cowork、Hermes、OMP、DeepSeek Harness、Gemini CLI 和 Doubao 的会话日志（dsh 的多帧 zstd 压缩日志透明解压；Gemini CLI 的 `/rewind` 回滚记录会先折叠，回滚掉的历史不会重复渲染）
 - **会话浏览** — 浏览 Agent 列表，搜索/过滤会话，查看消息历史
 - **工具调用检查** — 可展开的工具调用详情，包含参数和返回结果
 - **Trace 视图** — 每轮对话的耗时瀑布图：模型推理（蓝）与工具执行（绿，出错为红）一目了然，点击色条跳转到对应消息
 - **Prompt 提取** — 按 session 提取全部真人 prompt（自动过滤工具结果、斜杠命令、系统注入等噪音），按工作目录分组，支持搜索 / JSON 导出 / 复制
 - **Prompt 优化** — 相似 prompt 自动聚类成模板，结合 session 效果归因（轮次、工具调用、错误率），通过本机 `claude` CLI 生成改写建议
 - **Prompt 资产库** — 把值得复用的 prompt 收进 `~/.agentxray/library`，支持标签 / 编辑 / 搜索，一键安装为 Claude Code、Codex、OMP 的原生 slash command（`$ARGUMENTS` 原样保留，在目标 CLI 里 `/名字 参数` 直接可用）
-- **全局搜索** — 一个搜索框同时搜七个平台，多关键词 AND 匹配，每条结果带平台色标 —— 包含从被 Claude Code 清理掉的会话里恢复出来的 prompt
+- **全局搜索** — 一个搜索框同时搜索全部支持的平台，多关键词 AND 匹配，每条结果带平台色标 —— 包含从被 Claude Code 清理掉的会话里恢复出来的 prompt
 - **会话洞察** — 聚合分析面板：工具统计、错误聚类、每日趋势
 - **Spawn 追踪** — 检测并导航父子 Agent 之间的调用关系
 - **OMP 子 Agent** — OMP 会话派生的子 Agent 会在摘要区以标签列出，点击即可查看子 Agent 的完整对话
@@ -61,7 +61,7 @@ LangSmith、Langfuse 这类观测平台面向的是*你自己写的* agent：接
 
 ### 多平台支持
 
-一键切换 OpenClaw、Codex、Claude Code、Hermes、OMP、DeepSeek Harness、Gemini CLI。每个平台的会话均从其原生日志格式解析。
+一键切换 OpenClaw、Codex、Claude Code、Claude Desktop、Hermes、OMP、DeepSeek Harness、Gemini CLI 和 Doubao。每个平台的会话均从其本地原生数据源解析。
 
 ![Codex View](screenshots/codex-view.png)
 
@@ -105,7 +105,7 @@ npm start
 
 ### 基本流程
 
-1. **选择平台** — 点击顶部 `OpenClaw`、`Codex`、`Claude Code`、`Hermes`、`OMP`、`DeepSeek Harness` 或 `Gemini CLI`
+1. **选择平台** — 点击顶部 `OpenClaw`、`Codex`、`Claude Code`、`Claude Desktop`、`Hermes`、`OMP`、`DeepSeek Harness`、`Gemini CLI` 或 `Doubao`
 2. **选择 Agent** — OpenClaw 平台下，从下拉菜单选择 Agent（如 `xiaot`、`mimo`）
 3. **浏览会话** — 会话按时间倒序排列，每张卡片显示：
    - 时间戳和状态（`active` / `archived`）
@@ -148,6 +148,7 @@ npm start
 | OpenClaw    | `~/.openclaw/agents`          |
 | Codex       | `~/.codex/sessions`           |
 | Claude Code | `~/.claude/projects`          |
+| Claude Desktop | `~/Library/Application Support/Claude-3p/local-agent-mode-sessions` |
 | Hermes      | `~/.hermes`                   |
 | OMP         | `~/.omp/agent/sessions`       |
 | DeepSeek Harness | `~/.dsh/sessions`（同时识别 `DSH_HOME`） |
@@ -163,6 +164,7 @@ npm start
 OPENCLAW_DIR=/custom/path/openclaw \
 CODEX_DIR=/custom/path/codex \
 CLAUDE_CODE_DIR=/custom/path/claude \
+CLAUDE_DESKTOP_DIR=/custom/path/claude-desktop/local-agent-mode-sessions \
 HERMES_DIR=/custom/path/hermes \
 OMP_DIR=/custom/path/omp \
 DSH_DIR=/custom/path/dsh/sessions \
@@ -183,6 +185,8 @@ npm start
 | `GET /api/codex/sessions/:id` | 获取 Codex 会话消息详情 |
 | `GET /api/claude-code/sessions` | 获取 Claude Code 会话列表 |
 | `GET /api/claude-code/sessions/:id` | 获取 Claude Code 会话消息详情 |
+| `GET /api/claude-desktop/sessions` | 获取 Claude Desktop Agent/Cowork 会话列表 |
+| `GET /api/claude-desktop/sessions/:id` | 获取 Claude Desktop Agent/Cowork 会话消息详情 |
 | `GET /api/hermes/sessions` | 获取 Hermes 会话列表 |
 | `GET /api/hermes/sessions/:id` | 获取 Hermes 会话消息详情 |
 | `GET /api/omp/sessions` | 获取 OMP（oh-my-pi）会话列表 |
@@ -227,6 +231,7 @@ npm start
 | OpenClaw | JSONL | `~/.openclaw/agents/{agent}/sessions/{id}.jsonl` |
 | Codex | JSONL | `~/.codex/sessions/{id}.jsonl` |
 | Claude Code | JSONL | `~/.claude/projects/*/sessions/*/session.jsonl` |
+| Claude Desktop | 元数据 JSON + JSONL | `~/Library/Application Support/Claude-3p/local-agent-mode-sessions/**/local_*.json` + 关联的 `.claude/projects/**/{cliSessionId}.jsonl` |
 | Hermes | SQLite | `~/.hermes/state.db` |
 | OMP | JSONL | `~/.omp/agent/sessions/*/{timestamp}_{id}.jsonl` |
 | DeepSeek Harness | JSONL / zstd 压缩 JSONL | `~/.dsh/sessions/{project}/{id}/session.jsonl[.zstd]` |
