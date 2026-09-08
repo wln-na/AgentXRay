@@ -1,17 +1,25 @@
 import { useEffect, useState } from 'react';
-import { Moon, Sun } from 'lucide-react';
+import { List, Moon, Sun } from 'lucide-react';
 import type { Platform } from '@/api/types';
 import { PLATFORM_LABELS, PLATFORMS } from '@/api/types';
 import { DEMO } from '@/demo/flag';
 import { usePlatformProbe } from '@/hooks/usePlatformProbe';
 import { pickAutoPlatform } from '@/lib/pure';
 import { useAppStore } from '@/store';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import { cn } from '@/lib/utils';
 
 const PLATFORM_TIPS: Record<Platform, string> = {
   openclaw: 'OpenClaw 会话（~/.openclaw/agents）',
   codex: 'Codex 会话（~/.codex/sessions）',
   'claude-code': 'Claude Code 会话（~/.claude/projects）',
+  'claude-desktop': 'Claude Desktop Agent/Cowork 会话（~/Library/Application Support/Claude-3p/local-agent-mode-sessions）',
   hermes: 'Hermes 会话（~/.hermes）',
   omp: 'oh-my-pi 会话（~/.omp/agent/sessions）',
   dsh: 'DeepSeek Harness 会话（~/.dsh/sessions）',
@@ -19,7 +27,7 @@ const PLATFORM_TIPS: Record<Platform, string> = {
   doubao: 'Doubao 会话（~/.doubao/agent_mode/workspace/.sessions）',
 };
 
-export function PlatformBar() {
+export function PlatformBar({ onOpenSessions }: { onOpenSessions: () => void }) {
   const platform = useAppStore((s) => s.platform);
   const setPlatform = useAppStore((s) => s.setPlatform);
   const theme = useAppStore((s) => s.theme);
@@ -43,43 +51,67 @@ export function PlatformBar() {
   const collapsed = PLATFORMS.filter((p) => isCollapsed(p));
 
   return (
-    <div className="flex items-center gap-1.5 border-b border-border bg-panel-alt/95 px-3 py-2">
-      {shown.map((p) => (
-        <button
-          key={p}
-          type="button"
-          title={PLATFORM_TIPS[p]}
-          onClick={() => setPlatform(p)}
-          className={cn(
-            'rounded-md border px-3 py-1 text-sm transition-colors',
-            p === platform
-              ? 'border-primary/60 bg-primary/15 text-foreground'
-              : 'border-border bg-transparent text-muted-foreground hover:border-primary/40 hover:text-foreground'
-          )}
-        >
-          {PLATFORM_LABELS[p]}
-        </button>
-      ))}
-      {collapsed.length > 0 && (
-        <button
-          type="button"
-          title={`暂无会话的平台：${collapsed.map((p) => PLATFORM_LABELS[p]).join('、')} — 点击展开`}
-          onClick={() => setExpanded(true)}
-          className="rounded-md border border-dashed border-border px-3 py-1 text-sm text-muted-foreground hover:text-foreground"
-        >
-          +{collapsed.length}
-        </button>
-      )}
-      <div className="ml-auto">
-        <button
-          type="button"
-          title={theme === 'dark' ? '切换到浅色主题' : '切换到深色主题'}
-          onClick={toggleTheme}
-          className="rounded-md border border-border bg-transparent p-1.5 text-muted-foreground transition-colors hover:border-primary/40 hover:text-foreground"
-        >
-          {theme === 'dark' ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
-        </button>
+    <div className="flex min-h-14 items-center gap-2 border-b border-border bg-panel-alt/95 px-2 py-2 sm:px-3">
+      <button
+        type="button"
+        title="打开会话列表"
+        aria-label="打开会话列表"
+        onClick={onOpenSessions}
+        className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-md border border-border text-muted-foreground hover:border-primary/40 hover:text-foreground lg:hidden"
+      >
+        <List className="h-5 w-5" />
+      </button>
+      <div className="min-w-0 flex-1 lg:hidden">
+        <Select value={platform} onValueChange={(value) => setPlatform(value as Platform)}>
+          <SelectTrigger className="h-11 w-full" aria-label="选择 AI Agent 平台">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {PLATFORMS.map((p) => (
+              <SelectItem key={p} value={p}>
+                {PLATFORM_LABELS[p]}{typeof counts?.[p] === 'number' ? `（${counts[p]}）` : ''}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
       </div>
+      <div className="hidden min-w-0 flex-1 items-center gap-1.5 overflow-x-auto lg:flex">
+        {shown.map((p) => (
+          <button
+            key={p}
+            type="button"
+            title={PLATFORM_TIPS[p]}
+            onClick={() => setPlatform(p)}
+            className={cn(
+              'min-h-9 shrink-0 rounded-md border px-3 py-1 text-sm transition-colors',
+              p === platform
+                ? 'border-primary/60 bg-primary/15 text-foreground'
+                : 'border-border bg-transparent text-muted-foreground hover:border-primary/40 hover:text-foreground'
+            )}
+          >
+            {PLATFORM_LABELS[p]}
+          </button>
+        ))}
+        {collapsed.length > 0 && (
+          <button
+            type="button"
+            title={`暂无会话的平台：${collapsed.map((p) => PLATFORM_LABELS[p]).join('、')} — 点击展开`}
+            onClick={() => setExpanded(true)}
+            className="min-h-9 shrink-0 rounded-md border border-dashed border-border px-3 py-1 text-sm text-muted-foreground hover:text-foreground"
+          >
+            +{collapsed.length}
+          </button>
+        )}
+      </div>
+      <button
+        type="button"
+        title={theme === 'dark' ? '切换到浅色主题' : '切换到深色主题'}
+        aria-label={theme === 'dark' ? '切换到浅色主题' : '切换到深色主题'}
+        onClick={toggleTheme}
+        className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-md border border-border bg-transparent text-muted-foreground transition-colors hover:border-primary/40 hover:text-foreground"
+      >
+        {theme === 'dark' ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
+      </button>
     </div>
   );
 }

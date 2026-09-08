@@ -103,6 +103,13 @@ function Pre({ text }: { text: string }) {
 
 const EMPTY_CLS = 'text-xs text-muted-foreground';
 
+function spanDurationText(span: TraceSpan): string {
+  const duration = formatDurationCompact(span.end - span.start);
+  if (span.durationSource === 'estimated') return `约 ${duration}（估算）`;
+  if (span.durationSource === 'unknown') return '耗时未知';
+  return duration;
+}
+
 export function SpanSidebar({
   span,
   msgs,
@@ -122,7 +129,7 @@ export function SpanSidebar({
     return () => document.removeEventListener('keydown', onKey);
   }, [onClose]);
 
-  const durText = formatDurationCompact(span.end - span.start);
+  const durText = spanDurationText(span);
   const isTool = span.kind === 'tool' || span.kind === 'tool-error';
 
   let body: React.ReactNode;

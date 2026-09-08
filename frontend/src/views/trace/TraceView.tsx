@@ -29,6 +29,13 @@ function spanIcon(kind: TraceSpan['kind']): string {
   return kind === 'chat' ? '🤖' : kind === 'agent' ? '🌳' : '🔧';
 }
 
+function spanDurationText(span: TraceSpan): string {
+  const duration = formatDurationCompact(span.end - span.start);
+  if (span.durationSource === 'estimated') return `约 ${duration}（估算）`;
+  if (span.durationSource === 'unknown') return '耗时未知';
+  return duration;
+}
+
 function TurnCard({
   turn,
   onSpanClick,
@@ -56,23 +63,28 @@ function TurnCard({
         {turn.spans.map((s, i) => {
           const left = ((s.start - turn.start) / dur) * 100;
           const width = Math.max(((s.end - s.start) / dur) * 100, 0.4);
-          const durText = formatDurationCompact(s.end - s.start);
-          const showDur = width < 78; // avoid overflowing the track for near-full bars
+          const durText = spanDurationText(s);
           const isAgent = s.kind === 'agent';
           const title = isAgent
             ? `子 Agent ${s.label} — ${durText}，点击查看其执行记录`
             : `${s.label} — ${durText}，点击查看详情`;
           return (
-            <div key={i} className="mb-1 grid grid-cols-[170px_1fr] items-center gap-2.5">
+            <div key={i} className="mb-2 grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-2 gap-y-1 sm:mb-1 sm:grid-cols-[150px_minmax(0,1fr)_110px] lg:grid-cols-[170px_minmax(0,1fr)_110px] sm:gap-2.5">
               <div
-                className="truncate text-right font-mono text-xs text-muted-foreground"
+                className="truncate font-mono text-xs text-muted-foreground sm:text-right"
                 title={s.label}
               >
                 {spanIcon(s.kind)} {s.label}
               </div>
-              <div className="relative h-3.5">
+              <span
+                className="whitespace-nowrap text-right font-mono text-[0.68rem] text-muted-foreground sm:col-start-3"
+                title={durText}
+              >
+                {durText}
+              </span>
+              <div className="relative col-span-2 h-3.5 sm:col-span-1 sm:col-start-2 sm:row-start-1">
                 <div
-                  className="absolute top-0 h-3.5 cursor-pointer rounded-sm opacity-90 hover:opacity-100 hover:outline hover:outline-1 hover:outline-foreground"
+                  className="absolute top-0 h-3.5 min-w-1 cursor-pointer rounded-sm opacity-90 hover:opacity-100 hover:outline hover:outline-1 hover:outline-foreground"
                   style={{
                     left: `${left.toFixed(2)}%`,
                     width: `${width.toFixed(2)}%`,
@@ -87,11 +99,6 @@ function TurnCard({
                     }
                   }}
                 >
-                  {showDur && (
-                    <span className="absolute -top-px left-[calc(100%+6px)] whitespace-nowrap font-mono text-[0.68rem] leading-[14px] text-muted-foreground">
-                      {durText}
-                    </span>
-                  )}
                 </div>
               </div>
             </div>
@@ -141,7 +148,7 @@ export function TraceView() {
 
   return (
     <div className="py-3">
-      <div className="mb-3 flex items-center gap-4 text-xs text-muted-foreground">
+      <div className="mb-3 flex flex-wrap items-center gap-x-4 gap-y-2 text-xs text-muted-foreground">
         {LEGEND.map((l) => (
           <span key={l.label}>
             <span
@@ -151,7 +158,7 @@ export function TraceView() {
             {l.label}
           </span>
         ))}
-        <span className="ml-auto">每轮独立时间轴 · 点击色条查看详情</span>
+        <span className="w-full sm:ml-auto sm:w-auto">每轮独立时间轴 · 点击色条查看详情</span>
       </div>
       {turns.map((turn, i) => (
         <TurnCard

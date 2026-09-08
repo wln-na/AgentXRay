@@ -17,7 +17,8 @@ import { isDisplayableMessage, messageAnchorId } from './lib';
 const PLAT_BADGE: Record<string, [string, string]> = {
   openclaw: ['OpenClaw', '#3fb950'],
   codex: ['Codex', '#58a6ff'],
-  'claude-code': ['Claude', '#d2a8ff'],
+  'claude-code': ['Claude Code', '#d2a8ff'],
+  'claude-desktop': ['Claude Desktop', '#c690f0'],
   hermes: ['Hermes', '#f78166'],
   omp: ['OMP', '#ffd33d'],
   dsh: ['DeepSeek', '#4d6bfe'],

@@ -1,3 +1,4 @@
+import { lazy, Suspense, useState } from 'react';
 import { Copy } from 'lucide-react';
 import { toast } from 'sonner';
 import { PlatformBar } from '@/components/PlatformBar';
@@ -8,10 +9,23 @@ import { useVersionPoller } from '@/hooks/useVersionPoller';
 import { DEMO } from '@/demo/flag';
 import { useAppStore } from '@/store';
 import type { MainView } from '@/store';
-import { InsightsView } from '@/views/insights/InsightsView';
-import { LibraryView } from '@/views/library/LibraryView';
-import { PromptsView } from '@/views/prompts/PromptsView';
-import { SessionsView } from '@/views/sessions/SessionsView';
+
+const InsightsView = lazy(() =>
+  import('@/views/insights/InsightsView').then((module) => ({ default: module.InsightsView }))
+);
+const LibraryView = lazy(() =>
+  import('@/views/library/LibraryView').then((module) => ({ default: module.LibraryView }))
+);
+const PromptsView = lazy(() =>
+  import('@/views/prompts/PromptsView').then((module) => ({ default: module.PromptsView }))
+);
+const SessionsView = lazy(() =>
+  import('@/views/sessions/SessionsView').then((module) => ({ default: module.SessionsView }))
+);
+
+function ViewFallback() {
+  return <div className="p-4 text-sm text-muted-foreground">正在加载视图…</div>;
+}
 
 const TABS: { view: MainView; label: string; title: string }[] = [
   { view: 'sessions', label: '会话', title: '浏览与回放会话：消息、工具调用、耗时与 token' },
@@ -24,6 +38,7 @@ export default function App() {
   useVersionPoller();
   const view = useAppStore((s) => s.view);
   const setView = useAppStore((s) => s.setView);
+  const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
 
   return (
     <TooltipProvider delayDuration={300}>
@@ -55,17 +70,17 @@ export default function App() {
             </a>
           </div>
         ) : null}
-        <PlatformBar />
-        <div className="grid min-h-0 flex-1 grid-cols-[280px_minmax(0,1fr)]">
-          <Sidebar />
-          <main className="flex min-h-0 flex-col overflow-hidden">
+        <PlatformBar onOpenSessions={() => setMobileSidebarOpen(true)} />
+        <div className="grid min-h-0 flex-1 grid-cols-1 lg:grid-cols-[280px_minmax(0,1fr)]">
+          <Sidebar mobileOpen={mobileSidebarOpen} onMobileOpenChange={setMobileSidebarOpen} />
+          <main className="flex min-h-0 min-w-0 flex-col overflow-hidden">
             <Tabs
               value={view}
               onValueChange={(v) => setView(v as MainView)}
               className="flex min-h-0 flex-1 flex-col"
             >
-              <div className="border-b border-border px-4 pt-3">
-                <TabsList className="bg-transparent p-0">
+              <div className="overflow-x-auto border-b border-border px-2 pt-2 sm:px-4 sm:pt-3">
+                <TabsList className="min-w-max bg-transparent p-0">
                   {TABS.map((tab) => (
                     <TabsTrigger
                       key={tab.view}
@@ -78,18 +93,28 @@ export default function App() {
                   ))}
                 </TabsList>
               </div>
-              <TabsContent value="sessions" className="mt-0 min-h-0 flex-1 overflow-auto p-4">
-                <SessionsView />
-              </TabsContent>
-              <TabsContent value="insights" className="mt-0 min-h-0 flex-1 overflow-auto p-4">
-                <InsightsView />
-              </TabsContent>
-              <TabsContent value="prompts" className="mt-0 min-h-0 flex-1 overflow-auto p-4">
-                <PromptsView />
-              </TabsContent>
-              <TabsContent value="library" className="mt-0 min-h-0 flex-1 overflow-auto p-4">
-                <LibraryView />
-              </TabsContent>
+              <Suspense fallback={<ViewFallback />}>
+                {view === 'sessions' ? (
+                  <TabsContent value="sessions" forceMount className="mt-0 min-h-0 flex-1 overflow-auto p-2 sm:p-4">
+                    <SessionsView />
+                  </TabsContent>
+                ) : null}
+                {view === 'insights' ? (
+                  <TabsContent value="insights" forceMount className="mt-0 min-h-0 flex-1 overflow-auto p-4">
+                    <InsightsView />
+                  </TabsContent>
+                ) : null}
+                {view === 'prompts' ? (
+                  <TabsContent value="prompts" forceMount className="mt-0 min-h-0 flex-1 overflow-auto p-4">
+                    <PromptsView />
+                  </TabsContent>
+                ) : null}
+                {view === 'library' ? (
+                  <TabsContent value="library" forceMount className="mt-0 min-h-0 flex-1 overflow-auto p-4">
+                    <LibraryView />
+                  </TabsContent>
+                ) : null}
+              </Suspense>
             </Tabs>
           </main>
         </div>

@@ -5,6 +5,7 @@ const {
   DATA_DIR,
   CODEX_DIR,
   CLAUDE_CODE_DIR,
+  CLAUDE_DESKTOP_DIR,
   HERMES_DIR,
   OMP_DIR,
   DSH_DIR,
@@ -20,6 +21,7 @@ const mountLibraryRoutes = require('./lib/routes/library');
 const mountBackupRoutes = require('./lib/routes/backup');
 const mountWatchRoutes = require('./lib/routes/watch');
 const mountLlmRoutes = require('./lib/routes/llm');
+const mountContextRoutes = require('./lib/routes/context');
 
 const app = express();
 const PORT = process.env.PORT || 3800;
@@ -68,6 +70,7 @@ mountLibraryRoutes(app);
 mountBackupRoutes(app);
 mountWatchRoutes(app);
 mountLlmRoutes(app);
+mountContextRoutes(app);
 
 // SPA fallback: unknown paths render the appropriate UI shell
 app.get('*', (req, res) => {
@@ -82,6 +85,7 @@ app.listen(PORT, HOST, () => {
   console.log(`  OpenClaw:    ${DATA_DIR}`);
   console.log(`  Codex:       ${CODEX_DIR}`);
   console.log(`  Claude Code: ${CLAUDE_CODE_DIR}`);
+  console.log(`  Claude Desktop: ${CLAUDE_DESKTOP_DIR}`);
   console.log(`  Hermes:      ${path.join(HERMES_DIR, 'state.db')}`);
   console.log(`  OMP:         ${OMP_DIR}`);
   console.log(`  DeepSeek Harness: ${DSH_DIR}`);

@@ -1,0 +1,12 @@
+{
+  "sessionId": "local_dddd1111-2222-4333-8444-555566667777",
+  "cliSessionId": "eeee1111-2222-4333-8444-555566667777",
+  "title": "Desktop fixture session",
+  "initialMessage": "fixture: desktop-search-needle",
+  "model": "desktop-selected-model",
+  "cwd": "/fixture/desktop/outputs",
+  "createdAt": 1768557600000,
+  "lastActivityAt": 1768557610000,
+  "isArchived": false,
+  "userSelectedFolders": ["/fixtures/desktop-project"]
+}

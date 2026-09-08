@@ -5,6 +5,7 @@ import type {
   BackupResult,
   BackupStatus,
   ChildAgentSummary,
+  ContextSnapshot,
   FabricPatternsData,
   HiddenPromptsData,
   HidePromptsResult,
@@ -37,6 +38,7 @@ export interface DirSettings {
   openclawDir: string;
   codexDir: string;
   claudeCodeDir: string;
+  claudeDesktopDir: string;
   hermesDir: string;
   ompDir: string;
   dshDir: string;
@@ -110,7 +112,7 @@ export function getSessionDetail(
 
 /** Spawned sub-agents of a session (omp / claude-code only). */
 export function getSessionChildren(
-  platform: 'omp' | 'claude-code',
+  platform: 'omp' | 'claude-code' | 'codex',
   sessionId: string,
   dir?: string
 ): Promise<ChildAgentSummary[]> {
@@ -120,7 +122,7 @@ export function getSessionChildren(
 }
 
 export function getSessionChild(
-  platform: 'omp' | 'claude-code',
+  platform: 'omp' | 'claude-code' | 'codex',
   sessionId: string,
   childName: string,
   dir?: string
@@ -220,6 +222,7 @@ export async function getToolsAudit(opts: {
     dirOpenclaw: opts.dirs?.openclawDir,
     dirCodex: opts.dirs?.codexDir,
     dirClaude: opts.dirs?.claudeCodeDir,
+    dirClaudeDesktop: opts.dirs?.claudeDesktopDir,
     dirOmp: opts.dirs?.ompDir,
     dirDsh: opts.dirs?.dshDir,
     dirGemini: opts.dirs?.geminiDir,
@@ -402,4 +405,25 @@ export function watchUrl(opts: {
     agent: opts.agent,
     dir: opts.dir,
   });
+}
+
+// ---------- Context reconstruction ----------
+
+/**
+ * GET /api/:platform/sessions/:sessionId/context
+ * Reconstruct the full system prompt + history a model likely saw before a
+ * given user turn. Pass either messageIndex or messageId to anchor.
+ */
+export function getSessionContext(
+  platform: Platform,
+  sessionId: string,
+  target: { messageIndex?: number; messageId?: string; dir?: string }
+): Promise<ContextSnapshot> {
+  return fetchJson(
+    withParams(`/api/${encodeURIComponent(platform)}/sessions/${encodeURIComponent(sessionId)}/context`, {
+      messageIndex: target.messageIndex,
+      messageId: target.messageId,
+      dir: target.dir,
+    })
+  );
 }

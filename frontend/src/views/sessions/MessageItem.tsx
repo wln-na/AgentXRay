@@ -3,12 +3,13 @@
 // Collapses are native <details> so DOM-driven jumps (legacy parity) can expand them.
 
 import { createContext, useContext } from 'react';
-import type { MessageContentPart, SessionMessage } from '@/api/types';
+import type { MessageContentPart, Platform, SessionMessage } from '@/api/types';
 import { Markdown } from '@/components/Markdown';
 import { formatDurationCompact, getTextContent } from '@/lib/pure';
 import { cn } from '@/lib/utils';
 import type { TimingMeta } from './lib';
-import { formatDate, formatNumber, messageAnchorId, truncateId } from './lib';
+import { formatDate, formatNumber, messageAnchorId, splitUserMessageContext, truncateId } from './lib';
+import { ContextPanel } from './ContextPanel';
 /** scrollToMessage from SessionsView: expands pagination + clears filter + flashes. */
 export const MessageActionsContext = createContext<{ scrollToMessage: (id: string) => void }>({
   scrollToMessage: () => {},
@@ -103,7 +104,12 @@ const PRE_CLASS = 'overflow-x-auto whitespace-pre-wrap break-words rounded bg-mu
 /** Embedded toolCall content part (OpenClaw/omp assistant messages). */
 export function ToolCallPart({ part }: { part: MessageContentPart }) {
   const { scrollToMessage } = useContext(MessageActionsContext);
-  const args = (part.arguments ?? {}) as Record<string, unknown>;
+  const hasArguments = part.arguments !== null && part.arguments !== undefined;
+  const args = (hasArguments ? part.arguments : {}) as Record<string, unknown>;
+  const summary = typeof part.summary === 'string' ? part.summary : '';
+  const path = typeof part.path === 'string' ? part.path : '';
+  const content = typeof part.content === 'string' ? part.content : '';
+  const status = part.status === null || part.status === undefined ? '' : String(part.status);
   const command = typeof args.command === 'string' ? args.command.toLowerCase() : '';
   const isSpawn = part.name === 'sessions_spawn' && !!args.agentId;
   const isDelegate = part.name === 'delegate_task';
@@ -124,7 +130,31 @@ export function ToolCallPart({ part }: { part: MessageContentPart }) {
           </>
         }
       >
-        <pre className={PRE_CLASS}>{JSON.stringify(args, null, 2)}</pre>
+        <div className="space-y-1.5">
+          {summary ? (
+            <div className="text-[11px]">
+              <span className="text-muted-foreground">操作摘要：</span>
+              {summary}
+            </div>
+          ) : null}
+          {path ? (
+            <div className="break-all font-mono text-[11px]">
+              <span className="font-sans text-muted-foreground">本地路径：</span>
+              {path}
+            </div>
+          ) : null}
+          {status ? (
+            <div className="text-[11px]">
+              <span className="text-muted-foreground">状态：</span>
+              {status}
+            </div>
+          ) : null}
+          {hasArguments ? <pre className={PRE_CLASS}>{JSON.stringify(part.arguments, null, 2)}</pre> : null}
+          {content ? <pre className={PRE_CLASS}>{content}</pre> : null}
+          {!hasArguments && !summary && !path && !content && !status ? (
+            <div className="text-[11px] text-muted-foreground">源会话未记录该工具调用的详细内容。</div>
+          ) : null}
+        </div>
       </Collapse>
       {(isExecSpawn || isDelegate) && part.id ? (
         <button
@@ -215,12 +245,30 @@ export function GraphLane({ message }: { message: SessionMessage }) {
   );
 }
 
-export function MessageBubble({ message, timing }: { message: SessionMessage; timing: TimingMeta | undefined }) {
+export function MessageBubble({
+  message,
+  timing,
+  showEmbeddedToolCalls = true,
+  contextEnabled = false,
+  contextPlatform,
+  contextSessionId,
+  contextDir,
+}: {
+  message: SessionMessage;
+  timing: TimingMeta | undefined;
+  showEmbeddedToolCalls?: boolean;
+  /** When true, user messages show a "reconstructed context" panel */
+  contextEnabled?: boolean;
+  contextPlatform?: Platform;
+  contextSessionId?: string;
+  contextDir?: string;
+}) {
   const text = getTextContent(message.content);
   const anchor = messageAnchorId(message) || '';
 
   if (message.role === 'user') {
-    const preview = text.length > 1400 ? text.slice(0, 1400) + '\n\n[truncated]' : text;
+    const { input, contexts } = splitUserMessageContext(text);
+    const preview = input.length > 1400 ? input.slice(0, 1400) + '\n\n[truncated]' : input;
     return (
       <article
         id={`message-${anchor}`}
@@ -231,7 +279,44 @@ export function MessageBubble({ message, timing }: { message: SessionMessage; ti
           timestamp={message.timestamp}
           timing={timing}
         />
-        <Markdown text={preview} />
+        {preview ? (
+          <>
+            <div className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">用户实际输入</div>
+            <Markdown text={preview} />
+          </>
+        ) : (
+          <div className="text-[11px] font-semibold text-muted-foreground">仅记录附带上下文</div>
+        )}
+        {contexts.length ? (
+          <details className="mt-2 rounded border border-border/70 bg-background/50 px-2 py-1.5">
+            <summary className="cursor-pointer text-[11px] font-medium text-muted-foreground">
+              附带上下文 · {contexts.length} 组
+            </summary>
+            <div className="mt-2 space-y-2">
+              {contexts.map((context, index) => (
+                <section key={`${context.label}:${index}`} className="rounded border border-border/60 bg-secondary/30 p-2">
+                  <div className="mb-1 text-[10px] font-semibold text-muted-foreground">{context.label}</div>
+                  <pre className={PRE_CLASS}>{context.text}</pre>
+                </section>
+              ))}
+            </div>
+          </details>
+        ) : null}
+        {contextEnabled && contextPlatform && contextSessionId ? (
+          <details className="mt-2 rounded border border-[#9BBBF4]/40 bg-[#9BBBF4]/5 px-2 py-1.5">
+            <summary className="cursor-pointer text-[11px] font-medium text-[#5B7FC9]">
+              完整上下文（重建）
+            </summary>
+            <div className="mt-2">
+              <ContextPanel
+                platform={contextPlatform}
+                sessionId={contextSessionId}
+                messageId={message.id || undefined}
+                dir={contextDir}
+              />
+            </div>
+          </details>
+        ) : null}
       </article>
     );
   }
@@ -306,9 +391,9 @@ export function MessageBubble({ message, timing }: { message: SessionMessage; ti
           </details>
         ) : null}
         {text ? <Markdown text={text} /> : null}
-        {toolCalls.map((part, i) => (
-          <ToolCallPart key={part.id || i} part={part} />
-        ))}
+        {showEmbeddedToolCalls
+          ? toolCalls.map((part, i) => <ToolCallPart key={part.id || i} part={part} />)
+          : null}
       </article>
     );
   }

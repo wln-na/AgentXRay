@@ -2,14 +2,34 @@
 // Typed from real responses sampled via curl + the legacy UI's field usage
 // (public/js/app.js). Open/evolving shapes carry index signatures.
 
-export type Platform = 'openclaw' | 'codex' | 'claude-code' | 'hermes' | 'omp' | 'dsh' | 'gemini' | 'doubao';
+export type Platform =
+  | 'openclaw'
+  | 'codex'
+  | 'claude-code'
+  | 'claude-desktop'
+  | 'hermes'
+  | 'omp'
+  | 'dsh'
+  | 'gemini'
+  | 'doubao';
 
-export const PLATFORMS: Platform[] = ['openclaw', 'codex', 'claude-code', 'hermes', 'omp', 'dsh', 'gemini', 'doubao'];
+export const PLATFORMS: Platform[] = [
+  'openclaw',
+  'codex',
+  'claude-code',
+  'claude-desktop',
+  'hermes',
+  'omp',
+  'dsh',
+  'gemini',
+  'doubao',
+];
 
 export const PLATFORM_LABELS: Record<Platform, string> = {
   openclaw: 'OpenClaw',
   codex: 'Codex',
   'claude-code': 'Claude Code',
+  'claude-desktop': 'Claude Desktop',
   hermes: 'Hermes',
   omp: 'OMP',
   dsh: 'DeepSeek Harness',
@@ -47,10 +67,17 @@ export interface SessionSummary {
   spawnCount?: number | null;
   projectId?: string | null;
   projectName?: string | null;
+  projectPath?: string | null;
   sectionId?: string | null;
   dataSource?: string | null;
   sourcePath?: string | null;
   trajectoryPath?: string | null;
+  filePath?: string | null;
+  archived?: boolean;
+  parentThreadId?: string | null;
+  childCount?: number;
+  agentRole?: string | null;
+  agentNickname?: string | null;
   [key: string]: unknown;
 }
 
@@ -68,11 +95,35 @@ export interface MessageContentPart {
   [key: string]: unknown;
 }
 
+export interface ContextUsageBreakdownItem {
+  key: 'conversation' | 'system' | 'tools' | 'skills' | string;
+  label: string;
+  tokens?: number | null;
+  percent?: number | null;
+  estimated?: boolean;
+}
+
+export interface ContextUsage {
+  used?: number | null;
+  limit?: number | null;
+  percent?: number | null;
+  source?: 'native' | 'estimated' | 'unavailable' | string;
+  input?: number | null;
+  cacheRead?: number | null;
+  cacheWrite?: number | null;
+  output?: number | null;
+  breakdownStatus?: 'native' | 'estimated' | 'unavailable' | string;
+  breakdown?: ContextUsageBreakdownItem[];
+  note?: string | null;
+}
+
 export interface MessageUsage {
   input?: number;
   output?: number;
   cacheRead?: number;
   cacheWrite?: number;
+  reasoning?: number;
+  contextWindow?: number;
   /** number on some platforms; omp emits an object with per-bucket dollars + total */
   cost?: number | { total?: number; [key: string]: unknown } | null;
   totalTokens?: number;
@@ -108,12 +159,20 @@ export interface SessionMeta {
   models?: string[];
   projectId?: string | null;
   projectName?: string | null;
+  projectPath?: string | null;
   sectionId?: string | null;
   dataSource?: string | null;
   sourcePath?: string | null;
   trajectoryPath?: string | null;
+  filePath?: string | null;
+  archived?: boolean;
+  parentThreadId?: string | null;
+  agentRole?: string | null;
+  agentNickname?: string | null;
   historyAvailable?: boolean;
   contentAvailable?: boolean;
+  tokenUsage?: MessageUsage | null;
+  contextUsage?: ContextUsage | null;
   [key: string]: unknown;
 }
 
@@ -121,6 +180,8 @@ export interface SessionMeta {
 export interface SessionDetail {
   session: SessionMeta;
   messages: SessionMessage[];
+  tokenUsage?: MessageUsage | null;
+  contextUsage?: ContextUsage | null;
 }
 
 /** Item of GET /api/{omp,claude-code}/sessions/:id/children */
@@ -208,7 +269,15 @@ export interface Insights {
   totalToolCalls: number;
   totalCost: number;
   errorRate: number;
-  tokenUsage: { input?: number; output?: number; cacheRead?: number; [key: string]: number | undefined };
+  tokenUsage: {
+    input?: number;
+    output?: number;
+    cacheRead?: number;
+    cacheWrite?: number;
+    reasoning?: number;
+    totalTokens?: number;
+    [key: string]: number | undefined;
+  };
   toolStats: ToolStat[];
   errorClusters: ErrorCluster[];
   trend: TrendPoint[];
@@ -472,4 +541,77 @@ export interface VersionInfo {
 /** GET /api/otlp/:platform/:sessionId — OTLP/JSON export */
 export interface OtlpExport {
   resourceSpans: unknown[];
+}
+
+// ---------- Context reconstruction ----------
+
+/** One decomposed component of a reconstructed system prompt. */
+export interface ContextPromptComponent {
+  type: string; // 'builtin' | 'environment' | 'user-instructions' | 'base-instructions' | 'project-instructions' | 'dynamic-injection' | …
+  label: string;
+  present: boolean;
+  content: string | null;
+  source: string | null;
+  note: string | null;
+}
+
+/** Reconstructed system prompt with decomposed components. */
+export interface ContextSystemPrompt {
+  source: string; // 'trajectory' | 'indexeddb' | 'reconstructed' | 'partial'
+  content: string;
+  components: ContextPromptComponent[];
+}
+
+/** Recoverable message history included in the reconstructed request. */
+export interface ContextHistorySummary {
+  total: number;
+  turns: number;
+  user: number;
+  assistant: number;
+  toolCall: number;
+  toolResult: number;
+  reasoning: number;
+  other: number;
+}
+
+export interface ContextHistory {
+  summary: ContextHistorySummary;
+  included: boolean;
+  items?: SessionMessage[];
+  target?: SessionMessage | null;
+  compaction?: {
+    applied: boolean;
+    timestamp: string | null;
+    source: string;
+  } | null;
+}
+
+/** Available tool definitions (only some platforms can recover these). */
+export interface ContextTools {
+  available: boolean;
+  count: number;
+  source: string | null;
+  definitions: unknown[] | null;
+}
+
+/** Reconstruction metadata — transparent about confidence and gaps. */
+export interface ContextMetadata {
+  confidence: 'high' | 'medium' | 'low';
+  reconstructedAt: string;
+  sources: string[];
+  missingItems: string[];
+  note: string;
+  platform: string;
+}
+
+/** GET /api/:platform/sessions/:sessionId/context?messageIndex=N */
+export interface ContextSnapshot {
+  platform: string;
+  sessionId: string;
+  messageIndex: number;
+  targetMessageId: string | null;
+  systemPrompt: ContextSystemPrompt;
+  messages: ContextHistory;
+  tools: ContextTools;
+  metadata: ContextMetadata;
 }

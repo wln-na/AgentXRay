@@ -17,6 +17,11 @@ const DIR_FIELDS: { key: keyof DirSettings; label: string; placeholder: string }
   { key: 'openclawDir', label: 'OpenClaw Directory', placeholder: '~/.openclaw/agents' },
   { key: 'codexDir', label: 'Codex Directory', placeholder: '~/.codex/sessions' },
   { key: 'claudeCodeDir', label: 'Claude Code Directory', placeholder: '~/.claude/projects' },
+  {
+    key: 'claudeDesktopDir',
+    label: 'Claude Desktop Directory',
+    placeholder: '~/Library/Application Support/Claude-3p/local-agent-mode-sessions',
+  },
   { key: 'hermesDir', label: 'Hermes Directory', placeholder: '~/.hermes' },
   { key: 'ompDir', label: 'OMP Directory', placeholder: '~/.omp/agent/sessions' },
   { key: 'dshDir', label: 'DeepSeek Harness Directory', placeholder: '~/.dsh/sessions' },
@@ -46,7 +51,7 @@ function BackupSection() {
   return (
     <div className="space-y-1.5">
       <label className="text-xs text-muted-foreground">
-        会话备份（codex / claude-code / omp 增量归档）
+        会话备份（codex / claude-code / claude-desktop / omp 增量归档）
       </label>
       <div className="flex items-center gap-2.5">
         <Button
@@ -163,6 +168,7 @@ export function SettingsDialog({
       openclawDir: draft.openclawDir.trim(),
       codexDir: draft.codexDir.trim(),
       claudeCodeDir: draft.claudeCodeDir.trim(),
+      claudeDesktopDir: draft.claudeDesktopDir.trim(),
       hermesDir: draft.hermesDir.trim(),
       ompDir: draft.ompDir.trim(),
       dshDir: draft.dshDir.trim(),

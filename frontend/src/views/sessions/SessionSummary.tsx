@@ -10,6 +10,7 @@ import { formatCost, formatDurationCompact } from '@/lib/pure';
 import { cn } from '@/lib/utils';
 import { dirForPlatform, loadStoredFlag, saveStoredFlag, SUMMARY_COLLAPSED_KEY, useAppStore } from '@/store';
 import { ChildAgentsSection } from '@/views/trace/ChildAgentsSection';
+import { ContextUsageCard } from './ContextUsageCard';
 import type { ExportFormat } from './exports';
 import { runExport } from './exports';
 import type { MsgFilter, TimingAnalysis } from './lib';
@@ -82,7 +83,7 @@ function ExportMenu({ detail }: { detail: SessionDetail }) {
     ['json', '📦 JSON (.json)'],
     ['clipboard', '📋 复制到剪贴板'],
   ];
-  if (['codex', 'claude-code', 'omp', 'dsh', 'gemini'].includes(platform)) entries.push(['otlp', '🔭 OTLP JSON']);
+  if (['codex', 'claude-code', 'claude-desktop', 'omp', 'dsh', 'gemini'].includes(platform)) entries.push(['otlp', '🔭 OTLP JSON']);
 
   return (
     <div className="relative">
@@ -164,23 +165,46 @@ export function SessionSummary({
   const sessionFile = selectedSummary?.file;
   const localPaths = Array.from(
     new Set(
-      [detail.session?.sourcePath, detail.session?.trajectoryPath, selectedSummary?.sourcePath, selectedSummary?.trajectoryPath, sessionFile]
+      [
+        detail.session?.sourcePath,
+        detail.session?.trajectoryPath,
+        detail.session?.filePath,
+        selectedSummary?.sourcePath,
+        selectedSummary?.trajectoryPath,
+        selectedSummary?.filePath,
+        sessionFile,
+      ]
         .filter((value): value is string => typeof value === 'string' && Boolean(value))
     )
   );
 
   const msgs = detail.messages;
   const stats = useMemo(() => computeSessionStats(msgs), [msgs]);
-  const tokenSummary = useMemo(() => summarizeTokens(msgs), [msgs]);
+  const tokenUsage = detail.tokenUsage || detail.session?.tokenUsage;
+  const contextUsage = detail.contextUsage || detail.session?.contextUsage;
+  const tokenSummary = useMemo(() => summarizeTokens(msgs, tokenUsage), [msgs, tokenUsage]);
   const cost = useMemo(() => sessionCost(msgs), [msgs]);
   const listModel = selectedSummary?.model || detail.session?.model;
 
   const total = timing.totalDurationMs;
   const toolMs = timing.totalToolDurationMs || 0;
   const modelMs = total !== null ? Math.max(0, total - toolMs) : 0;
-  const topTools = Object.entries(stats.toolNames)
+  const topTools = Object.entries(stats.toolNames).length
+    ? Object.entries(stats.toolNames)
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, 8)
+    : (selectedSummary?.topTools || []).map((tool) => [tool.name, tool.count] as [string, number]).slice(0, 8);
+  const topSkills = Object.entries(stats.skillNames)
     .sort((a, b) => b[1] - a[1])
     .slice(0, 8);
+  const topSkillFileReads = Object.entries(stats.skillFileReads)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 8);
+  const topMcpServers = Object.entries(stats.mcpServers)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 8);
+  const toolCallCount = stats.toolCallCount || selectedSummary?.toolCallCount || 0;
+  const toolResultCount = stats.toolResultCount || selectedSummary?.toolResultCount || 0;
 
   const toggleCollapsed = () => {
     setCollapsed((prev) => {
@@ -191,68 +215,39 @@ export function SessionSummary({
 
   return (
     <div className="rounded-lg border border-border bg-card/60 p-3" data-testid="session-summary">
-      <div className="flex flex-wrap items-start justify-between gap-2">
-        <div className="min-w-0">
-          <h2 className="truncate text-sm font-semibold">{detail.session?.id || selectedSessionId}</h2>
-          <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-muted-foreground">
-            <span>{formatDate(detail.session?.timestamp)}</span>
-            <span>{detail.session?.cwd || 'Unknown cwd'}</span>
-            {localPaths.map((localPath, index) => (
-              <button
-                key={localPath}
-                type="button"
-                className="cursor-pointer truncate max-w-[340px] hover:text-foreground hover:underline"
-                title={`点击复制本地路径：${localPath}`}
-                onClick={async () => {
-                  try {
-                    await navigator.clipboard.writeText(localPath);
-                    setPathCopied(true);
-                    setTimeout(() => setPathCopied(false), 1500);
-                  } catch (error) {
-                    toast.error('复制失败: ' + (error as Error).message);
-                  }
-                }}
-              >
-                {index === 0 ? '📁' : '↳'} {pathCopied ? '已复制!' : localPath}
-              </button>
-            ))}
-            {detail.session?.dataSource ? (
-              <span className="rounded border border-border px-1">来源: {detail.session.dataSource}</span>
-            ) : null}
-            {detail.session?.contentAvailable === false ? (
-              <span className="rounded border border-[#e3b341]/60 px-1 text-[#b7791f]">本地未保留正文</span>
-            ) : null}
-            {listModel ? <span className="rounded border border-border px-1">🧠 {listModel}</span> : null}
-            {total !== null ? (
-              <span title="Wall-clock time from first to last message">⏱ Total: {formatDurationCompact(total)}</span>
-            ) : null}
-            {total !== null && timing.totalToolDurationMs !== null && total > 0 ? (
-              <span title="Estimated breakdown: tool execution time vs model inference time (model = total − tool exec)">
-                🔧 Tool exec: {formatDurationCompact(toolMs)} ({Math.round((toolMs / total) * 100)}%) · 🤖 Model:{' '}
-                {formatDurationCompact(modelMs)} ({Math.round((modelMs / total) * 100)}%)
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="min-w-0 flex-1">
+          <h2 className="truncate text-base font-semibold" title={selectedSummary?.title || detail.session?.id || selectedSessionId}>
+            {selectedSummary?.title || detail.session?.id || selectedSessionId}
+          </h2>
+          <div className="mt-1.5 flex flex-wrap items-center gap-1.5 text-[11px] text-muted-foreground">
+            <span className="rounded border border-border px-1.5 py-0.5">{formatDate(detail.session?.timestamp)}</span>
+            {selectedSummary?.projectName || detail.session?.projectName || detail.session?.cwd ? (
+              <span className="max-w-[260px] truncate rounded border border-border px-1.5 py-0.5" title={selectedSummary?.projectPath || detail.session?.projectPath || detail.session?.cwd || ''}>
+                {selectedSummary?.projectName || detail.session?.projectName || detail.session?.cwd}
               </span>
             ) : null}
-            {timing.slowestStep ? (
-              <button
-                type="button"
-                className="cursor-pointer text-[#e3b341] hover:underline"
-                title="Click to jump — total agent work time for this turn (user msg → last agent response)"
-                onClick={() => timing.slowestStep?.messageId && onScrollToMessage(timing.slowestStep.messageId)}
-              >
-                🐌 Slowest turn: +{formatDurationCompact(timing.slowestStep.deltaMs)} ({timing.slowestStep.label})
-              </button>
+            {listModel ? <span className="rounded border border-border px-1.5 py-0.5">模型：{listModel}</span> : null}
+            <span className="rounded border border-border px-1.5 py-0.5">消息：{msgs.length}</span>
+            <span className="rounded border border-border px-1.5 py-0.5">{toolCallCount} 次工具调用</span>
+            {selectedSummary?.archived || detail.session?.archived ? (
+              <span className="rounded border border-amber-500/50 bg-amber-500/10 px-1.5 py-0.5 text-amber-700 dark:text-amber-300">
+                已归档
+              </span>
             ) : null}
-            <span>耗时分析看 Trace 视图</span>
+            {detail.session?.contentAvailable === false ? (
+              <span className="rounded border border-[#e3b341]/60 px-1.5 py-0.5 text-[#b7791f]">本地未保留正文</span>
+            ) : null}
           </div>
         </div>
-        <div className="flex items-start gap-2">
+        <div className="flex flex-wrap items-center justify-end gap-2">
           <button
             type="button"
             className={ACTION_BTN}
             title={msgOrder === 'newest-first' ? '当前：最新在上；点击改为最早在上' : '当前：最早在上；点击改为最新在上'}
             onClick={() => setMsgOrder(msgOrder === 'newest-first' ? 'oldest-first' : 'newest-first')}
           >
-            {msgOrder === 'newest-first' ? '⬇️ 改为最早在上' : '⬆️ 改为最新在上'}
+            {msgOrder === 'newest-first' ? '改为最早在上' : '改为最新在上'}
           </button>
           <button
             type="button"
@@ -261,7 +256,7 @@ export function SessionSummary({
             onClick={toggleCollapsed}
             data-testid="summary-toggle"
           >
-            {collapsed ? '▸ 详情' : '▾ 收起'}
+            {collapsed ? '更多信息' : '收起信息'}
           </button>
           <ResumeButton cwd={detail.session?.cwd} />
           <ExportMenu detail={detail} />
@@ -270,8 +265,55 @@ export function SessionSummary({
 
       {!collapsed ? (
         <div className="mt-3 space-y-3" data-testid="summary-body">
-          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-            <div>
+          <div className="rounded-md border border-border/70 p-2.5 text-[11px] text-muted-foreground">
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+              <span>会话 ID：{detail.session?.id || selectedSessionId}</span>
+              {detail.session?.dataSource ? <span>来源：{detail.session.dataSource}</span> : null}
+              {total !== null ? <span>总耗时：{formatDurationCompact(total)}</span> : null}
+              {total !== null && timing.totalToolDurationMs !== null && total > 0 ? (
+                <span>
+                  工具执行：{formatDurationCompact(toolMs)}（{Math.round((toolMs / total) * 100)}%） · 模型：
+                  {formatDurationCompact(modelMs)}（{Math.round((modelMs / total) * 100)}%）
+                </span>
+              ) : null}
+              {timing.slowestStep ? (
+                <button
+                  type="button"
+                  className="text-[#b7791f] hover:underline"
+                  title="跳转到耗时最长的一轮"
+                  onClick={() => timing.slowestStep?.messageId && onScrollToMessage(timing.slowestStep.messageId)}
+                >
+                  最慢一轮：{formatDurationCompact(timing.slowestStep.deltaMs)}（{timing.slowestStep.label}）
+                </button>
+              ) : null}
+            </div>
+            {localPaths.length ? (
+              <div className="mt-2 space-y-1 border-t border-border/60 pt-2">
+                <div className="font-medium text-foreground">本地路径</div>
+                {localPaths.map((localPath) => (
+                  <button
+                    key={localPath}
+                    type="button"
+                    className="block max-w-full truncate text-left hover:text-foreground hover:underline"
+                    title={`点击复制本地路径：${localPath}`}
+                    onClick={async () => {
+                      try {
+                        await navigator.clipboard.writeText(localPath);
+                        setPathCopied(true);
+                        setTimeout(() => setPathCopied(false), 1500);
+                      } catch (error) {
+                        toast.error('复制失败: ' + (error as Error).message);
+                      }
+                    }}
+                  >
+                    {pathCopied ? '已复制!' : localPath}
+                  </button>
+                ))}
+              </div>
+            ) : null}
+          </div>
+          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+            <div className="rounded-md border border-border/70 p-2.5">
               <div className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
                 Messages
               </div>
@@ -299,7 +341,7 @@ export function SessionSummary({
                 </FilterBadge>
               </div>
             </div>
-            <div>
+            <div className="rounded-md border border-border/70 p-2.5">
               <div className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Tools</div>
               <div className="flex flex-wrap gap-1">
                 <FilterBadge
@@ -307,14 +349,14 @@ export function SessionSummary({
                   onClick={() => setMsgFilter('toolCall')}
                   title="Click to show only tool calls"
                 >
-                  🔧 Tool Calls: {stats.toolCallCount}
+                  🔧 Tool Calls: {toolCallCount}
                 </FilterBadge>
                 <FilterBadge
                   active={msgFilter === 'toolResult'}
                   onClick={() => setMsgFilter('toolResult')}
                   title="Click to show only tool results"
                 >
-                  📋 Tool Results: {stats.toolResultCount}
+                  📋 Tool Results: {toolResultCount}
                 </FilterBadge>
                 {stats.errorCount ? (
                   <FilterBadge
@@ -350,35 +392,114 @@ export function SessionSummary({
                 ) : null}
               </div>
             </div>
-            {topTools.length ? (
-              <div>
-                <div className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
-                  Top Tools
-                </div>
-                <div className="flex flex-wrap gap-1">
+            <div className="rounded-md border border-border/70 p-2.5">
+              <div className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                Top Tools
+              </div>
+              {topTools.length ? (
+                <div className="flex flex-wrap gap-1.5">
                   {topTools.map(([name, count]) => (
                     <span
                       key={name}
-                      className="rounded border border-border px-1.5 py-0.5 text-[11px] text-muted-foreground"
+                      className="rounded border border-border bg-secondary/30 px-1.5 py-0.5 text-[11px] text-muted-foreground"
                     >
-                      {name}: {count}
+                      {name} ×{count}
                     </span>
                   ))}
                 </div>
+              ) : (
+                <div className="text-[11px] text-muted-foreground">本会话没有记录到工具调用</div>
+              )}
+            </div>
+            <div className="rounded-md border border-border/70 p-2.5">
+              <div className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                MCP 使用（按 Server）
               </div>
-            ) : null}
-            <div>
+              {topMcpServers.length ? (
+                <div className="flex flex-wrap gap-1.5">
+                  {topMcpServers.map(([name, count]) => (
+                    <span
+                      key={name}
+                      className="rounded border border-sky-500/30 bg-sky-500/5 px-1.5 py-0.5 text-[11px] text-foreground"
+                    >
+                      {name} ×{count}
+                    </span>
+                  ))}
+                </div>
+              ) : (
+                <div className="text-[11px] text-muted-foreground">本会话没有记录到 MCP 工具调用</div>
+              )}
+              <div className="mt-1 text-[10px] text-muted-foreground">按 mcp__server__tool 原生工具名汇总</div>
+            </div>
+            <div className="rounded-md border border-border/70 p-2.5">
+              <div className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                Skill 使用
+              </div>
+              {topSkills.length ? (
+                <div className="flex flex-wrap gap-1.5">
+                  {topSkills.map(([name, count]) => (
+                    <span
+                      key={name}
+                      className="rounded border border-primary/30 bg-primary/5 px-1.5 py-0.5 text-[11px] text-foreground"
+                    >
+                      {name} ×{count}
+                    </span>
+                  ))}
+                </div>
+              ) : (
+                <div className="text-[11px] text-muted-foreground">本会话没有记录到 Skill 加载</div>
+              )}
+              <div className="mt-1 text-[10px] text-muted-foreground">按原生 Skill 工具调用及实际读取 SKILL.md 统计</div>
+              <div className="mt-2 border-t border-border/60 pt-2 text-[10px] font-medium text-muted-foreground">
+                Skill 目录文件读取
+              </div>
+              {topSkillFileReads.length ? (
+                <div className="mt-1 flex flex-wrap gap-1.5">
+                  {topSkillFileReads.map(([name, count]) => (
+                    <span
+                      key={name}
+                      className="rounded border border-border bg-secondary/30 px-1.5 py-0.5 text-[11px] text-muted-foreground"
+                    >
+                      {name} ×{count}
+                    </span>
+                  ))}
+                </div>
+              ) : (
+                <div className="mt-1 text-[11px] text-muted-foreground">本会话没有记录到 Skill 从属文件读取</div>
+              )}
+            </div>
+            <ContextUsageCard
+              usage={contextUsage}
+              unavailableNote={
+                detail.session?.dataSource === 'indexeddb'
+                  ? 'Doubao 的 trajectory 与 IndexedDB 本地记录未提供 Token usage，无法计算上下文用量。'
+                  : undefined
+              }
+            />
+            <div className="rounded-md border border-border/70 p-2.5">
               <div className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Tokens</div>
               <div className="flex flex-wrap gap-1">
                 {Object.keys(tokenSummary).length ? (
-                  Object.entries(tokenSummary).map(([key, value]) => (
-                    <span
-                      key={key}
-                      className="rounded border border-border px-1.5 py-0.5 text-[11px] text-muted-foreground"
-                    >
-                      {key}: {formatNumber(value)}
-                    </span>
-                  ))
+                  Object.entries(tokenSummary).map(([key, value]) => {
+                    const label =
+                      {
+                        input: 'Input',
+                        output: 'Output',
+                        cacheRead: 'Cache Read',
+                        cacheWrite: 'Cache Write',
+                        reasoning: 'Reasoning',
+                        totalTokens: 'Total',
+                        contextWindow: 'Context Window',
+                      }[key] || key;
+                    return (
+                      <span
+                        key={key}
+                        className="rounded border border-border px-1.5 py-0.5 text-[11px] text-muted-foreground"
+                      >
+                        {label}: {formatNumber(value)}
+                      </span>
+                    );
+                  })
                 ) : (
                   <span className="rounded border border-border px-1.5 py-0.5 text-[11px] text-muted-foreground">
                     No token data

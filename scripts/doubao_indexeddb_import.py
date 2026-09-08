@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """Build AgentXRay's read-only Doubao cache from a Chromium IndexedDB snapshot.
 
-Only a narrow allow-list is persisted: project/session identifiers and titles,
-message text/tool summaries, timestamps, section identifiers, and model names.
+Only a narrow allow-list is persisted: project/session identifiers, names and
+workspace roots, message text/tool summaries, user-visible request context,
+timestamps, section identifiers, and model names.
 Raw request metadata (cookies, tokens, IPs, device IDs, log IDs) is never stored.
 """
 
@@ -18,8 +19,9 @@ import sys
 import tempfile
 from pathlib import Path
 from typing import Any, Iterable
+from urllib.parse import urlsplit, urlunsplit
 
-SCHEMA_VERSION = "1"
+SCHEMA_VERSION = "3"
 
 
 def js_values(value: Any) -> list[Any]:
@@ -119,13 +121,20 @@ def extract_text_and_tools(message: dict[str, Any]) -> list[dict[str, Any]]:
             })
         elif file_op:
             header = as_dict(file_op.get("header"))
+            summary = header.get("summary")
+            path = file_op.get("path")
+            content_text = file_op.get("content")
             parts.append({
                 "type": "toolCall",
                 "id": str(block.get("block_id") or ""),
-                "name": "Bash" if "运行" in str(header.get("summary") or "") else "file_operation",
+                "name": "Bash" if "运行" in str(summary or "") else "file_operation",
                 "arguments": None,
                 "status": file_op.get("status"),
-                "summary": header.get("summary"),
+                "summary": summary,
+                "path": path if isinstance(path, str) and path else None,
+                "fileName": file_op.get("file_name") if isinstance(file_op.get("file_name"), str) else None,
+                "fileType": file_op.get("file_type") if isinstance(file_op.get("file_type"), str) else None,
+                "content": content_text if isinstance(content_text, str) and content_text else None,
             })
     return parts
 
@@ -136,14 +145,159 @@ def message_model_key(message: dict[str, Any], fallback: str | None) -> str | No
     return str(value) if value not in (None, "") else fallback
 
 
+def parse_general_task_param(value: Any) -> dict[str, Any]:
+    if isinstance(value, dict):
+        return value
+    return parse_json_object(value)
+
+
+def safe_context_url(value: Any) -> str | None:
+    if not isinstance(value, str) or not value:
+        return None
+    try:
+        parsed = urlsplit(value)
+    except ValueError:
+        return None
+    if parsed.scheme not in {"http", "https", "file"}:
+        return None
+    hostname = parsed.hostname or ""
+    if parsed.scheme in {"http", "https"} and not hostname:
+        return None
+    port = f":{parsed.port}" if parsed.port else ""
+    netloc = f"{hostname}{port}"
+    return urlunsplit((parsed.scheme, netloc, parsed.path, "", ""))
+
+
+def xml_context(tag: str, content: str, attributes: dict[str, str] | None = None) -> str | None:
+    text = content.strip()
+    if not text:
+        return None
+    serialized_attributes = "".join(
+        f" {key}={json.dumps(value, ensure_ascii=False)}"
+        for key, value in (attributes or {}).items()
+        if value
+    )
+    return f"<{tag}{serialized_attributes}>\n{text}\n</{tag}>"
+
+
+def parse_user_context_items(value: Any) -> list[str]:
+    """Extract only user-visible context fields from one task request."""
+    if isinstance(value, str):
+        try:
+            value = json.loads(value)
+        except (TypeError, ValueError):
+            value = []
+    output: list[str] = []
+    for item in js_values(value):
+        context = as_dict(item)
+        context_type = str(context.get("context_type") or "")
+        params = as_dict(context.get("context_param"))
+        if context_type != "12":
+            continue
+        browser = parse_json_object(params.get("browser_context"))
+        active_tab = as_dict(browser.get("active_tab"))
+        tab_count = browser.get("open_tab_count")
+        lines = ["# In app browser:"]
+        if isinstance(tab_count, (int, float)):
+            lines.append(f"- The user has the in-app browser open with {int(tab_count)} tabs.")
+        title = active_tab.get("title")
+        url = safe_context_url(active_tab.get("url"))
+        if isinstance(title, str) and title:
+            lines.append(f"- Current title: {title}")
+        if url:
+            lines.append(f"- Current URL: {url}")
+        rendered = xml_context("in-app-browser-context", "\n".join(lines))
+        if rendered:
+            output.append(rendered)
+    return output
+
+
+def parse_task_input_context(container: dict[str, Any]) -> list[str]:
+    """Extract project rules and project identity that were part of this task input."""
+    option = as_dict(container.get("option"))
+    ext = as_dict(container.get("ext"))
+    general_candidates = (
+        option.get("general_task_param"),
+        ext.get("general_task_param"),
+        container.get("general_task_param"),
+    )
+    task_input: dict[str, Any] = {}
+    for candidate in general_candidates:
+        general_task_param = parse_general_task_param(candidate)
+        task_input = parse_json_object(general_task_param.get("task_input_json"))
+        if task_input:
+            break
+    output: list[str] = []
+
+    agents_md = as_dict(task_input.get("agents_md"))
+    for file_value in js_values(agents_md.get("files")):
+        file_item = as_dict(file_value)
+        content = file_item.get("content")
+        file_path = file_item.get("file_path")
+        if not isinstance(content, str) or not content.strip():
+            continue
+        attributes = {"path": file_path} if isinstance(file_path, str) and file_path else None
+        rendered = xml_context("agents_md", content, attributes)
+        if rendered:
+            output.append(rendered)
+
+    project_context = as_dict(task_input.get("project_context"))
+    project_name = project_context.get("project_name")
+    folders: list[str] = []
+    for folder_value in js_values(project_context.get("folders")):
+        folder = as_dict(folder_value)
+        path = folder.get("path")
+        if isinstance(path, str) and path:
+            folders.append(path)
+    project_lines = []
+    if isinstance(project_name, str) and project_name:
+        project_lines.append(f"Project: {project_name}")
+    if folders:
+        project_lines.append("Folders:\n" + "\n".join(f"- {path}" for path in folders))
+    rendered_project = xml_context("current-state", "\n".join(project_lines))
+    if rendered_project:
+        output.append(rendered_project)
+    return output
+
+
+def message_request_context(message: dict[str, Any]) -> list[str]:
+    ext = as_dict(as_dict(message.get("extra")).get("ext"))
+    output = [*parse_user_context_items(ext.get("user_context")), *parse_task_input_context(ext)]
+    seen: set[str] = set()
+    return [item for item in output if item not in seen and not seen.add(item)]
+
+
+def task_request_context(task: dict[str, Any]) -> list[str]:
+    sync_task = as_dict(as_dict(task.get("requestQuery")).get("syncTask"))
+    output = [*parse_user_context_items(sync_task.get("user_context")), *parse_task_input_context(sync_task)]
+    seen: set[str] = set()
+    return [item for item in output if item not in seen and not seen.add(item)]
+
+
+def request_user_message_ids(task: dict[str, Any]) -> set[str]:
+    sync_task = as_dict(as_dict(task.get("requestQuery")).get("syncTask"))
+    ids: set[str] = set()
+    for value in js_values(sync_task.get("messages")):
+        item = as_dict(value)
+        for field in ("message_id", "local_message_id"):
+            candidate = item.get(field)
+            if candidate not in (None, ""):
+                ids.add(str(candidate))
+    return ids
+
+
 def task_context(task: dict[str, Any]) -> dict[str, str | None]:
     request = as_dict(as_dict(as_dict(task.get("requestQuery")).get("syncTask")))
     client_meta = as_dict(request.get("client_meta"))
     option = as_dict(request.get("option"))
     init_option = as_dict(option.get("conversation_init_option"))
     model_config = as_dict(option.get("model_config"))
+    general_task_param = parse_general_task_param(option.get("general_task_param"))
+    client_option = as_dict(general_task_param.get("client_option"))
+    agent_task_param = as_dict(general_task_param.get("agent_task_param"))
     conversation_id = client_meta.get("conversation_id")
     project_id = init_option.get("project_id")
+    project_path = client_option.get("workspace") or agent_task_param.get("workspace")
     section_id = client_meta.get("section_id")
     model_key = model_config.get("model_item_key")
 
@@ -157,13 +311,23 @@ def task_context(task: dict[str, Any]) -> dict[str, str | None]:
         model_key = model_key or ext.get("model_item_key")
         init = parse_json_object(ext.get("conversation_init_option"))
         project_id = project_id or init.get("project_id")
+        message_general_param = parse_general_task_param(ext.get("general_task_param"))
+        message_client_option = as_dict(message_general_param.get("client_option"))
+        message_agent_task_param = as_dict(message_general_param.get("agent_task_param"))
+        project_path = (
+            project_path
+            or message_client_option.get("workspace")
+            or message_agent_task_param.get("workspace")
+        )
         ack = parse_json_object(ext.get("ack_client_meta"))
         conversation_id = conversation_id or ack.get("conversation_id")
         section_id = section_id or ack.get("section_id")
-        break
+        if conversation_id and project_id and project_path and section_id and model_key:
+            break
     return {
         "conversation_id": str(conversation_id) if conversation_id else None,
         "project_id": str(project_id) if project_id else None,
+        "project_path": str(project_path) if project_path else None,
         "section_id": str(section_id) if section_id else None,
         "model_key": str(model_key) if model_key not in (None, "") else None,
     }
@@ -198,6 +362,8 @@ def extract_projects(payload: dict[str, Any], sequence: int, projects: dict[str,
             projects[project_id] = {
                 "id": project_id,
                 "name": str(project.get("name") or project_id),
+                "root_path": current.get("root_path") if current else None,
+                "root_path_sequence": int(current.get("root_path_sequence", -1)) if current else -1,
                 "display_order": int(project.get("displayOrder") or 0),
                 "sequence": sequence,
             }
@@ -217,13 +383,56 @@ def extract_projects(payload: dict[str, Any], sequence: int, projects: dict[str,
                 })
 
 
+def context_text_part(text: str) -> dict[str, str]:
+    return {"type": "text", "text": text}
+
+
+def is_context_text_part(part: Any) -> bool:
+    return (
+        isinstance(part, dict)
+        and part.get("type") == "text"
+        and isinstance(part.get("text"), str)
+        and part["text"].startswith(("<agents_md", "<in-app-browser-context", "<current-state"))
+    )
+
+
+def retain_context_parts(current: list[Any], cached: list[Any]) -> list[Any]:
+    """Keep task-bound context and cached body when later UI state is partial."""
+    current_has_body = any(not is_context_text_part(part) for part in current)
+    merged = list(current) if current_has_body else [dict(part) if isinstance(part, dict) else part for part in cached]
+    current_text = "\n".join(
+        str(part.get("text") or "") for part in merged if isinstance(part, dict) and part.get("type") == "text"
+    )
+    context_sources = cached if current_has_body else current
+    for part in context_sources:
+        if not is_context_text_part(part):
+            continue
+        text = part["text"]
+        if text not in current_text:
+            merged.append(dict(part))
+            current_text += f"\n{text}"
+    return merged
+
+
 def upsert_message(messages: dict[str, dict[str, Any]], item: dict[str, Any]) -> None:
     current = messages.get(item["id"])
-    if current is None or (item["sequence"], item["sort_index"]) >= (current["sequence"], current["sort_index"]):
+    if current is None:
         messages[item["id"]] = item
+        return
+    if (item["sequence"], item["sort_index"]) >= (current["sequence"], current["sort_index"]):
+        item["content"] = retain_context_parts(item.get("content") or [], current.get("content") or [])
+        messages[item["id"]] = item
+        return
+    current["content"] = retain_context_parts(current.get("content") or [], item.get("content") or [])
 
 
-def extract_task_state(payload: dict[str, Any], sequence: int, sessions: dict[str, dict[str, Any]], messages: dict[str, dict[str, Any]]) -> None:
+def extract_task_state(
+    payload: dict[str, Any],
+    sequence: int,
+    projects: dict[str, dict[str, Any]],
+    sessions: dict[str, dict[str, Any]],
+    messages: dict[str, dict[str, Any]],
+) -> None:
     state = as_dict(payload.get("state")) or payload
     tasks = as_dict(state.get("mainTaskDataMap"))
     for task_id, task_value in tasks.items():
@@ -234,20 +443,78 @@ def extract_task_state(payload: dict[str, Any], sequence: int, sessions: dict[st
             continue
         session = sessions.setdefault(conversation_id, {"id": conversation_id, "sequence": -1})
         session["project_id"] = ctx["project_id"] or session.get("project_id")
+        session["project_path"] = ctx["project_path"] or session.get("project_path")
+        if session.get("project_id") and session.get("project_path"):
+            project = projects.setdefault(
+                session["project_id"],
+                {
+                    "id": session["project_id"],
+                    "name": session["project_id"],
+                    "root_path": None,
+                    "root_path_sequence": -1,
+                    "display_order": 0,
+                    "sequence": -1,
+                },
+            )
+            if sequence >= int(project.get("root_path_sequence", -1)):
+                project["root_path"] = session["project_path"]
+                project["root_path_sequence"] = sequence
         session["section_id"] = ctx["section_id"] or session.get("section_id")
         session["model_key"] = ctx["model_key"] or session.get("model_key")
         session["sequence"] = max(int(session.get("sequence", -1)), sequence)
         session["source_task_id"] = str(task.get("sessionId") or task_id)
 
-        role_maps = (("user", as_dict(task.get("sentMessages"))), ("assistant", as_dict(task.get("receivedMessages"))))
+        request_context = task_request_context(task)
+        request_ids = request_user_message_ids(task)
+        sent_mapping = as_dict(task.get("sentMessages"))
+        context_target_ids: set[str] = set()
+        for message_id, value in sent_mapping.items():
+            message = as_dict(value)
+            extra = as_dict(message.get("extra"))
+            identifiers = {
+                str(candidate)
+                for candidate in (
+                    message_id,
+                    extra.get("message_id"),
+                    extra.get("local_message_id"),
+                    message.get("messageId"),
+                )
+                if candidate not in (None, "")
+            }
+            if identifiers & request_ids:
+                context_target_ids.add(str(extra.get("message_id") or message.get("messageId") or message_id))
+        if request_context and not context_target_ids and len(sent_mapping) == 1:
+            only_message_id, only_value = next(iter(sent_mapping.items()))
+            only_message = as_dict(only_value)
+            only_extra = as_dict(only_message.get("extra"))
+            context_target_ids.add(str(only_extra.get("message_id") or only_message.get("messageId") or only_message_id))
+
+        role_maps = (("user", sent_mapping), ("assistant", as_dict(task.get("receivedMessages"))))
         for role, mapping in role_maps:
             for index, (message_id, value) in enumerate(mapping.items()):
                 message = as_dict(value)
                 extra = as_dict(message.get("extra"))
                 parts = extract_text_and_tools(message)
+                actual_id = str(extra.get("message_id") or message.get("messageId") or message_id)
+                message_context = message_request_context(message) if role == "user" else []
+                attached_context = [
+                    *message_context,
+                    *(request_context if role == "user" and actual_id in context_target_ids else []),
+                ]
+                if role == "user" and attached_context:
+                    existing_text = "\n".join(
+                        str(part.get("text") or "")
+                        for part in parts
+                        if isinstance(part, dict) and part.get("type") == "text"
+                    )
+                    seen_context: set[str] = set()
+                    parts.extend(
+                        context_text_part(text)
+                        for text in attached_context
+                        if text not in existing_text and text not in seen_context and not seen_context.add(text)
+                    )
                 if not parts:
                     continue
-                actual_id = extra.get("message_id") or message.get("messageId") or message_id
                 timestamp = iso_time(extra.get("create_time") or task.get("querySendTimestamp") or task.get("createTime"))
                 section_id = extra.get("section_id") or ctx["section_id"]
                 message_key = message_model_key(message, ctx["model_key"])
@@ -273,7 +540,7 @@ def open_database(path: Path) -> sqlite3.Connection:
         PRAGMA synchronous=NORMAL;
         CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
         CREATE TABLE IF NOT EXISTS projects (
-            id TEXT PRIMARY KEY, name TEXT NOT NULL, display_order INTEGER NOT NULL DEFAULT 0
+            id TEXT PRIMARY KEY, name TEXT NOT NULL, root_path TEXT, display_order INTEGER NOT NULL DEFAULT 0
         );
         CREATE TABLE IF NOT EXISTS sessions (
             id TEXT PRIMARY KEY, project_id TEXT, title TEXT, section_id TEXT,
@@ -295,9 +562,108 @@ def open_database(path: Path) -> sqlite3.Connection:
     return connection
 
 
+def merge_message_content(current: list[Any], cached: list[Any]) -> list[Any]:
+    """Enrich current parts while retaining tool calls pruned from a later UI snapshot."""
+    merged = [dict(part) if isinstance(part, dict) else part for part in current]
+    indexed = {
+        str(part.get("id")): index
+        for index, part in enumerate(merged)
+        if isinstance(part, dict) and part.get("id") not in (None, "")
+    }
+    for cached_part in cached:
+        if not isinstance(cached_part, dict):
+            continue
+        part_id = cached_part.get("id")
+        if part_id in (None, ""):
+            continue
+        key = str(part_id)
+        if key not in indexed:
+            indexed[key] = len(merged)
+            merged.append(dict(cached_part))
+            continue
+        current_part = merged[indexed[key]]
+        if not isinstance(current_part, dict):
+            continue
+        for field, value in cached_part.items():
+            if current_part.get(field) in (None, "", [], {}) and value not in (None, "", [], {}):
+                current_part[field] = value
+    return merged
+
+
+def merge_existing_cache(
+    output: Path,
+    projects: dict[str, dict[str, Any]],
+    sessions: dict[str, dict[str, Any]],
+    messages: dict[str, dict[str, Any]],
+    models: dict[str, str],
+) -> None:
+    """Retain audit history that Chromium no longer exposes in the latest snapshot."""
+    if not output.is_file():
+        return
+    db = sqlite3.connect(f"file:{output}?mode=ro", uri=True)
+    db.row_factory = sqlite3.Row
+    try:
+        tables = {row["name"] for row in db.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+        if not {"projects", "sessions", "messages"}.issubset(tables):
+            return
+        project_columns = {row["name"] for row in db.execute("PRAGMA table_info(projects)")}
+        project_select = "SELECT id,name,root_path,display_order FROM projects" if "root_path" in project_columns else "SELECT id,name,display_order FROM projects"
+        for row in db.execute(project_select):
+            projects.setdefault(
+                row["id"],
+                {
+                    "id": row["id"],
+                    "name": row["name"],
+                    "root_path": row["root_path"] if "root_path" in project_columns else None,
+                    "root_path_sequence": -1,
+                    "display_order": row["display_order"],
+                    "sequence": -1,
+                },
+            )
+            if projects[row["id"]].get("root_path") in (None, "") and "root_path" in project_columns:
+                projects[row["id"]]["root_path"] = row["root_path"]
+        for row in db.execute("SELECT * FROM sessions"):
+            current = sessions.setdefault(row["id"], {"id": row["id"], "sequence": -1})
+            for key in ("project_id", "title", "section_id", "model", "model_key", "source_task_id"):
+                if current.get(key) in (None, "") and row[key] not in (None, ""):
+                    current[key] = row[key]
+            current["created_at"] = current.get("created_at") or row["created_at"]
+            current["updated_at"] = current.get("updated_at") or row["updated_at"]
+            current["sequence"] = max(int(current.get("sequence", -1)), int(row["source_sequence"] or -1))
+            if row["model_key"] and row["model"]:
+                models.setdefault(row["model_key"], row["model"])
+        for row in db.execute("SELECT * FROM messages"):
+            content = json.loads(row["content_json"])
+            cached_content = content if isinstance(content, list) else []
+            current = messages.get(row["id"])
+            if current is not None:
+                current["content"] = merge_message_content(current.get("content") or [], cached_content)
+                continue
+            upsert_message(messages, {
+                "id": row["id"],
+                "conversation_id": row["conversation_id"],
+                "session_id": row["session_id"],
+                "section_id": row["section_id"],
+                "role": row["role"],
+                "timestamp": row["timestamp"],
+                "model": row["model"],
+                "model_key": row["model_key"],
+                "content": cached_content,
+                "sort_index": int(row["sort_index"] or 0),
+                "sequence": int(row["source_sequence"] or 0),
+            })
+    finally:
+        db.close()
+
+
 def write_cache(output: Path, source: Path, projects: dict[str, dict[str, Any]], sessions: dict[str, dict[str, Any]], messages: dict[str, dict[str, Any]], models: dict[str, str], warning_count: int) -> None:
-    temp_output = output.with_suffix(output.suffix + ".next")
-    for extra in (temp_output, Path(str(temp_output) + "-wal"), Path(str(temp_output) + "-shm")):
+    merge_existing_cache(output, projects, sessions, messages, models)
+    output.parent.mkdir(parents=True, exist_ok=True)
+    temp_fd, temp_name = tempfile.mkstemp(prefix=f"{output.name}.", suffix=".next", dir=output.parent)
+    os.close(temp_fd)
+    temp_output = Path(temp_name)
+    temp_output.unlink(missing_ok=True)
+    for extra in (Path(str(temp_output) + "-wal"), Path(str(temp_output) + "-shm")):
         extra.unlink(missing_ok=True)
     db = open_database(temp_output)
     try:
@@ -307,21 +673,33 @@ def write_cache(output: Path, source: Path, projects: dict[str, dict[str, Any]],
             db.execute("DELETE FROM messages")
             db.execute("DELETE FROM messages_fts")
             for project in projects.values():
-                db.execute("INSERT INTO projects(id,name,display_order) VALUES(?,?,?)", (project["id"], project["name"], project["display_order"]))
+                db.execute(
+                    "INSERT INTO projects(id,name,root_path,display_order) VALUES(?,?,?,?)",
+                    (project["id"], project["name"], project.get("root_path"), project["display_order"]),
+                )
             by_conversation: dict[str, list[dict[str, Any]]] = {}
             for message in messages.values():
-                message["model"] = models.get(message.get("model_key") or "")
+                message["model"] = models.get(message.get("model_key") or "") or message.get("model")
                 by_conversation.setdefault(message["conversation_id"], []).append(message)
             for conversation_id, session in sessions.items():
                 conversation_messages = by_conversation.get(conversation_id, [])
                 times = sorted(m["timestamp"] for m in conversation_messages if m.get("timestamp"))
-                model_keys = [m.get("model_key") for m in conversation_messages if m.get("model_key")]
+                created_candidates = [value for value in (times[0] if times else None, session.get("created_at")) if value]
+                updated_candidates = [value for value in (times[-1] if times else None, session.get("updated_at")) if value]
+                created_at = min(created_candidates) if created_candidates else None
+                updated_at = max(updated_candidates) if updated_candidates else created_at
+                ordered_messages = sorted(
+                    conversation_messages,
+                    key=lambda item: (item.get("timestamp") or "", int(item.get("sequence", 0)), int(item.get("sort_index", 0))),
+                )
+                model_keys = [m.get("model_key") for m in ordered_messages if m.get("model_key")]
                 model_key = model_keys[-1] if model_keys else session.get("model_key")
+                model = models.get(model_key or "") or session.get("model")
                 db.execute(
                     """INSERT INTO sessions(id,project_id,title,section_id,created_at,updated_at,model,model_key,source_path,source_task_id,source_sequence)
                        VALUES(?,?,?,?,?,?,?,?,?,?,?)""",
                     (conversation_id, session.get("project_id"), session.get("title"), session.get("section_id"),
-                     times[0] if times else None, times[-1] if times else None, models.get(model_key or ""), model_key,
+                     created_at, updated_at, model, model_key,
                      str(source), session.get("source_task_id"), int(session.get("sequence", 0))),
                 )
             for message in messages.values():
@@ -389,7 +767,7 @@ def build_cache(records_path: Path, output: Path, source: Path, warning_count: i
                     extract_projects(payload, sequence, projects, sessions)
                     extract_models(payload, models)
                 if source_kind == "blob" or "mainTaskDataMap" in json.dumps(payload, ensure_ascii=False)[:1000]:
-                    extract_task_state(payload, sequence, sessions, messages)
+                    extract_task_state(payload, sequence, projects, sessions, messages)
     if bad_lines:
         raise RuntimeError(f"dfindexeddb emitted {bad_lines} invalid JSONL records")
     write_cache(output, source, projects, sessions, messages, models, warning_count)

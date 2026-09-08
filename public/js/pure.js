@@ -118,11 +118,21 @@ var __axrPure = (() => {
     for (const m of msgs) {
       const t = ts(m);
       if (m.role === "toolCall" && m.toolCallId)
-        calls.set(m.toolCallId, { name: m.toolName || "?", ts: t, msgId: m.id });
+        calls.set(m.toolCallId, {
+          name: m.toolName || "?",
+          ts: t,
+          msgId: m.id,
+          estimatedDurationMs: typeof m.details?.estimatedDurationMs === "number" && m.details.estimatedDurationMs > 0 ? m.details.estimatedDurationMs : null
+        });
       if (m.role === "toolResult" && m.toolCallId) results.set(m.toolCallId, { ts: t, isError: !!m.isError });
       for (const c of m.content || []) {
         if ((c.type === "toolCall" || c.type === "tool_use") && c.id)
-          calls.set(c.id, { name: c.name || "?", ts: t, msgId: m.id });
+          calls.set(c.id, {
+            name: c.name || "?",
+            ts: t,
+            msgId: m.id,
+            estimatedDurationMs: typeof c.estimatedDurationMs === "number" && c.estimatedDurationMs > 0 ? c.estimatedDurationMs : null
+          });
         if (c.type === "tool_result" && c.tool_use_id) results.set(c.tool_use_id, { ts: t, isError: !!c.is_error });
       }
     }
@@ -159,7 +169,9 @@ var __axrPure = (() => {
     for (const [cid, c] of calls) {
       if (!c.ts) continue;
       const r = results.get(cid);
-      const end = r && r.ts && r.ts > c.ts ? r.ts : c.ts + 50;
+      const measured = Boolean(r?.ts && r.ts > c.ts);
+      const estimated = !measured && c.estimatedDurationMs != null;
+      const end = measured ? r?.ts : c.ts + (c.estimatedDurationMs || 50);
       let owner = null;
       for (const tn of turns) {
         if (tn.start <= c.ts) owner = tn;
@@ -171,6 +183,7 @@ var __axrPure = (() => {
         label: c.name,
         start: c.ts,
         end,
+        durationSource: measured ? "measured" : estimated ? "estimated" : "unknown",
         msgId: c.msgId,
         toolCallId: cid
       });

@@ -1,6 +1,6 @@
 // Pure helpers for the sessions view — ported from public/js/app.js (algorithms unchanged).
 
-import type { MessageContentPart, Platform, SessionMessage, SessionSummary } from '@/api/types';
+import type { MessageContentPart, MessageUsage, Platform, SessionMessage, SessionSummary } from '@/api/types';
 import { getTextContent, parseTimestampMs } from '@/lib/pure';
 
 export type MsgFilter = null | 'user' | 'assistant' | 'toolCall' | 'toolResult' | 'error' | 'spawn';
@@ -187,7 +187,16 @@ export function buildTimingAnalysis(messagesData: SessionMessage[] | null | unde
   };
 }
 
-export function summarizeTokens(messagesData: SessionMessage[]): Record<string, number> {
+export function summarizeTokens(
+  messagesData: SessionMessage[],
+  sessionUsage?: MessageUsage | null
+): Record<string, number> {
+  if (sessionUsage) {
+    return Object.entries(sessionUsage).reduce<Record<string, number>>((acc, [key, value]) => {
+      if (typeof value === 'number') acc[key] = value;
+      return acc;
+    }, {});
+  }
   return messagesData.reduce<Record<string, number>>((acc, message) => {
     const usage = message.usage || {};
     Object.entries(usage).forEach(([key, value]) => {
@@ -213,8 +222,293 @@ export interface SessionStats {
   errorCount: number;
   spawnCount: number;
   toolNames: Record<string, number>;
+  skillNames: Record<string, number>;
+  skillFileReads: Record<string, number>;
+  mcpServers: Record<string, number>;
   totalRetryTools: number;
   totalRetryAttempts: number;
+}
+
+export function compactAssistantFragments(messages: SessionMessage[]): SessionMessage[] {
+  const compacted: SessionMessage[] = [];
+  for (const message of messages) {
+    const previous = compacted.at(-1);
+    const sameAssistantFragment =
+      previous?.role === 'assistant' &&
+      message.role === 'assistant' &&
+      previous.timestamp === message.timestamp &&
+      previous.model === message.model &&
+      previous.provider === message.provider;
+    if (!sameAssistantFragment) {
+      compacted.push(message);
+      continue;
+    }
+    compacted[compacted.length - 1] = {
+      ...previous,
+      content: [...(previous.content || []), ...(message.content || [])],
+      reasoning: [previous.reasoning, message.reasoning].filter(Boolean).join('\n\n') || null,
+      usage: message.usage || previous.usage,
+    };
+  }
+  return compacted;
+}
+
+export function compactUserContextFragments(messages: SessionMessage[]): SessionMessage[] {
+  const compacted: SessionMessage[] = [];
+  for (const message of messages) {
+    const previous = compacted.at(-1);
+    if (previous?.role !== 'user' || message.role !== 'user') {
+      compacted.push(message);
+      continue;
+    }
+
+    const previousParts = splitUserMessageContext(getTextContent(previous.content));
+    const currentParts = splitUserMessageContext(getTextContent(message.content));
+    const previousOnlyContext = !previousParts.input && previousParts.contexts.length > 0;
+    const currentHasInput = Boolean(currentParts.input);
+    const previousTime = parseTimestampMs(previous.timestamp);
+    const currentTime = parseTimestampMs(message.timestamp);
+    const exactTimestamp = previous.timestamp === message.timestamp;
+    const nearbyForwardContext =
+      previousOnlyContext &&
+      currentHasInput &&
+      previousTime !== null &&
+      currentTime !== null &&
+      currentTime >= previousTime &&
+      currentTime - previousTime <= 2000;
+    const hasContextFragment = previousParts.contexts.length > 0 || currentParts.contexts.length > 0;
+    if ((!exactTimestamp && !nearbyForwardContext) || !hasContextFragment) {
+      compacted.push(message);
+      continue;
+    }
+
+    compacted[compacted.length - 1] = {
+      ...previous,
+      id: message.id || previous.id,
+      timestamp: message.timestamp || previous.timestamp,
+      content: [...(previous.content || []), ...(message.content || [])],
+      usage: message.usage || previous.usage,
+    };
+  }
+  return compacted;
+}
+
+export interface UserMessageParts {
+  input: string;
+  contexts: { label: string; text: string }[];
+}
+
+const USER_CONTEXT_LABELS: Record<string, string> = {
+  'system-reminder': '系统附带上下文',
+  agents_md: '项目规则',
+  'in-app-browser-context': '浏览器上下文',
+  environment_context: '运行环境上下文',
+  user_instructions: '用户规则上下文',
+  information: '附件信息',
+  attachments: '附件信息',
+  image: '图片附件',
+  'current-date': '日期上下文',
+  'current-state': 'Agent 状态',
+  constraint: '执行约束',
+  usage_guide: '行为指南',
+  retained_skills: 'Skill 上下文',
+  sender: '发送者上下文',
+  mentions: '提及对象',
+  available_bots: '可用 Agent',
+  botmux_reminder: 'Agent 提醒',
+  botmux_skills: 'Skill 上下文',
+  botmux_skills_refresh: 'Skill 更新上下文',
+  bridge_context: '桥接上下文',
+  bridge_instructions: '桥接规则',
+  'agent-context': 'Agent 上下文',
+  'mcp-context': 'MCP 上下文',
+  'skill-context': 'Skill 上下文',
+  'task-context': '任务上下文',
+  'permissions-context': '权限上下文',
+  'date-context': '日期上下文',
+  'file-context': '文件上下文',
+  'openclaw-context': '会话元数据',
+  'subagent-context': '子 Agent 上下文',
+};
+
+function extractTaggedContext(remaining: string, contexts: UserMessageParts['contexts']): string {
+  const tagNames = Object.keys(USER_CONTEXT_LABELS).join('|');
+  const pairedPattern = new RegExp(`<(${tagNames})(?:\\s[^>]*)?>[\\s\\S]*?<\\/\\1>`, 'gi');
+  const selfClosingPattern = new RegExp(`<(${tagNames})(?:\\s[^>]*)?\\/\\s*>`, 'gi');
+  const extract = (input: string, pattern: RegExp) =>
+    input.replace(pattern, (block, tag: string) => {
+      const normalizedTag = tag.toLowerCase();
+      contexts.push({ label: USER_CONTEXT_LABELS[normalizedTag] || normalizedTag, text: block.trim() });
+      return '\n';
+    });
+  return extract(extract(remaining, pairedPattern), selfClosingPattern);
+}
+
+function extractOpenClawContext(remaining: string, contexts: UserMessageParts['contexts']): string {
+  const metadataBlock = /^[A-Za-z][^\n]*(?:\([^\n]*\))?:\n```(?:json)?\n[\s\S]*?^```\s*$/gim;
+  return remaining.replace(metadataBlock, (block) => {
+    contexts.push({ label: '会话元数据', text: `<openclaw-context>\n${block.trim()}\n</openclaw-context>` });
+    return '\n';
+  });
+}
+
+export function splitUserMessageContext(text: string): UserMessageParts {
+  const contexts: UserMessageParts['contexts'] = [];
+  let remaining = text;
+  const agentsInstructions = /^AGENTS\.md instructions for [^\n]+\n+[\s\S]*$/i;
+  if (agentsInstructions.test(remaining.trim())) {
+    contexts.push({ label: '项目规则', text: remaining.trim() });
+    remaining = '';
+  }
+  remaining = extractTaggedContext(remaining, contexts);
+  remaining = extractOpenClawContext(remaining, contexts);
+  const userMessageWrapper = remaining.trim().match(/^<user_message(?:\s[^>]*)?>([\s\S]*?)<\/user_message>$/i);
+  if (userMessageWrapper) remaining = userMessageWrapper[1];
+  const input = remaining.replace(/\n{3,}/g, '\n\n').trim();
+  return { input, contexts };
+}
+
+function skillNamesFromValue(value: unknown): string[] {
+  const names = new Set<string>();
+  const skillPathPattern = /(?:^|[\\/])([^\\/"'\s<>$]+)[\\/]SKILL\.md\b/gi;
+  const addPathMatches = (text: string) => {
+    for (const match of text.matchAll(skillPathPattern)) {
+      const name = match[1];
+      if (name && /^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(name)) names.add(name);
+    }
+  };
+  const stripHeredocs = (command: string) =>
+    command.replace(/<<\s*['"]?([A-Za-z_][A-Za-z0-9_]*)['"]?\s*\n[\s\S]*?\n\1(?=\n|$)/g, '');
+  const scanCommand = (rawCommand: string) => {
+    let command = stripHeredocs(rawCommand);
+    command = command.replace(
+      /\bfor\s+([A-Za-z_][A-Za-z0-9_]*)\s+in\s+([^;\n]+);\s*do([\s\S]*?)\bdone\b/g,
+      (whole, variable: string, rawItems: string, body: string) => {
+        const variablePath = new RegExp(`\\$\\{?${variable}\\}?[\\\\/]SKILL\\.md\\b`);
+        const readsSkill = /\b(?:cat|sed|head|tail|less|more|bat|batcat|nl|awk|grep|rg)\b/.test(body);
+        if (readsSkill && variablePath.test(body)) {
+          for (const item of rawItems.trim().split(/\s+/)) {
+            const name = item.replace(/^['"]|['"]$/g, '');
+            if (/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(name)) names.add(name);
+          }
+        }
+        return whole.replace(body, '');
+      }
+    );
+    for (const segment of command.split(/(?:\n|;|&&|\|\|)/)) {
+      if (!/\b(?:cat|sed|head|tail|less|more|bat|batcat|nl|awk|grep|rg)\b/.test(segment)) continue;
+      addPathMatches(segment);
+    }
+  };
+  const scan = (candidate: unknown, key = '') => {
+    if (typeof candidate === 'string') {
+      if (key === 'cmd' || key === 'command') {
+        scanCommand(candidate);
+        return;
+      }
+      if (['path', 'file_path', 'filename', 'notebook_path'].includes(key)) {
+        addPathMatches(candidate);
+        return;
+      }
+      if (key === '' || key === 'arguments' || key === 'input' || key === 'details') {
+        try {
+          scan(JSON.parse(candidate), key);
+        } catch {
+          // Unstructured prose and tool output are not evidence of a Skill read.
+        }
+      }
+      return;
+    }
+    if (Array.isArray(candidate)) {
+      for (const item of candidate) scan(item, key);
+      return;
+    }
+    if (!candidate || typeof candidate !== 'object') return;
+    for (const [childKey, childValue] of Object.entries(candidate)) scan(childValue, childKey);
+  };
+  scan(value);
+  return [...names];
+}
+
+function skillFileNamesFromValue(value: unknown): string[] {
+  const names = new Set<string>();
+  const skillFilePattern = /(?:^|[\\/])(?:\.?skills|skills-archive)[\\/]([^\\/"'\s<>$]+)[\\/]([^"'\s<>$]+)/gi;
+  const addPathMatches = (text: string) => {
+    for (const match of text.matchAll(skillFilePattern)) {
+      const name = match[1];
+      const relativePath = match[2] || '';
+      if (
+        name &&
+        /^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(name) &&
+        !/^SKILL\.md(?:\b|$)/i.test(relativePath)
+      ) {
+        names.add(name);
+      }
+    }
+  };
+  const stripHeredocs = (command: string) =>
+    command.replace(/<<\s*['"]?([A-Za-z_][A-Za-z0-9_]*)['"]?\s*\n[\s\S]*?\n\1(?=\n|$)/g, '');
+  const scan = (candidate: unknown, key = '') => {
+    if (typeof candidate === 'string') {
+      if (key === 'cmd' || key === 'command') {
+        const command = stripHeredocs(candidate);
+        for (const segment of command.split(/(?:\n|;|&&|\|\|)/)) {
+          if (!/\b(?:cat|sed|head|tail|less|more|bat|batcat|nl|awk|grep|rg)\b/.test(segment)) continue;
+          addPathMatches(segment);
+        }
+      } else if (['path', 'file_path', 'filename', 'notebook_path', 'pattern'].includes(key)) {
+        addPathMatches(candidate);
+      } else if (key === '' || key === 'arguments' || key === 'input' || key === 'details') {
+        try {
+          scan(JSON.parse(candidate), key);
+        } catch {
+          // Unstructured prose and tool output are not evidence of a Skill file read.
+        }
+      }
+      return;
+    }
+    if (Array.isArray(candidate)) {
+      for (const item of candidate) scan(item, key);
+      return;
+    }
+    if (!candidate || typeof candidate !== 'object') return;
+    for (const [childKey, childValue] of Object.entries(candidate)) scan(childValue, childKey);
+  };
+  scan(value);
+  return [...names];
+}
+
+function skillUsageFromToolCall(
+  toolName: string | null | undefined,
+  value: unknown
+): { loads: string[]; fileReads: string[] } {
+  const loads = new Set<string>(skillNamesFromValue(value));
+  const fileReads = new Set<string>(skillFileNamesFromValue(value));
+  const normalizedTool = String(toolName || '').toLowerCase();
+
+  if (normalizedTool === 'skill') {
+    const record = value && typeof value === 'object' ? (value as Record<string, unknown>) : null;
+    const args =
+      record?.arguments && typeof record.arguments === 'object'
+        ? (record.arguments as Record<string, unknown>)
+        : record?.input && typeof record.input === 'object'
+          ? (record.input as Record<string, unknown>)
+          : record;
+    for (const key of ['skill', 'command', 'skill_name', 'name']) {
+      const candidate = args?.[key];
+      if (typeof candidate !== 'string') continue;
+      const raw = candidate.trim().replace(/^\/+/, '').split(/\s+/)[0] || '';
+      const name = raw.split(':').at(-1) || '';
+      if (/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(name)) loads.add(name);
+    }
+  }
+  return { loads: [...loads], fileReads: [...fileReads] };
+}
+
+function mcpServerFromToolName(toolName: string | null | undefined): string | null {
+  const raw = String(toolName || '');
+  if (!raw.startsWith('mcp__')) return null;
+  return raw.slice('mcp__'.length).split('__')[0] || null;
 }
 
 // Stats block of legacy renderSummary (counts + per-turn retry tally)
@@ -227,6 +521,9 @@ export function computeSessionStats(msgs: SessionMessage[]): SessionStats {
     errorCount: 0,
     spawnCount: 0,
     toolNames: {},
+    skillNames: {},
+    skillFileReads: {},
+    mcpServers: {},
     totalRetryTools: 0,
     totalRetryAttempts: 0,
   };
@@ -253,12 +550,22 @@ export function computeSessionStats(msgs: SessionMessage[]): SessionStats {
       stats.toolCallCount++;
       const name = msg.toolName || 'unknown';
       stats.toolNames[name] = (stats.toolNames[name] || 0) + 1;
+      const usage = skillUsageFromToolCall(msg.toolName, msg.details);
+      for (const skill of usage.loads) stats.skillNames[skill] = (stats.skillNames[skill] || 0) + 1;
+      for (const skill of usage.fileReads) stats.skillFileReads[skill] = (stats.skillFileReads[skill] || 0) + 1;
+      const server = mcpServerFromToolName(name);
+      if (server) stats.mcpServers[server] = (stats.mcpServers[server] || 0) + 1;
     }
     for (const c of msg.content || []) {
       if (c.type === 'toolCall') {
         stats.toolCallCount++;
         const name = c.name || 'unknown';
         stats.toolNames[name] = (stats.toolNames[name] || 0) + 1;
+        const usage = skillUsageFromToolCall(c.name, c);
+        for (const skill of usage.loads) stats.skillNames[skill] = (stats.skillNames[skill] || 0) + 1;
+        for (const skill of usage.fileReads) stats.skillFileReads[skill] = (stats.skillFileReads[skill] || 0) + 1;
+        const server = mcpServerFromToolName(name);
+        if (server) stats.mcpServers[server] = (stats.mcpServers[server] || 0) + 1;
         if (isSpawnPart(c)) stats.spawnCount++;
       }
     }

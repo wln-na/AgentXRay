@@ -1,10 +1,28 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const path = require('node:path');
+const { createRequire } = require('node:module');
 
-const textUtils = require(path.join(__dirname, '..', 'lib', 'text-utils'));
-const llmJson = require(path.join(__dirname, '..', 'lib', 'llm-json'));
-const pure = require(path.join(__dirname, '..', 'public', 'js', 'pure.js'));
+const ROOT = path.join(__dirname, '..');
+const textUtils = require(path.join(ROOT, 'lib', 'text-utils'));
+const llmJson = require(path.join(ROOT, 'lib', 'llm-json'));
+const pure = require(path.join(ROOT, 'public', 'js', 'pure.js'));
+
+function loadSessionsLib() {
+  const { buildSync } = createRequire(path.join(ROOT, 'frontend', 'package.json'))('esbuild');
+  const output = buildSync({
+    entryPoints: [path.join(ROOT, 'frontend', 'src', 'views', 'sessions', 'lib.ts')],
+    bundle: true,
+    write: false,
+    platform: 'node',
+    format: 'cjs',
+    target: 'node18',
+    alias: { '@': path.join(ROOT, 'frontend', 'src') },
+  }).outputFiles[0].text;
+  const compiled = { exports: {} };
+  new Function('module', 'exports', 'require', output)(compiled, compiled.exports, require);
+  return compiled.exports;
+}
 
 // --- lib/text-utils ---
 
@@ -251,13 +269,18 @@ test('buildTraceTurns: reasoning does not advance the clock', () => {
 });
 
 test('buildTraceTurns pairs standalone toolCall→toolResult and flags errors', () => {
-  const turns = pure.buildTraceTurns(syntheticMessages());
+  const messages = syntheticMessages();
+  messages.find((message) => message.toolCallId === 'call-1' && message.role === 'toolCall').details = {
+    estimatedDurationMs: 9000,
+  };
+  const turns = pure.buildTraceTurns(messages);
   const tool = turns[0].spans.find((s) => s.toolCallId === 'call-1');
   assert.ok(tool, 'expected tool span for call-1');
   assert.equal(tool.kind, 'tool-error');
   assert.equal(tool.label, 'bash');
   assert.equal(tool.start, T0 + 6000);
   assert.equal(tool.end, T0 + 8000);
+  assert.equal(tool.durationSource, 'measured');
 });
 
 test('buildTraceTurns pairs content-part tool_use→tool_result in the owning turn', () => {
@@ -268,6 +291,23 @@ test('buildTraceTurns pairs content-part tool_use→tool_result in the owning tu
   assert.equal(tool.label, 'Read');
   assert.equal(tool.start, T0 + 23000);
   assert.equal(tool.end, T0 + 25000);
+  assert.equal(tool.durationSource, 'measured');
+});
+
+test('buildTraceTurns uses explicit estimates only when no measured tool result exists', () => {
+  const msgs = [
+    { id: 'u1', role: 'user', timestamp: iso(0), content: [{ type: 'text', text: 'q' }] },
+    {
+      id: 'a1',
+      role: 'assistant',
+      timestamp: iso(1000),
+      content: [{ type: 'toolCall', id: 'estimated', name: 'Bash', estimatedDurationMs: 3000 }],
+    },
+  ];
+  const turns = pure.buildTraceTurns(msgs);
+  const span = turns[0].spans.find((s) => s.toolCallId === 'estimated');
+  assert.equal(span.end, T0 + 4000);
+  assert.equal(span.durationSource, 'estimated');
 });
 
 test('buildTraceTurns: unanswered call gets a 50ms floor span', () => {
@@ -280,6 +320,7 @@ test('buildTraceTurns: unanswered call gets a 50ms floor span', () => {
   const span = turns[0].spans.find((s) => s.toolCallId === 'lonely');
   assert.equal(span.end, T0 + 1000 + 50);
   assert.equal(span.kind, 'tool');
+  assert.equal(span.durationSource, 'unknown');
 });
 
 test('buildTraceTurns attaches agentSpans to the turn they started in', () => {
@@ -314,6 +355,226 @@ test('buildTraceTurns drops turns without spans and sorts spans by start', () =>
       [...starts].sort((a, b) => a - b)
     );
   }
+});
+
+test('session stats detect Skill reads from structured tool paths without counting tool output text', () => {
+  const { computeSessionStats } = loadSessionsLib();
+  const stats = computeSessionStats([
+    {
+      id: 'assistant-1',
+      role: 'assistant',
+      timestamp: '2026-09-07T00:00:00.000Z',
+      content: [
+        {
+          type: 'toolCall',
+          id: 'read-skill',
+          name: 'file_operation',
+          path: '/Users/example/.skills/browser-use-automation-mac/SKILL.md',
+          content: 'Documentation mentions /tmp/not-loaded/SKILL.md',
+        },
+      ],
+    },
+  ]);
+  assert.deepEqual(stats.skillNames, { 'browser-use-automation-mac': 1 });
+  assert.deepEqual(stats.skillFileReads, {});
+});
+
+test('session stats detect Claude native Skill tool calls without counting the available Skill list', () => {
+  const { computeSessionStats } = loadSessionsLib();
+  const stats = computeSessionStats([
+    {
+      id: 'user-context',
+      role: 'user',
+      content: [
+        {
+          type: 'text',
+          text: '<skill-context>{"names":["available-only"]}</skill-context>',
+        },
+      ],
+    },
+    {
+      id: 'assistant-skill',
+      role: 'assistant',
+      content: [
+        {
+          type: 'toolCall',
+          id: 'skill-call',
+          name: 'Skill',
+          arguments: { skill: 'frontend-design' },
+        },
+      ],
+    },
+    {
+      id: 'standalone-skill',
+      role: 'toolCall',
+      toolName: 'Skill',
+      details: { skill_name: 'pdf' },
+      content: [],
+    },
+  ]);
+  assert.equal(stats.toolCallCount, 2);
+  assert.deepEqual(stats.toolNames, { Skill: 2 });
+  assert.deepEqual(stats.skillNames, { 'frontend-design': 1, pdf: 1 });
+  assert.deepEqual(stats.skillFileReads, {});
+});
+
+test('session stats aggregate MCP calls by server and keep dependent Skill file reads separate', () => {
+  const { computeSessionStats } = loadSessionsLib();
+  const stats = computeSessionStats([
+    {
+      id: 'assistant-mcp',
+      role: 'assistant',
+      content: [
+        {
+          type: 'toolCall',
+          id: 'mcp-1',
+          name: 'mcp__workspace__bash',
+          arguments: { command: 'pwd' },
+        },
+        {
+          type: 'toolCall',
+          id: 'mcp-2',
+          name: 'mcp__aws__aws___list_regions',
+          arguments: {},
+        },
+        {
+          type: 'toolCall',
+          id: 'read-reference',
+          name: 'Read',
+          arguments: { file_path: '/Users/example/.claude/skills/aws-expert/references/iam.md' },
+        },
+      ],
+    },
+  ]);
+  assert.deepEqual(stats.mcpServers, { workspace: 1, aws: 1 });
+  assert.deepEqual(stats.skillNames, {});
+  assert.deepEqual(stats.skillFileReads, { 'aws-expert': 1 });
+});
+
+test('session stats only count actual Skill file reads in shell commands', () => {
+  const { computeSessionStats } = loadSessionsLib();
+  const stats = computeSessionStats([
+    {
+      id: 'call-heredoc',
+      role: 'toolCall',
+      toolName: 'exec_command',
+      details: {
+        cmd: "cat > report.md <<'MD'\nExample: <name>/SKILL.md and token-optimizer/SKILL.md\nMD",
+      },
+    },
+    {
+      id: 'call-read',
+      role: 'toolCall',
+      toolName: 'exec_command',
+      details: {
+        cmd: "sed -n '1,120p' ~/.agents/skills/token-optimizer/SKILL.md",
+      },
+    },
+    {
+      id: 'call-loop',
+      role: 'toolCall',
+      toolName: 'exec_command',
+      details: {
+        cmd: "for d in agent-reach api-mock; do sed -n '1,30p' ~/.agents/skills-archive/$d/SKILL.md; done",
+      },
+    },
+  ]);
+  assert.deepEqual(stats.skillNames, {
+    'token-optimizer': 1,
+    'agent-reach': 1,
+    'api-mock': 1,
+  });
+  assert.deepEqual(stats.skillFileReads, {});
+});
+
+test('same-timestamp user context fragments merge with the actual user input', () => {
+  const { compactUserContextFragments, splitUserMessageContext } = loadSessionsLib();
+  const messages = compactUserContextFragments([
+    {
+      id: '',
+      role: 'user',
+      timestamp: '2026-09-07T00:00:00.000Z',
+      content: [{ type: 'text', text: '<system-reminder>context</system-reminder>' }],
+    },
+    {
+      id: 'user-1',
+      role: 'user',
+      timestamp: '2026-09-07T00:00:00.000Z',
+      content: [{ type: 'text', text: 'actual question' }],
+    },
+  ]);
+  assert.equal(messages.length, 1);
+  assert.equal(messages[0].id, 'user-1');
+  assert.deepEqual(splitUserMessageContext(pure.getTextContent(messages[0].content)), {
+    input: 'actual question',
+    contexts: [{ label: '系统附带上下文', text: '<system-reminder>context</system-reminder>' }],
+  });
+});
+
+test('nearby Codex context merges forward but does not cross the two-second guard', () => {
+  const { compactUserContextFragments, splitUserMessageContext } = loadSessionsLib();
+  const context = '<environment_context>\n  <cwd>/fixtures/project-alpha</cwd>\n</environment_context>';
+  const merged = compactUserContextFragments([
+    {
+      id: 'context-1',
+      role: 'user',
+      timestamp: '2026-09-07T00:00:00.000Z',
+      content: [{ type: 'text', text: context }],
+    },
+    {
+      id: 'user-1',
+      role: 'user',
+      timestamp: '2026-09-07T00:00:01.030Z',
+      content: [{ type: 'text', text: 'actual Codex question' }],
+    },
+  ]);
+  assert.equal(merged.length, 1);
+  assert.equal(merged[0].id, 'user-1');
+  assert.equal(merged[0].timestamp, '2026-09-07T00:00:01.030Z');
+  assert.deepEqual(splitUserMessageContext(pure.getTextContent(merged[0].content)), {
+    input: 'actual Codex question',
+    contexts: [{ label: '运行环境上下文', text: context }],
+  });
+
+  const separated = compactUserContextFragments([
+    {
+      id: 'context-2',
+      role: 'user',
+      timestamp: '2026-09-07T00:00:00.000Z',
+      content: [{ type: 'text', text: context }],
+    },
+    {
+      id: 'user-2',
+      role: 'user',
+      timestamp: '2026-09-07T00:00:02.001Z',
+      content: [{ type: 'text', text: 'later question' }],
+    },
+  ]);
+  assert.equal(separated.length, 2);
+});
+
+test('Claude bridge tags and OpenClaw metadata split from actual user input', () => {
+  const { splitUserMessageContext } = loadSessionsLib();
+  const claude = splitUserMessageContext(
+    '<bridge_context>fixture bridge state</bridge_context>\n<user_message>actual Claude question</user_message>'
+  );
+  assert.equal(claude.input, 'actual Claude question');
+  assert.deepEqual(claude.contexts, [
+    { label: '桥接上下文', text: '<bridge_context>fixture bridge state</bridge_context>' },
+  ]);
+
+  const claudeSelfClosing = splitUserMessageContext(
+    '<sender type="user" />\n<agent-context>fixture agent state</agent-context>\n<user_message>actual self-closing question</user_message>'
+  );
+  assert.equal(claudeSelfClosing.input, 'actual self-closing question');
+  assert.deepEqual(claudeSelfClosing.contexts.map((item) => item.label).sort(), ['Agent 上下文', '发送者上下文']);
+
+  const openclaw = splitUserMessageContext(
+    'Conversation info (untrusted metadata):\n```json\n{"chat_type":"fixture"}\n```\n\nactual OpenClaw question'
+  );
+  assert.equal(openclaw.input, 'actual OpenClaw question');
+  assert.equal(openclaw.contexts.length, 1);
+  assert.equal(openclaw.contexts[0].label, '会话元数据');
 });
 
 // --- markdown/escape pipeline (single definition site: frontend/src/lib/markdown.ts,

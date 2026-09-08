@@ -1,6 +1,7 @@
 // 会话 view: session detail (summary + messages/trace toggle), pagination,
 // scroll-to-message (local + cross-view via pendingScrollMsgId), SSE tail.
 
+import { Activity, MessageSquare } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { usePlatformProbe } from '@/hooks/usePlatformProbe';
 import { useAppStore } from '@/store';
@@ -22,6 +23,7 @@ const PLATFORM_DEFAULT_PATHS: [string, string][] = [
   ['OpenClaw', '~/.openclaw/agents'],
   ['Codex', '~/.codex/sessions'],
   ['Claude Code', '~/.claude/projects'],
+  ['Claude Desktop', '~/Library/Application Support/Claude-3p/local-agent-mode-sessions'],
   ['Hermes', '~/.hermes'],
   ['OMP', '~/.omp/agent/sessions'],
   ['DeepSeek Harness', '~/.dsh/sessions'],
@@ -234,29 +236,30 @@ export function SessionsView() {
           </div>
         )}
 
-        <div className="flex items-center gap-2">
+        <div className="sticky top-0 z-10 flex min-h-11 items-center gap-1 border-b border-border bg-background/95 py-1 backdrop-blur">
           {(['messages', 'trace'] as const).map((sv) => (
             <button
               key={sv}
               type="button"
               onClick={() => setSessionView(sv)}
               className={cn(
-                'rounded-md border px-3 py-1 text-xs',
+                'inline-flex min-h-10 items-center gap-1.5 border-b-2 px-4 text-sm font-medium transition-colors',
                 sessionView === sv
-                  ? 'border-primary/60 bg-primary/15 text-foreground'
-                  : 'border-border text-muted-foreground hover:text-foreground'
+                  ? 'border-primary text-foreground'
+                  : 'border-transparent text-muted-foreground hover:text-foreground'
               )}
             >
-              {sv === 'messages' ? '💬 消息' : '📊 Trace'}
+              {sv === 'messages' ? <MessageSquare className="h-4 w-4" /> : <Activity className="h-4 w-4" />}
+              {sv === 'messages' ? '消息' : 'Trace'}
             </button>
           ))}
           {sseStatus === 'live' ? (
-            <span className="text-[11px] text-muted-foreground" title="Real-time tail active">
-              🟢 Live
+            <span className="ml-auto text-[11px] text-muted-foreground" title="实时连接正常">
+              实时更新中
             </span>
           ) : sseStatus === 'error' ? (
-            <span className="text-[11px] text-muted-foreground" title="Real-time connection lost, will retry">
-              🔴 Live
+            <span className="ml-auto text-[11px] text-destructive" title="实时连接中断，将自动重试">
+              实时连接中断
             </span>
           ) : null}
         </div>
@@ -272,6 +275,7 @@ export function SessionsView() {
               <MessageList
                 messages={activeDetail.messages}
                 platform={platform}
+                sessionId={activeDetail.session?.id}
                 msgFilter={msgFilter}
                 timing={timing}
                 visibleUnitCount={visibleUnitCount}
