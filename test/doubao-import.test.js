@@ -391,3 +391,122 @@ test('rowToMessage marks tool messages with error indicators as isError=true', (
   });
   assert.equal(msgAssistant.isError, false);
 });
+
+test('searchCachedSessions uses FTS5 to find sessions and matching messages', async (t) => {
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'agentxray-doubao-fts-test-'));
+  t.after(() => fs.rmSync(tempDir, { recursive: true, force: true }));
+  const output = path.join(tempDir, 'doubao.sqlite');
+  const result = spawnSync(
+    process.env.PYTHON || 'python3',
+    [IMPORTER, '--source', tempDir, '--records', RECORDS, '--output', output],
+    { encoding: 'utf8' }
+  );
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+
+  // Verify FTS table exists and is populated.
+  const db = new Database(output, { readonly: true });
+  t.after(() => db.close());
+  const ftsCount = db.prepare('SELECT COUNT(*) AS c FROM messages_fts').get().c;
+  assert.ok(ftsCount >= 2, `expected at least 2 FTS rows, got ${ftsCount}`);
+
+  const store = require('../lib/platforms/doubao-store');
+
+  // Single-term search: "fixture" appears in both user and assistant messages.
+  const results = await store.searchCachedSessions(output, 'fixture');
+  assert.equal(results.length, 1);
+  assert.equal(results[0].sessionId, 'fixture-conversation');
+  assert.equal(results[0].platform, 'doubao');
+  assert.equal(results[0].project, 'Fixture Project');
+  assert.ok(results[0].matches.length >= 1, 'expected at least one message match');
+  const matchTexts = results[0].matches.map((m) => m.snippet.toLowerCase());
+  assert.ok(matchTexts.some((s) => s.includes('fixture question')), 'user message should match');
+  assert.ok(matchTexts.some((s) => s.includes('fixture answer')), 'assistant message should match');
+
+  // Multi-term AND search: both terms must appear in the session.
+  const andResults = await store.searchCachedSessions(output, 'fixture question');
+  assert.equal(andResults.length, 1);
+  assert.equal(andResults[0].sessionId, 'fixture-conversation');
+
+  // Search for a term not present → no results.
+  const noResults = await store.searchCachedSessions(output, 'nonexistent-keyword-xyz');
+  assert.equal(noResults.length, 0);
+
+  // Empty query → no results.
+  const emptyResults = await store.searchCachedSessions(output, '   ');
+  assert.equal(emptyResults.length, 0);
+});
+
+test('estimateToolDurationMs memoizes by tool name and returns deterministic results', () => {
+  const doubao = require('../lib/platforms/doubao');
+  // Clear module-level memo caches for a deterministic baseline.
+  doubao.toolDurationCache.clear();
+  doubao.assistantDurationCache.clear();
+
+  const r1 = doubao.estimateToolDurationMs('Bash');
+  const r2 = doubao.estimateToolDurationMs('bash');
+  const r3 = doubao.estimateToolDurationMs('BASH');
+  assert.equal(r1, 3000);
+  assert.equal(r2, 3000);
+  assert.equal(r3, 3000);
+  // Same lowercased name → single cache entry.
+  assert.equal(doubao.toolDurationCache.size, 1);
+
+  const readResult = doubao.estimateToolDurationMs('Read');
+  assert.equal(readResult, 500);
+  assert.equal(doubao.toolDurationCache.size, 2);
+
+  // Calling again does not grow cache.
+  doubao.estimateToolDurationMs('Read');
+  assert.equal(doubao.toolDurationCache.size, 2);
+
+  // estimateAssistantDurationMs memoizes by text length.
+  const a1 = doubao.estimateAssistantDurationMs(300);
+  const a2 = doubao.estimateAssistantDurationMs(300);
+  assert.equal(a1, a2);
+  assert.equal(doubao.assistantDurationCache.size, 1);
+  doubao.estimateAssistantDurationMs(0);
+  assert.equal(doubao.assistantDurationCache.size, 2);
+});
+
+test('parseDoubaoSessionFile caches parsed result by mtime+size', async (t) => {
+  const doubao = require('../lib/platforms/doubao');
+  doubao.clearDoubaoSessionCache();
+
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'agentxray-doubao-sessioncache-'));
+  t.after(() => {
+    doubao.clearDoubaoSessionCache();
+    fs.rmSync(tempDir, { recursive: true, force: true });
+  });
+
+  const trajPath = path.join(tempDir, 'trajectory.jsonl');
+  const records = [
+    { role: 'user', content: 'hello world' },
+    { role: 'assistant', content: 'hi there', tool_calls: [{ id: 'tc1', function: { name: 'Bash', arguments: '{}' } }] },
+    { role: 'tool', content: 'ok', tool_call_id: 'tc1', name: 'Bash' },
+  ];
+  fs.writeFileSync(trajPath, records.map((r) => JSON.stringify(r)).join('\n') + '\n', 'utf8');
+
+  assert.equal(doubao.doubaoSessionCache.size, 0);
+
+  const first = await doubao.parseDoubaoSessionFile(trajPath);
+  assert.equal(first.messages.length, 3);
+  assert.equal(doubao.doubaoSessionCache.size, 1);
+  const cacheEntry = doubao.doubaoSessionCache.get(trajPath);
+  assert.ok(cacheEntry, 'cache entry should exist');
+  assert.ok(typeof cacheEntry.mtimeMs === 'number');
+  assert.ok(typeof cacheEntry.size === 'number');
+  assert.equal(cacheEntry.result, first);
+
+  // Second call returns the cached object (same reference).
+  const second = await doubao.parseDoubaoSessionFile(trajPath);
+  assert.strictEqual(second, first, 'second call should return cached result');
+  assert.equal(doubao.doubaoSessionCache.size, 1);
+
+  // Modify file → cache invalidated, fresh parse.
+  await new Promise((resolve) => setTimeout(resolve, 10));
+  fs.writeFileSync(trajPath, JSON.stringify({ role: 'user', content: 'changed' }) + '\n', 'utf8');
+  const third = await doubao.parseDoubaoSessionFile(trajPath);
+  assert.notStrictEqual(third, first, 'modified file should produce a new parse result');
+  assert.equal(third.messages.length, 1);
+  assert.equal(third.messages[0].content[0].text, 'changed');
+});
