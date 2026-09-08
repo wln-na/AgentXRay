@@ -726,6 +726,10 @@ def write_cache(output: Path, source: Path, projects: dict[str, dict[str, Any]],
         db.close()
     output.parent.mkdir(parents=True, exist_ok=True)
     os.replace(temp_output, output)
+    # SQLite in WAL mode may leave -wal/-shm sidecars next to the temp file;
+    # remove them so the atomic replace leaves a clean single-file cache.
+    for extra in (Path(str(temp_output) + "-wal"), Path(str(temp_output) + "-shm")):
+        extra.unlink(missing_ok=True)
 
 
 def snapshot_source(source: Path, destination: Path) -> Path:
@@ -748,7 +752,7 @@ def run_export(dfindexeddb: str, source: Path, jsonl_path: Path, error_path: Pat
     return sum(1 for line in error_path.read_text(errors="replace").splitlines() if line.strip())
 
 
-def build_cache(records_path: Path, output: Path, source: Path, warning_count: int = 0) -> None:
+def build_cache(records_path: Path, output: Path, source: Path, warning_count: int = 0) -> int:
     projects: dict[str, dict[str, Any]] = {}
     sessions: dict[str, dict[str, Any]] = {}
     messages: dict[str, dict[str, Any]] = {}
@@ -761,16 +765,19 @@ def build_cache(records_path: Path, output: Path, source: Path, warning_count: i
             except json.JSONDecodeError:
                 bad_lines += 1
                 continue
-            sequence = int(record.get("sequence_number") or 0)
-            for source_kind, payload in iter_payloads(record):
-                if source_kind == "inline":
-                    extract_projects(payload, sequence, projects, sessions)
-                    extract_models(payload, models)
-                if source_kind == "blob" or "mainTaskDataMap" in json.dumps(payload, ensure_ascii=False)[:1000]:
-                    extract_task_state(payload, sequence, projects, sessions, messages)
-    if bad_lines:
-        raise RuntimeError(f"dfindexeddb emitted {bad_lines} invalid JSONL records")
-    write_cache(output, source, projects, sessions, messages, models, warning_count)
+            try:
+                sequence = int(record.get("sequence_number") or 0)
+                for source_kind, payload in iter_payloads(record):
+                    if source_kind == "inline":
+                        extract_projects(payload, sequence, projects, sessions)
+                        extract_models(payload, models)
+                    if source_kind == "blob" or "mainTaskDataMap" in json.dumps(payload, ensure_ascii=False)[:1000]:
+                        extract_task_state(payload, sequence, projects, sessions, messages)
+            except Exception:
+                bad_lines += 1
+                continue
+    write_cache(output, source, projects, sessions, messages, models, warning_count + bad_lines)
+    return bad_lines
 
 
 def main() -> int:
@@ -787,7 +794,7 @@ def main() -> int:
         parser.error(f"IndexedDB source does not exist: {source}")
 
     if args.records:
-        build_cache(args.records.resolve(), output, source)
+        bad_lines = build_cache(args.records.resolve(), output, source)
     else:
         with tempfile.TemporaryDirectory(prefix="agentxray-doubao-") as tmp:
             root = Path(tmp)
@@ -795,7 +802,9 @@ def main() -> int:
             records = root / "records.jsonl"
             errors = root / "dfindexeddb.log"
             warning_count = run_export(args.dfindexeddb, snapshot, records, errors)
-            build_cache(records, output, source, warning_count)
+            bad_lines = build_cache(records, output, source, warning_count)
+    if bad_lines > 0:
+        print(f"warning: skipped {bad_lines} malformed record(s) during import", file=sys.stderr)
     print(json.dumps({"cache": str(output), "source": str(source)}, ensure_ascii=False))
     return 0
 

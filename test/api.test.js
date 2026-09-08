@@ -642,11 +642,17 @@ describe('backup', () => {
     assert.equal(first.copied, 17);
     assert.equal(first.skipped, 0);
     assert.equal(first.total, 17);
-    assert.deepEqual(first.byPlatform.codex, { copied: 6, skipped: 0 });
-    assert.deepEqual(first.byPlatform['claude-code'], { copied: 4, skipped: 0 });
-    assert.deepEqual(first.byPlatform.omp, { copied: 2, skipped: 0 });
-    assert.deepEqual(first.byPlatform.dsh, { copied: 2, skipped: 0 });
-    assert.deepEqual(first.byPlatform.gemini, { copied: 3, skipped: 0 });
+    assert.deepEqual(first.byPlatform.codex, { copied: 6, skipped: 0, failed: 0, warnings: [], skippedFiles: [] });
+    assert.deepEqual(first.byPlatform['claude-code'], {
+      copied: 4,
+      skipped: 0,
+      failed: 0,
+      warnings: [],
+      skippedFiles: [],
+    });
+    assert.deepEqual(first.byPlatform.omp, { copied: 2, skipped: 0, failed: 0, warnings: [], skippedFiles: [] });
+    assert.deepEqual(first.byPlatform.dsh, { copied: 2, skipped: 0, failed: 0, warnings: [], skippedFiles: [] });
+    assert.deepEqual(first.byPlatform.gemini, { copied: 3, skipped: 0, failed: 0, warnings: [], skippedFiles: [] });
     // Archive stays inside the temp HOME
     assert.equal(first.archiveDir, path.join(srv.home, '.agentxray', 'archive'));
     assert.ok(await exists(path.join(first.archiveDir, 'claude-code', 'history.jsonl')));
