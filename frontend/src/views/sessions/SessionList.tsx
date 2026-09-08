@@ -26,7 +26,7 @@ const VIRT_ESTIMATE = 96; // estimated card height incl. gap
 function chipTexts(session: SessionSummary): string[] {
   const chips: string[] = [];
   if (session.model) chips.push(session.model.split('/').pop() || session.model);
-  if (session.toolCallCount) chips.push(`${session.toolCallCount} 次工具`);
+  chips.push(`${session.toolCallCount || 0} 次工具调用`);
   if (session.childCount || session.spawnCount) chips.push(`${session.childCount || session.spawnCount} 个子 Agent`);
   return chips;
 }

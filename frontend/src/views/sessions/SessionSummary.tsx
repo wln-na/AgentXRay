@@ -223,7 +223,7 @@ export function SessionSummary({
             ) : null}
             {listModel ? <span className="rounded border border-border px-1.5 py-0.5">模型：{listModel}</span> : null}
             <span className="rounded border border-border px-1.5 py-0.5">消息：{msgs.length}</span>
-            <span className="rounded border border-border px-1.5 py-0.5">工具：{toolCallCount}</span>
+            <span className="rounded border border-border px-1.5 py-0.5">{toolCallCount} 次工具调用</span>
             {selectedSummary?.archived || detail.session?.archived ? (
               <span className="rounded border border-amber-500/50 bg-amber-500/10 px-1.5 py-0.5 text-amber-700 dark:text-amber-300">
                 已归档
