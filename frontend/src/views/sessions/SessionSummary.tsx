@@ -179,7 +179,9 @@ export function SessionSummary({
   );
 
   const msgs = detail.messages;
-  const stats = useMemo(() => computeSessionStats(msgs), [msgs]);
+  // Prefer server-computed stats (shipped by the session detail API) to skip
+  // the O(n) client-side scan for large sessions; fall back when absent.
+  const stats = useMemo(() => detail.stats || computeSessionStats(msgs), [detail.stats, msgs]);
   const tokenUsage = detail.tokenUsage || detail.session?.tokenUsage;
   const contextUsage = detail.contextUsage || detail.session?.contextUsage;
   const tokenSummary = useMemo(() => summarizeTokens(msgs, tokenUsage), [msgs, tokenUsage]);

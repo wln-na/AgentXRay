@@ -176,12 +176,29 @@ export interface SessionMeta {
   [key: string]: unknown;
 }
 
+/** Server-computed session stats (shipped by the session detail API). */
+export interface SessionStats {
+  userCount: number;
+  assistantCount: number;
+  toolCallCount: number;
+  toolResultCount: number;
+  errorCount: number;
+  spawnCount: number;
+  toolNames: Record<string, number>;
+  skillNames: Record<string, number>;
+  skillFileReads: Record<string, number>;
+  mcpServers: Record<string, number>;
+  totalRetryTools: number;
+  totalRetryAttempts: number;
+}
+
 /** GET /api/<platform>/sessions/:id (and children/:name) */
 export interface SessionDetail {
   session: SessionMeta;
   messages: SessionMessage[];
   tokenUsage?: MessageUsage | null;
   contextUsage?: ContextUsage | null;
+  stats?: SessionStats | null;
 }
 
 /** Item of GET /api/{omp,claude-code}/sessions/:id/children */
