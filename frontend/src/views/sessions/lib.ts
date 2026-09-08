@@ -428,6 +428,26 @@ function skillNamesFromValue(value: unknown): string[] {
   return [...names];
 }
 
+function skillNamesFromToolCall(toolName: string | null | undefined, value: unknown): string[] {
+  const names = new Set(skillNamesFromValue(value));
+  if (String(toolName || '').toLowerCase() !== 'skill') return [...names];
+
+  const record = value && typeof value === 'object' ? (value as Record<string, unknown>) : null;
+  const args =
+    record?.arguments && typeof record.arguments === 'object'
+      ? (record.arguments as Record<string, unknown>)
+      : record?.input && typeof record.input === 'object'
+        ? (record.input as Record<string, unknown>)
+        : record;
+  for (const key of ['skill', 'skill_name', 'name']) {
+    const candidate = args?.[key];
+    if (typeof candidate !== 'string') continue;
+    const name = candidate.trim();
+    if (/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(name)) names.add(name);
+  }
+  return [...names];
+}
+
 // Stats block of legacy renderSummary (counts + per-turn retry tally)
 export function computeSessionStats(msgs: SessionMessage[]): SessionStats {
   const stats: SessionStats = {
@@ -465,7 +485,7 @@ export function computeSessionStats(msgs: SessionMessage[]): SessionStats {
       stats.toolCallCount++;
       const name = msg.toolName || 'unknown';
       stats.toolNames[name] = (stats.toolNames[name] || 0) + 1;
-      for (const skill of skillNamesFromValue(msg.details)) {
+      for (const skill of skillNamesFromToolCall(msg.toolName, msg.details)) {
         stats.skillNames[skill] = (stats.skillNames[skill] || 0) + 1;
       }
     }
@@ -474,7 +494,7 @@ export function computeSessionStats(msgs: SessionMessage[]): SessionStats {
         stats.toolCallCount++;
         const name = c.name || 'unknown';
         stats.toolNames[name] = (stats.toolNames[name] || 0) + 1;
-        for (const skill of skillNamesFromValue(c)) {
+        for (const skill of skillNamesFromToolCall(c.name, c)) {
           stats.skillNames[skill] = (stats.skillNames[skill] || 0) + 1;
         }
         if (isSpawnPart(c)) stats.spawnCount++;

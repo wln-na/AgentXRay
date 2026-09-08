@@ -189,12 +189,16 @@ export function SessionSummary({
   const total = timing.totalDurationMs;
   const toolMs = timing.totalToolDurationMs || 0;
   const modelMs = total !== null ? Math.max(0, total - toolMs) : 0;
-  const topTools = Object.entries(stats.toolNames)
-    .sort((a, b) => b[1] - a[1])
-    .slice(0, 8);
+  const topTools = Object.entries(stats.toolNames).length
+    ? Object.entries(stats.toolNames)
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, 8)
+    : (selectedSummary?.topTools || []).map((tool) => [tool.name, tool.count] as [string, number]).slice(0, 8);
   const topSkills = Object.entries(stats.skillNames)
     .sort((a, b) => b[1] - a[1])
     .slice(0, 8);
+  const toolCallCount = stats.toolCallCount || selectedSummary?.toolCallCount || 0;
+  const toolResultCount = stats.toolResultCount || selectedSummary?.toolResultCount || 0;
 
   const toggleCollapsed = () => {
     setCollapsed((prev) => {
@@ -219,7 +223,7 @@ export function SessionSummary({
             ) : null}
             {listModel ? <span className="rounded border border-border px-1.5 py-0.5">模型：{listModel}</span> : null}
             <span className="rounded border border-border px-1.5 py-0.5">消息：{msgs.length}</span>
-            <span className="rounded border border-border px-1.5 py-0.5">工具：{stats.toolCallCount}</span>
+            <span className="rounded border border-border px-1.5 py-0.5">工具：{toolCallCount}</span>
             {selectedSummary?.archived || detail.session?.archived ? (
               <span className="rounded border border-amber-500/50 bg-amber-500/10 px-1.5 py-0.5 text-amber-700 dark:text-amber-300">
                 已归档
@@ -339,14 +343,14 @@ export function SessionSummary({
                   onClick={() => setMsgFilter('toolCall')}
                   title="Click to show only tool calls"
                 >
-                  🔧 Tool Calls: {stats.toolCallCount}
+                  🔧 Tool Calls: {toolCallCount}
                 </FilterBadge>
                 <FilterBadge
                   active={msgFilter === 'toolResult'}
                   onClick={() => setMsgFilter('toolResult')}
                   title="Click to show only tool results"
                 >
-                  📋 Tool Results: {stats.toolResultCount}
+                  📋 Tool Results: {toolResultCount}
                 </FilterBadge>
                 {stats.errorCount ? (
                   <FilterBadge
@@ -382,11 +386,11 @@ export function SessionSummary({
                 ) : null}
               </div>
             </div>
-            {topTools.length ? (
-              <div className="rounded-md border border-border/70 p-2.5">
-                <div className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
-                  Top Tools
-                </div>
+            <div className="rounded-md border border-border/70 p-2.5">
+              <div className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                Top Tools
+              </div>
+              {topTools.length ? (
                 <div className="flex flex-wrap gap-1.5">
                   {topTools.map(([name, count]) => (
                     <span
@@ -397,13 +401,15 @@ export function SessionSummary({
                     </span>
                   ))}
                 </div>
+              ) : (
+                <div className="text-[11px] text-muted-foreground">本会话没有记录到工具调用</div>
+              )}
+            </div>
+            <div className="rounded-md border border-border/70 p-2.5">
+              <div className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                Skill 使用
               </div>
-            ) : null}
-            {topSkills.length ? (
-              <div className="rounded-md border border-border/70 p-2.5">
-                <div className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
-                  Skill 使用
-                </div>
+              {topSkills.length ? (
                 <div className="flex flex-wrap gap-1.5">
                   {topSkills.map(([name, count]) => (
                     <span
@@ -414,9 +420,13 @@ export function SessionSummary({
                     </span>
                   ))}
                 </div>
-                <div className="mt-1 text-[10px] text-muted-foreground">按会话中读取 SKILL.md 的记录统计</div>
+              ) : (
+                <div className="text-[11px] text-muted-foreground">本会话没有记录到 Skill 调用或 SKILL.md 读取</div>
+              )}
+              <div className="mt-1 text-[10px] text-muted-foreground">
+                按原生 Skill 工具调用及会话中实际读取 SKILL.md 的记录统计
               </div>
-            ) : null}
+            </div>
             <ContextUsageCard
               usage={contextUsage}
               unavailableNote={

@@ -378,6 +378,44 @@ test('session stats detect Skill reads from structured tool paths without counti
   assert.deepEqual(stats.skillNames, { 'browser-use-automation-mac': 1 });
 });
 
+test('session stats detect Claude native Skill tool calls without counting the available Skill list', () => {
+  const { computeSessionStats } = loadSessionsLib();
+  const stats = computeSessionStats([
+    {
+      id: 'user-context',
+      role: 'user',
+      content: [
+        {
+          type: 'text',
+          text: '<skill-context>{"names":["available-only"]}</skill-context>',
+        },
+      ],
+    },
+    {
+      id: 'assistant-skill',
+      role: 'assistant',
+      content: [
+        {
+          type: 'toolCall',
+          id: 'skill-call',
+          name: 'Skill',
+          arguments: { skill: 'frontend-design' },
+        },
+      ],
+    },
+    {
+      id: 'standalone-skill',
+      role: 'toolCall',
+      toolName: 'Skill',
+      details: { skill_name: 'pdf' },
+      content: [],
+    },
+  ]);
+  assert.equal(stats.toolCallCount, 2);
+  assert.deepEqual(stats.toolNames, { Skill: 2 });
+  assert.deepEqual(stats.skillNames, { 'frontend-design': 1, pdf: 1 });
+});
+
 test('session stats only count actual Skill file reads in shell commands', () => {
   const { computeSessionStats } = loadSessionsLib();
   const stats = computeSessionStats([
