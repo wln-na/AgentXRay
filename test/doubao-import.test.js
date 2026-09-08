@@ -438,26 +438,27 @@ test('searchCachedSessions uses FTS5 to find sessions and matching messages', as
 
 test('estimateToolDurationMs memoizes by tool name and returns deterministic results', () => {
   const doubao = require('../lib/platforms/doubao');
+  const shared = require('../lib/platforms/shared');
   // Clear module-level memo caches for a deterministic baseline.
-  doubao.toolDurationCache.clear();
+  shared.toolDurationCache.clear();
   doubao.assistantDurationCache.clear();
 
-  const r1 = doubao.estimateToolDurationMs('Bash');
-  const r2 = doubao.estimateToolDurationMs('bash');
-  const r3 = doubao.estimateToolDurationMs('BASH');
+  const r1 = shared.estimateToolDurationMs('Bash');
+  const r2 = shared.estimateToolDurationMs('bash');
+  const r3 = shared.estimateToolDurationMs('BASH');
   assert.equal(r1, 3000);
   assert.equal(r2, 3000);
   assert.equal(r3, 3000);
   // Same lowercased name → single cache entry.
-  assert.equal(doubao.toolDurationCache.size, 1);
+  assert.equal(shared.toolDurationCache.size, 1);
 
-  const readResult = doubao.estimateToolDurationMs('Read');
+  const readResult = shared.estimateToolDurationMs('Read');
   assert.equal(readResult, 500);
-  assert.equal(doubao.toolDurationCache.size, 2);
+  assert.equal(shared.toolDurationCache.size, 2);
 
   // Calling again does not grow cache.
-  doubao.estimateToolDurationMs('Read');
-  assert.equal(doubao.toolDurationCache.size, 2);
+  shared.estimateToolDurationMs('Read');
+  assert.equal(shared.toolDurationCache.size, 2);
 
   // estimateAssistantDurationMs memoizes by text length.
   const a1 = doubao.estimateAssistantDurationMs(300);
