@@ -638,10 +638,10 @@ describe('backup', () => {
 
   it('copies every session log once, then skips everything on the second run', async () => {
     const first = await sendJson(srv.base, 'POST', '/api/backup', undefined);
-    // codex 6 (5 active incl. child + grandchild + new beta, plus 1 archived) + claude 3 + history.jsonl + omp 2 + dsh 2 + gemini 3
-    assert.equal(first.copied, 17);
+    // codex 6 (5 active incl. child + grandchild + new beta, plus 1 archived) + claude 3 + history.jsonl + omp 3 (2 sessions + 1 child Scout.jsonl) + dsh 2 + gemini 3
+    assert.equal(first.copied, 18);
     assert.equal(first.skipped, 0);
-    assert.equal(first.total, 17);
+    assert.equal(first.total, 18);
     assert.deepEqual(first.byPlatform.codex, { copied: 6, skipped: 0, failed: 0, warnings: [], skippedFiles: [] });
     assert.deepEqual(first.byPlatform['claude-code'], {
       copied: 4,
@@ -650,7 +650,7 @@ describe('backup', () => {
       warnings: [],
       skippedFiles: [],
     });
-    assert.deepEqual(first.byPlatform.omp, { copied: 2, skipped: 0, failed: 0, warnings: [], skippedFiles: [] });
+    assert.deepEqual(first.byPlatform.omp, { copied: 3, skipped: 0, failed: 0, warnings: [], skippedFiles: [] });
     assert.deepEqual(first.byPlatform.dsh, { copied: 2, skipped: 0, failed: 0, warnings: [], skippedFiles: [] });
     assert.deepEqual(first.byPlatform.gemini, { copied: 3, skipped: 0, failed: 0, warnings: [], skippedFiles: [] });
     // Archive stays inside the temp HOME
@@ -659,12 +659,12 @@ describe('backup', () => {
 
     const second = await sendJson(srv.base, 'POST', '/api/backup', undefined);
     assert.equal(second.copied, 0);
-    assert.equal(second.skipped, 17);
-    assert.equal(second.total, 17);
+    assert.equal(second.skipped, 18);
+    assert.equal(second.total, 18);
 
     const status = await getJson(srv.base, '/api/backup/status');
     assert.equal(status.archiveDir, first.archiveDir);
-    assert.equal(status.files, 17);
+    assert.equal(status.files, 18);
     assert.ok(status.bytes > 0);
     assert.ok(typeof status.lastBackup === 'string');
   });
