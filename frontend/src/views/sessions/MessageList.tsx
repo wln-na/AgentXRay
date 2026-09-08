@@ -207,8 +207,9 @@ export function MessageList({
 }) {
   const isCodex = platform === 'codex' || platform === 'omp' || platform === 'dsh' || platform === 'gemini';
   const msgOrder = useAppStore((s) => s.msgOrder);
-  // Context reconstruction is currently only supported for codex.
-  const contextEnabled = platform === 'codex' && Boolean(sessionId);
+  // Context reconstruction is supported for Codex and both Claude adapters.
+  const contextEnabled =
+    (platform === 'codex' || platform === 'claude-code' || platform === 'claude-desktop') && Boolean(sessionId);
 
   const units = useMemo<MessageUnit[]>(() => {
     const filtered = applyMsgFilter(timing.visibleMessages, msgFilter);

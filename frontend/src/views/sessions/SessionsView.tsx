@@ -23,6 +23,7 @@ const PLATFORM_DEFAULT_PATHS: [string, string][] = [
   ['OpenClaw', '~/.openclaw/agents'],
   ['Codex', '~/.codex/sessions'],
   ['Claude Code', '~/.claude/projects'],
+  ['Claude Desktop', '~/Library/Application Support/Claude-3p/local-agent-mode-sessions'],
   ['Hermes', '~/.hermes'],
   ['OMP', '~/.omp/agent/sessions'],
   ['DeepSeek Harness', '~/.dsh/sessions'],

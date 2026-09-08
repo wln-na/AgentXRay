@@ -5,6 +5,7 @@ const {
   DATA_DIR,
   CODEX_DIR,
   CLAUDE_CODE_DIR,
+  CLAUDE_DESKTOP_DIR,
   HERMES_DIR,
   OMP_DIR,
   DSH_DIR,
@@ -84,6 +85,7 @@ app.listen(PORT, HOST, () => {
   console.log(`  OpenClaw:    ${DATA_DIR}`);
   console.log(`  Codex:       ${CODEX_DIR}`);
   console.log(`  Claude Code: ${CLAUDE_CODE_DIR}`);
+  console.log(`  Claude Desktop: ${CLAUDE_DESKTOP_DIR}`);
   console.log(`  Hermes:      ${path.join(HERMES_DIR, 'state.db')}`);
   console.log(`  OMP:         ${OMP_DIR}`);
   console.log(`  DeepSeek Harness: ${DSH_DIR}`);

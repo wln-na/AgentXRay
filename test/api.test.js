@@ -17,6 +17,8 @@ const CODEX_GRANDCHILD = '01900000-0000-7000-8000-000000000005';
 const CODEX_ARCHIVED = '01900000-0000-7000-8000-000000000004';
 const CLAUDE_A = 'aaaa1111-2222-4333-8444-555566667777';
 const CLAUDE_B = 'bbbb1111-2222-4333-8444-555566667778';
+const CLAUDE_C = 'cccc1111-2222-4333-8444-555566667779';
+const CLAUDE_DESKTOP = 'local_dddd1111-2222-4333-8444-555566667777';
 const OMP1 = '019a0000-0000-7000-8000-00000000aaaa';
 const OMP2 = '019a0000-0000-7000-8000-00000000bbbb';
 
@@ -172,12 +174,12 @@ describe('AgentXRay API', () => {
   describe('sessions: claude-code', () => {
     it('lists sessions without leaking subagent transcripts', async () => {
       const sessions = await getJson(srv.base, '/api/claude-code/sessions');
-      assert.equal(sessions.length, 2);
+      assert.equal(sessions.length, 3);
       assert.deepEqual(
         sessions.map((s) => s.id),
-        [CLAUDE_B, CLAUDE_A]
+        [CLAUDE_C, CLAUDE_B, CLAUDE_A]
       );
-      const a = sessions[1];
+      const a = sessions.find((s) => s.id === CLAUDE_A);
       assert.equal(a.toolCallCount, 1);
       assert.equal(a.toolResultCount, 1);
       assert.equal(a.cwd, '/fixtures/project-beta');
@@ -222,8 +224,8 @@ describe('AgentXRay API', () => {
 
     it('deduplicates streamed Claude usage snapshots in insights', async () => {
       const insights = await getJson(srv.base, '/api/insights?platform=claude-code');
-      assert.equal(insights.tokenUsage.input, 27);
-      assert.equal(insights.tokenUsage.output, 34);
+      assert.equal(insights.tokenUsage.input, 277);
+      assert.equal(insights.tokenUsage.output, 114);
       assert.equal(insights.tokenUsage.cacheRead, 230);
       assert.equal(insights.tokenUsage.cacheWrite, 340);
     });
@@ -248,6 +250,64 @@ describe('AgentXRay API', () => {
     it('a Task-free session has no children', async () => {
       const children = await getJson(srv.base, `/api/claude-code/sessions/${CLAUDE_B}/children`);
       assert.deepEqual(children, []);
+    });
+  });
+
+  describe('sessions: claude-desktop', () => {
+    it('lists only metadata-linked Desktop Agent/Cowork sessions', async () => {
+      const sessions = await getJson(srv.base, '/api/claude-desktop/sessions');
+      assert.equal(sessions.length, 1);
+      const session = sessions[0];
+      assert.equal(session.id, CLAUDE_DESKTOP);
+      assert.equal(session.cliSessionId, 'eeee1111-2222-4333-8444-555566667777');
+      assert.equal(session.title, 'Desktop fixture session');
+      assert.equal(session.cwd, '/fixtures/desktop-project');
+      assert.equal(session.model, 'desktop-log-model');
+      assert.equal(session.toolCallCount, 1);
+      assert.equal(session.toolResultCount, 1);
+      assert.ok(!JSON.stringify(sessions).includes('must-not-list-title-generator'));
+    });
+
+    it('serves Desktop detail with native model, token usage and source paths', async () => {
+      const detail = await getJson(srv.base, `/api/claude-desktop/sessions/${CLAUDE_DESKTOP}`);
+      assert.equal(detail.session.id, CLAUDE_DESKTOP);
+      assert.equal(detail.session.model, 'desktop-log-model');
+      assert.deepEqual(detail.session.models, ['desktop-log-model']);
+      assert.equal(detail.session.dataSource, 'local-agent-mode-sessions');
+      assert.ok(detail.session.sourcePath.endsWith('eeee1111-2222-4333-8444-555566667777.jsonl'));
+      assert.ok(detail.session.metadataPath.endsWith('local_dddd1111-2222-4333-8444-555566667777.json'));
+      assert.deepEqual(detail.tokenUsage, {
+        input: 18,
+        output: 12,
+        cacheRead: 30,
+        cacheWrite: 7,
+        totalTokens: 67,
+      });
+      assert.equal(detail.contextUsage.used, 55);
+      assert.equal(detail.contextUsage.limit, 500);
+      assert.equal(detail.contextUsage.percent, 11);
+      assert.ok(detail.messages.some((message) => message.content?.some((part) => part.type === 'toolCall')));
+      assert.ok(
+        detail.messages.some(
+          (message) => message.role === 'toolResult' && message.toolCallId === 'toolu-desktop-1'
+        )
+      );
+    });
+
+    it('supports full-text search and context reconstruction for Desktop sessions', async () => {
+      const search = await getJson(srv.base, '/api/search?platform=claude-desktop&q=desktop-search-needle');
+      assert.equal(search.length, 1);
+      assert.equal(search[0].sessionId, CLAUDE_DESKTOP);
+
+      const detail = await getJson(srv.base, `/api/claude-desktop/sessions/${CLAUDE_DESKTOP}`);
+      const targetIndex = detail.messages.findIndex((message) => message.role === 'user');
+      const context = await getJson(
+        srv.base,
+        `/api/claude-desktop/sessions/${CLAUDE_DESKTOP}/context?messageIndex=${targetIndex}`
+      );
+      assert.equal(context.platform, 'claude-desktop');
+      assert.equal(context.messages.included, true);
+      assert.equal(context.messages.target.role, 'user');
     });
   });
 
@@ -580,12 +640,12 @@ describe('backup', () => {
 
   it('copies every session log once, then skips everything on the second run', async () => {
     const first = await sendJson(srv.base, 'POST', '/api/backup', undefined);
-    // codex 6 (5 active incl. child + grandchild + new beta, plus 1 archived) + claude 2 + history.jsonl + omp 2 + dsh 2 + gemini 3
-    assert.equal(first.copied, 16);
+    // codex 6 (5 active incl. child + grandchild + new beta, plus 1 archived) + claude 3 + history.jsonl + omp 2 + dsh 2 + gemini 3
+    assert.equal(first.copied, 17);
     assert.equal(first.skipped, 0);
-    assert.equal(first.total, 16);
+    assert.equal(first.total, 17);
     assert.deepEqual(first.byPlatform.codex, { copied: 6, skipped: 0 });
-    assert.deepEqual(first.byPlatform['claude-code'], { copied: 3, skipped: 0 });
+    assert.deepEqual(first.byPlatform['claude-code'], { copied: 4, skipped: 0 });
     assert.deepEqual(first.byPlatform.omp, { copied: 2, skipped: 0 });
     assert.deepEqual(first.byPlatform.dsh, { copied: 2, skipped: 0 });
     assert.deepEqual(first.byPlatform.gemini, { copied: 3, skipped: 0 });
@@ -595,12 +655,12 @@ describe('backup', () => {
 
     const second = await sendJson(srv.base, 'POST', '/api/backup', undefined);
     assert.equal(second.copied, 0);
-    assert.equal(second.skipped, 16);
-    assert.equal(second.total, 16);
+    assert.equal(second.skipped, 17);
+    assert.equal(second.total, 17);
 
     const status = await getJson(srv.base, '/api/backup/status');
     assert.equal(status.archiveDir, first.archiveDir);
-    assert.equal(status.files, 16);
+    assert.equal(status.files, 17);
     assert.ok(status.bytes > 0);
     assert.ok(typeof status.lastBackup === 'string');
   });

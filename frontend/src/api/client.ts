@@ -38,6 +38,7 @@ export interface DirSettings {
   openclawDir: string;
   codexDir: string;
   claudeCodeDir: string;
+  claudeDesktopDir: string;
   hermesDir: string;
   ompDir: string;
   dshDir: string;
@@ -221,6 +222,7 @@ export async function getToolsAudit(opts: {
     dirOpenclaw: opts.dirs?.openclawDir,
     dirCodex: opts.dirs?.codexDir,
     dirClaude: opts.dirs?.claudeCodeDir,
+    dirClaudeDesktop: opts.dirs?.claudeDesktopDir,
     dirOmp: opts.dirs?.ompDir,
     dirDsh: opts.dirs?.dshDir,
     dirGemini: opts.dirs?.geminiDir,

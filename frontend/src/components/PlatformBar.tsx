@@ -19,6 +19,7 @@ const PLATFORM_TIPS: Record<Platform, string> = {
   openclaw: 'OpenClaw 会话（~/.openclaw/agents）',
   codex: 'Codex 会话（~/.codex/sessions）',
   'claude-code': 'Claude Code 会话（~/.claude/projects）',
+  'claude-desktop': 'Claude Desktop Agent/Cowork 会话（~/Library/Application Support/Claude-3p/local-agent-mode-sessions）',
   hermes: 'Hermes 会话（~/.hermes）',
   omp: 'oh-my-pi 会话（~/.omp/agent/sessions）',
   dsh: 'DeepSeek Harness 会话（~/.dsh/sessions）',
