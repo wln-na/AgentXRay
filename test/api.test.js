@@ -68,7 +68,7 @@ describe('AgentXRay API', () => {
         cacheRead: 110,
         cacheWrite: 9,
         reasoning: 13,
-        totalTokens: 295,
+        totalTokens: 427,
         contextWindow: 200000,
       });
       const archived = sessions.find((s) => s.id === CODEX_ARCHIVED);
@@ -124,7 +124,7 @@ describe('AgentXRay API', () => {
         cacheRead: 110,
         cacheWrite: 9,
         reasoning: 13,
-        totalTokens: 295,
+        totalTokens: 427,
         contextWindow: 200000,
       };
       assert.deepEqual(session.tokenUsage, expectedTokenUsage);
@@ -209,11 +209,11 @@ describe('AgentXRay API', () => {
       assert.equal(result.toolCallId, 'toolu-fx-1');
       assert.equal(result.content[0].text, 'hello');
       assert.deepEqual(tokenUsage, {
-        input: 22,
+        input: 12,
         output: 26,
-        cacheRead: 230,
-        cacheWrite: 340,
-        totalTokens: 618,
+        cacheRead: 200,
+        cacheWrite: 300,
+        totalTokens: 538,
       });
       assert.equal(contextUsage.used, 512);
       assert.equal(contextUsage.limit, 1000);

@@ -246,3 +246,148 @@ test('Doubao importer preserves cached history when Chromium blobs disappear', (
   assert.match(messages[0].content_json, /fixture question/);
   assert.match(messages[1].content_json, /fixture answer/);
 });
+
+test('cachePathFor derives distinct per-source cache paths and respects DOUBAO_CACHE_PATH', () => {
+  const store = require('../lib/platforms/doubao-store');
+  const original = process.env.DOUBAO_CACHE_PATH;
+  delete process.env.DOUBAO_CACHE_PATH;
+  try {
+    const pathA = store.cachePathFor('/Users/alice/.doubao/agent_mode/workspace');
+    const pathB = store.cachePathFor('/Users/bob/.doubao/agent_mode/workspace');
+    assert.notEqual(pathA, pathB);
+    assert.match(pathA, /doubao-[0-9a-f]{8}\.sqlite$/);
+    assert.match(pathB, /doubao-[0-9a-f]{8}\.sqlite$/);
+    // Deterministic: same source yields same path
+    assert.equal(store.cachePathFor('/Users/alice/.doubao/agent_mode/workspace'), pathA);
+    // Explicit env override takes precedence
+    process.env.DOUBAO_CACHE_PATH = '/custom/global-cache.sqlite';
+    assert.equal(store.cachePathFor('/any/source'), '/custom/global-cache.sqlite');
+  } finally {
+    if (original === undefined) delete process.env.DOUBAO_CACHE_PATH;
+    else process.env.DOUBAO_CACHE_PATH = original;
+  }
+});
+
+test('listCachedSessions counts tool calls, tool results, and top tools from IndexedDB cache', async (t) => {
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'agentxray-doubao-toolstats-'));
+  t.after(() => fs.rmSync(tempDir, { recursive: true, force: true }));
+  const dbPath = path.join(tempDir, 'test.sqlite');
+  const db = new Database(dbPath);
+  db.exec(`
+    CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+    CREATE TABLE projects (id TEXT PRIMARY KEY, name TEXT NOT NULL, root_path TEXT, display_order INTEGER NOT NULL DEFAULT 0);
+    CREATE TABLE sessions (id TEXT PRIMARY KEY, project_id TEXT, title TEXT, section_id TEXT, created_at TEXT, updated_at TEXT, model TEXT, model_key TEXT, source_path TEXT NOT NULL, source_task_id TEXT, source_sequence INTEGER NOT NULL DEFAULT 0);
+    CREATE TABLE messages (id TEXT PRIMARY KEY, conversation_id TEXT NOT NULL, session_id TEXT, section_id TEXT, role TEXT NOT NULL, timestamp TEXT, model TEXT, model_key TEXT, content_json TEXT NOT NULL, sort_index INTEGER NOT NULL DEFAULT 0, source_sequence INTEGER NOT NULL DEFAULT 0);
+  `);
+  db.prepare("INSERT INTO meta (key, value) VALUES ('schema_version', '3')").run();
+  db.prepare("INSERT INTO projects (id, name, root_path) VALUES ('p1', 'Test Project', '/tmp/test')").run();
+  db.prepare(
+    "INSERT INTO sessions (id, project_id, title, source_path, created_at) VALUES ('s1', 'p1', 'Tool Session', '/fake/source', '2024-01-01T00:00:00Z')"
+  ).run();
+  db.prepare(
+    "INSERT INTO messages (id, conversation_id, role, content_json, timestamp) VALUES ('m1', 's1', 'user', '[{\"type\":\"text\",\"text\":\"hello\"}]', '2024-01-01T00:00:01Z')"
+  ).run();
+  db.prepare(
+    "INSERT INTO messages (id, conversation_id, role, content_json, timestamp) VALUES ('m2', 's1', 'assistant', ?, '2024-01-01T00:00:02Z')"
+  ).run(
+    JSON.stringify([
+      { type: 'text', text: 'running tools' },
+      { type: 'toolCall', id: 'tc1', name: 'Bash', arguments: {} },
+      { type: 'toolCall', id: 'tc2', name: 'Read', arguments: {} },
+      { type: 'toolCall', id: 'tc3', name: 'Bash', arguments: {} },
+    ])
+  );
+  db.prepare(
+    "INSERT INTO messages (id, conversation_id, role, content_json, timestamp) VALUES ('m3', 's1', 'tool', '[{\"type\":\"text\",\"text\":\"result 1\"}]', '2024-01-01T00:00:03Z')"
+  ).run();
+  db.prepare(
+    "INSERT INTO messages (id, conversation_id, role, content_json, timestamp) VALUES ('m4', 's1', 'tool', '[{\"type\":\"text\",\"text\":\"result 2\"}]', '2024-01-01T00:00:04Z')"
+  ).run();
+  db.close();
+
+  const store = require('../lib/platforms/doubao-store');
+  const sessions = await store.listCachedSessions(dbPath);
+  assert.equal(sessions.length, 1);
+  assert.equal(sessions[0].toolCallCount, 3);
+  assert.equal(sessions[0].toolResultCount, 2);
+  assert.deepEqual(sessions[0].topTools, [
+    { name: 'Bash', count: 2 },
+    { name: 'Read', count: 1 },
+  ]);
+});
+
+test('rowToMessage marks tool messages with error indicators as isError=true', () => {
+  const store = require('../lib/platforms/doubao-store');
+
+  // Structured: is_error field
+  const msgIsError = store.rowToMessage({
+    id: 't1',
+    role: 'tool',
+    content_json: JSON.stringify([{ type: 'text', text: 'failed', is_error: true }]),
+  });
+  assert.equal(msgIsError.isError, true);
+
+  // Structured: status=error
+  const msgStatusError = store.rowToMessage({
+    id: 't2',
+    role: 'tool',
+    content_json: JSON.stringify([{ type: 'text', text: 'failed', status: 'error' }]),
+  });
+  assert.equal(msgStatusError.isError, true);
+
+  // Text fallback: non-zero exit code
+  const msgExitCode = store.rowToMessage({
+    id: 't3',
+    role: 'tool',
+    content_json: JSON.stringify([{ type: 'text', text: 'Command exited with code 127' }]),
+  });
+  assert.equal(msgExitCode.isError, true);
+
+  // Text fallback: Error: prefix
+  const msgErrorPrefix = store.rowToMessage({
+    id: 't4',
+    role: 'tool',
+    content_json: JSON.stringify([{ type: 'text', text: 'Error: something went wrong' }]),
+  });
+  assert.equal(msgErrorPrefix.isError, true);
+
+  // Single-object content_json (not array) with isError
+  const msgSingleObject = store.rowToMessage({
+    id: 't5',
+    role: 'tool',
+    content_json: JSON.stringify({ type: 'text', text: 'failed', isError: true }),
+  });
+  assert.equal(msgSingleObject.isError, true);
+
+  // Success tool message → false
+  const msgSuccess = store.rowToMessage({
+    id: 't6',
+    role: 'tool',
+    content_json: JSON.stringify([{ type: 'text', text: 'ok', status: 'success' }]),
+  });
+  assert.equal(msgSuccess.isError, false);
+
+  // status=null must not trigger error (common in toolCall parts)
+  const msgNullStatus = store.rowToMessage({
+    id: 't7',
+    role: 'tool',
+    content_json: JSON.stringify([{ type: 'toolCall', name: 'Bash', status: null }]),
+  });
+  assert.equal(msgNullStatus.isError, false);
+
+  // Zero exit code → not an error
+  const msgExitZero = store.rowToMessage({
+    id: 't8',
+    role: 'tool',
+    content_json: JSON.stringify([{ type: 'text', text: 'Command exited with code 0' }]),
+  });
+  assert.equal(msgExitZero.isError, false);
+
+  // Non-tool message stays false even with error-looking content
+  const msgAssistant = store.rowToMessage({
+    id: 't9',
+    role: 'assistant',
+    content_json: JSON.stringify([{ type: 'text', text: 'Error: simulated', is_error: true }]),
+  });
+  assert.equal(msgAssistant.isError, false);
+});
