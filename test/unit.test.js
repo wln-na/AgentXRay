@@ -376,6 +376,7 @@ test('session stats detect Skill reads from structured tool paths without counti
     },
   ]);
   assert.deepEqual(stats.skillNames, { 'browser-use-automation-mac': 1 });
+  assert.deepEqual(stats.skillFileReads, {});
 });
 
 test('session stats detect Claude native Skill tool calls without counting the available Skill list', () => {
@@ -414,6 +415,40 @@ test('session stats detect Claude native Skill tool calls without counting the a
   assert.equal(stats.toolCallCount, 2);
   assert.deepEqual(stats.toolNames, { Skill: 2 });
   assert.deepEqual(stats.skillNames, { 'frontend-design': 1, pdf: 1 });
+  assert.deepEqual(stats.skillFileReads, {});
+});
+
+test('session stats aggregate MCP calls by server and keep dependent Skill file reads separate', () => {
+  const { computeSessionStats } = loadSessionsLib();
+  const stats = computeSessionStats([
+    {
+      id: 'assistant-mcp',
+      role: 'assistant',
+      content: [
+        {
+          type: 'toolCall',
+          id: 'mcp-1',
+          name: 'mcp__workspace__bash',
+          arguments: { command: 'pwd' },
+        },
+        {
+          type: 'toolCall',
+          id: 'mcp-2',
+          name: 'mcp__aws__aws___list_regions',
+          arguments: {},
+        },
+        {
+          type: 'toolCall',
+          id: 'read-reference',
+          name: 'Read',
+          arguments: { file_path: '/Users/example/.claude/skills/aws-expert/references/iam.md' },
+        },
+      ],
+    },
+  ]);
+  assert.deepEqual(stats.mcpServers, { workspace: 1, aws: 1 });
+  assert.deepEqual(stats.skillNames, {});
+  assert.deepEqual(stats.skillFileReads, { 'aws-expert': 1 });
 });
 
 test('session stats only count actual Skill file reads in shell commands', () => {
@@ -449,6 +484,7 @@ test('session stats only count actual Skill file reads in shell commands', () =>
     'agent-reach': 1,
     'api-mock': 1,
   });
+  assert.deepEqual(stats.skillFileReads, {});
 });
 
 test('same-timestamp user context fragments merge with the actual user input', () => {

@@ -197,6 +197,12 @@ export function SessionSummary({
   const topSkills = Object.entries(stats.skillNames)
     .sort((a, b) => b[1] - a[1])
     .slice(0, 8);
+  const topSkillFileReads = Object.entries(stats.skillFileReads)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 8);
+  const topMcpServers = Object.entries(stats.mcpServers)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 8);
   const toolCallCount = stats.toolCallCount || selectedSummary?.toolCallCount || 0;
   const toolResultCount = stats.toolResultCount || selectedSummary?.toolResultCount || 0;
 
@@ -407,6 +413,26 @@ export function SessionSummary({
             </div>
             <div className="rounded-md border border-border/70 p-2.5">
               <div className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                MCP 使用（按 Server）
+              </div>
+              {topMcpServers.length ? (
+                <div className="flex flex-wrap gap-1.5">
+                  {topMcpServers.map(([name, count]) => (
+                    <span
+                      key={name}
+                      className="rounded border border-sky-500/30 bg-sky-500/5 px-1.5 py-0.5 text-[11px] text-foreground"
+                    >
+                      {name} ×{count}
+                    </span>
+                  ))}
+                </div>
+              ) : (
+                <div className="text-[11px] text-muted-foreground">本会话没有记录到 MCP 工具调用</div>
+              )}
+              <div className="mt-1 text-[10px] text-muted-foreground">按 mcp__server__tool 原生工具名汇总</div>
+            </div>
+            <div className="rounded-md border border-border/70 p-2.5">
+              <div className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
                 Skill 使用
               </div>
               {topSkills.length ? (
@@ -421,11 +447,26 @@ export function SessionSummary({
                   ))}
                 </div>
               ) : (
-                <div className="text-[11px] text-muted-foreground">本会话没有记录到 Skill 调用或 SKILL.md 读取</div>
+                <div className="text-[11px] text-muted-foreground">本会话没有记录到 Skill 加载</div>
               )}
-              <div className="mt-1 text-[10px] text-muted-foreground">
-                按原生 Skill 工具调用及会话中实际读取 SKILL.md 的记录统计
+              <div className="mt-1 text-[10px] text-muted-foreground">按原生 Skill 工具调用及实际读取 SKILL.md 统计</div>
+              <div className="mt-2 border-t border-border/60 pt-2 text-[10px] font-medium text-muted-foreground">
+                Skill 目录文件读取
               </div>
+              {topSkillFileReads.length ? (
+                <div className="mt-1 flex flex-wrap gap-1.5">
+                  {topSkillFileReads.map(([name, count]) => (
+                    <span
+                      key={name}
+                      className="rounded border border-border bg-secondary/30 px-1.5 py-0.5 text-[11px] text-muted-foreground"
+                    >
+                      {name} ×{count}
+                    </span>
+                  ))}
+                </div>
+              ) : (
+                <div className="mt-1 text-[11px] text-muted-foreground">本会话没有记录到 Skill 从属文件读取</div>
+              )}
             </div>
             <ContextUsageCard
               usage={contextUsage}

@@ -223,6 +223,8 @@ export interface SessionStats {
   spawnCount: number;
   toolNames: Record<string, number>;
   skillNames: Record<string, number>;
+  skillFileReads: Record<string, number>;
+  mcpServers: Record<string, number>;
   totalRetryTools: number;
   totalRetryAttempts: number;
 }
@@ -428,24 +430,85 @@ function skillNamesFromValue(value: unknown): string[] {
   return [...names];
 }
 
-function skillNamesFromToolCall(toolName: string | null | undefined, value: unknown): string[] {
-  const names = new Set(skillNamesFromValue(value));
-  if (String(toolName || '').toLowerCase() !== 'skill') return [...names];
-
-  const record = value && typeof value === 'object' ? (value as Record<string, unknown>) : null;
-  const args =
-    record?.arguments && typeof record.arguments === 'object'
-      ? (record.arguments as Record<string, unknown>)
-      : record?.input && typeof record.input === 'object'
-        ? (record.input as Record<string, unknown>)
-        : record;
-  for (const key of ['skill', 'skill_name', 'name']) {
-    const candidate = args?.[key];
-    if (typeof candidate !== 'string') continue;
-    const name = candidate.trim();
-    if (/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(name)) names.add(name);
-  }
+function skillFileNamesFromValue(value: unknown): string[] {
+  const names = new Set<string>();
+  const skillFilePattern = /(?:^|[\\/])(?:\.?skills|skills-archive)[\\/]([^\\/"'\s<>$]+)[\\/]([^"'\s<>$]+)/gi;
+  const addPathMatches = (text: string) => {
+    for (const match of text.matchAll(skillFilePattern)) {
+      const name = match[1];
+      const relativePath = match[2] || '';
+      if (
+        name &&
+        /^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(name) &&
+        !/^SKILL\.md(?:\b|$)/i.test(relativePath)
+      ) {
+        names.add(name);
+      }
+    }
+  };
+  const stripHeredocs = (command: string) =>
+    command.replace(/<<\s*['"]?([A-Za-z_][A-Za-z0-9_]*)['"]?\s*\n[\s\S]*?\n\1(?=\n|$)/g, '');
+  const scan = (candidate: unknown, key = '') => {
+    if (typeof candidate === 'string') {
+      if (key === 'cmd' || key === 'command') {
+        const command = stripHeredocs(candidate);
+        for (const segment of command.split(/(?:\n|;|&&|\|\|)/)) {
+          if (!/\b(?:cat|sed|head|tail|less|more|bat|batcat|nl|awk|grep|rg)\b/.test(segment)) continue;
+          addPathMatches(segment);
+        }
+      } else if (['path', 'file_path', 'filename', 'notebook_path', 'pattern'].includes(key)) {
+        addPathMatches(candidate);
+      } else if (key === '' || key === 'arguments' || key === 'input' || key === 'details') {
+        try {
+          scan(JSON.parse(candidate), key);
+        } catch {
+          // Unstructured prose and tool output are not evidence of a Skill file read.
+        }
+      }
+      return;
+    }
+    if (Array.isArray(candidate)) {
+      for (const item of candidate) scan(item, key);
+      return;
+    }
+    if (!candidate || typeof candidate !== 'object') return;
+    for (const [childKey, childValue] of Object.entries(candidate)) scan(childValue, childKey);
+  };
+  scan(value);
   return [...names];
+}
+
+function skillUsageFromToolCall(
+  toolName: string | null | undefined,
+  value: unknown
+): { loads: string[]; fileReads: string[] } {
+  const loads = new Set<string>(skillNamesFromValue(value));
+  const fileReads = new Set<string>(skillFileNamesFromValue(value));
+  const normalizedTool = String(toolName || '').toLowerCase();
+
+  if (normalizedTool === 'skill') {
+    const record = value && typeof value === 'object' ? (value as Record<string, unknown>) : null;
+    const args =
+      record?.arguments && typeof record.arguments === 'object'
+        ? (record.arguments as Record<string, unknown>)
+        : record?.input && typeof record.input === 'object'
+          ? (record.input as Record<string, unknown>)
+          : record;
+    for (const key of ['skill', 'command', 'skill_name', 'name']) {
+      const candidate = args?.[key];
+      if (typeof candidate !== 'string') continue;
+      const raw = candidate.trim().replace(/^\/+/, '').split(/\s+/)[0] || '';
+      const name = raw.split(':').at(-1) || '';
+      if (/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(name)) loads.add(name);
+    }
+  }
+  return { loads: [...loads], fileReads: [...fileReads] };
+}
+
+function mcpServerFromToolName(toolName: string | null | undefined): string | null {
+  const raw = String(toolName || '');
+  if (!raw.startsWith('mcp__')) return null;
+  return raw.slice('mcp__'.length).split('__')[0] || null;
 }
 
 // Stats block of legacy renderSummary (counts + per-turn retry tally)
@@ -459,6 +522,8 @@ export function computeSessionStats(msgs: SessionMessage[]): SessionStats {
     spawnCount: 0,
     toolNames: {},
     skillNames: {},
+    skillFileReads: {},
+    mcpServers: {},
     totalRetryTools: 0,
     totalRetryAttempts: 0,
   };
@@ -485,18 +550,22 @@ export function computeSessionStats(msgs: SessionMessage[]): SessionStats {
       stats.toolCallCount++;
       const name = msg.toolName || 'unknown';
       stats.toolNames[name] = (stats.toolNames[name] || 0) + 1;
-      for (const skill of skillNamesFromToolCall(msg.toolName, msg.details)) {
-        stats.skillNames[skill] = (stats.skillNames[skill] || 0) + 1;
-      }
+      const usage = skillUsageFromToolCall(msg.toolName, msg.details);
+      for (const skill of usage.loads) stats.skillNames[skill] = (stats.skillNames[skill] || 0) + 1;
+      for (const skill of usage.fileReads) stats.skillFileReads[skill] = (stats.skillFileReads[skill] || 0) + 1;
+      const server = mcpServerFromToolName(name);
+      if (server) stats.mcpServers[server] = (stats.mcpServers[server] || 0) + 1;
     }
     for (const c of msg.content || []) {
       if (c.type === 'toolCall') {
         stats.toolCallCount++;
         const name = c.name || 'unknown';
         stats.toolNames[name] = (stats.toolNames[name] || 0) + 1;
-        for (const skill of skillNamesFromToolCall(c.name, c)) {
-          stats.skillNames[skill] = (stats.skillNames[skill] || 0) + 1;
-        }
+        const usage = skillUsageFromToolCall(c.name, c);
+        for (const skill of usage.loads) stats.skillNames[skill] = (stats.skillNames[skill] || 0) + 1;
+        for (const skill of usage.fileReads) stats.skillFileReads[skill] = (stats.skillFileReads[skill] || 0) + 1;
+        const server = mcpServerFromToolName(name);
+        if (server) stats.mcpServers[server] = (stats.mcpServers[server] || 0) + 1;
         if (isSpawnPart(c)) stats.spawnCount++;
       }
     }
