@@ -419,8 +419,14 @@ test('searchCachedSessions uses FTS5 to find sessions and matching messages', as
   assert.equal(results[0].project, 'Fixture Project');
   assert.ok(results[0].matches.length >= 1, 'expected at least one message match');
   const matchTexts = results[0].matches.map((m) => m.snippet.toLowerCase());
-  assert.ok(matchTexts.some((s) => s.includes('fixture question')), 'user message should match');
-  assert.ok(matchTexts.some((s) => s.includes('fixture answer')), 'assistant message should match');
+  assert.ok(
+    matchTexts.some((s) => s.includes('fixture question')),
+    'user message should match'
+  );
+  assert.ok(
+    matchTexts.some((s) => s.includes('fixture answer')),
+    'assistant message should match'
+  );
 
   // Multi-term AND search: both terms must appear in the session.
   const andResults = await store.searchCachedSessions(output, 'fixture question');
@@ -482,7 +488,11 @@ test('parseDoubaoSessionFile caches parsed result by mtime+size', async (t) => {
   const trajPath = path.join(tempDir, 'trajectory.jsonl');
   const records = [
     { role: 'user', content: 'hello world' },
-    { role: 'assistant', content: 'hi there', tool_calls: [{ id: 'tc1', function: { name: 'Bash', arguments: '{}' } }] },
+    {
+      role: 'assistant',
+      content: 'hi there',
+      tool_calls: [{ id: 'tc1', function: { name: 'Bash', arguments: '{}' } }],
+    },
     { role: 'tool', content: 'ok', tool_call_id: 'tc1', name: 'Bash' },
   ];
   fs.writeFileSync(trajPath, records.map((r) => JSON.stringify(r)).join('\n') + '\n', 'utf8');

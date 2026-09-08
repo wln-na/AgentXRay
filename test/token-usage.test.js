@@ -69,10 +69,7 @@ test('normalizeCodexTokenUsage: raw total smaller than component sum takes the l
 });
 
 test('normalizeCodexTokenUsage: contextWindow preserved', () => {
-  const usage = normalizeCodexTokenUsage(
-    { input_tokens: 10, output_tokens: 5, total_tokens: 15 },
-    200000
-  );
+  const usage = normalizeCodexTokenUsage({ input_tokens: 10, output_tokens: 5, total_tokens: 15 }, 200000);
   assert.equal(usage.contextWindow, 200000);
 });
 
@@ -183,9 +180,7 @@ test('summarizeClaudeRequestUsage: input/cache take latest value, output summed'
 });
 
 test('summarizeClaudeRequestUsage: single request works', () => {
-  const requestUsage = new Map([
-    ['req-1', makeUsage({ input: 300, output: 50, cacheRead: 100, cacheWrite: 20 })],
-  ]);
+  const requestUsage = new Map([['req-1', makeUsage({ input: 300, output: 50, cacheRead: 100, cacheWrite: 20 })]]);
   const latestUsage = requestUsage.get('req-1');
   const { tokenUsage } = summarizeClaudeRequestUsage(requestUsage, latestUsage);
   assert.equal(tokenUsage.input, 300);

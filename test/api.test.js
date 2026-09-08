@@ -288,9 +288,7 @@ describe('AgentXRay API', () => {
       assert.equal(detail.contextUsage.percent, 11);
       assert.ok(detail.messages.some((message) => message.content?.some((part) => part.type === 'toolCall')));
       assert.ok(
-        detail.messages.some(
-          (message) => message.role === 'toolResult' && message.toolCallId === 'toolu-desktop-1'
-        )
+        detail.messages.some((message) => message.role === 'toolResult' && message.toolCallId === 'toolu-desktop-1')
       );
     });
 

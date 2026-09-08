@@ -12,16 +12,7 @@ const { EXPORT_PLATFORMS } = require(path.join(__dirname, '..', 'lib', 'export')
 const { OTLP_PLATFORMS } = require(path.join(__dirname, '..', 'lib', 'otlp'));
 const { TOOL_AUDIT_PLATFORMS } = require(path.join(__dirname, '..', 'lib', 'tool-audit'));
 
-const FILE_PLATFORMS = [
-  'openclaw',
-  'codex',
-  'claude-code',
-  'claude-desktop',
-  'omp',
-  'dsh',
-  'gemini',
-  'doubao',
-];
+const FILE_PLATFORMS = ['openclaw', 'codex', 'claude-code', 'claude-desktop', 'omp', 'dsh', 'gemini', 'doubao'];
 
 test('registry contains every platform with id, label and defaultDir', () => {
   assert.deepEqual(Object.keys(PLATFORMS).sort(), [...FILE_PLATFORMS, 'hermes'].sort());
