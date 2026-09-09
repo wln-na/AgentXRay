@@ -6,7 +6,9 @@ const fsp = require('node:fs/promises');
 const os = require('node:os');
 
 const ROOT = path.join(__dirname, '..');
-const { backupCopy, runFullBackup } = require(path.join(ROOT, 'lib', 'backup'));
+const { backupCopy, backupOpenclaw, backupClaudeDesktop, backupDoubao, runFullBackup } = require(
+  path.join(ROOT, 'lib', 'backup')
+);
 const { computePrompts } = require(path.join(ROOT, 'lib', 'prompts'));
 const { computeInsights } = require(path.join(ROOT, 'lib', 'insights'));
 
@@ -106,6 +108,116 @@ test('backupCopy: records skippedFiles when source stat fails, does not throw', 
   assert.equal(counter.copied, 0);
   assert.equal(counter.failed, 0);
   assert.deepEqual(counter.skippedFiles, [src]);
+  await fsp.rm(dir, { recursive: true, force: true });
+});
+
+test('backupOpenclaw preserves agent/session paths and only copies JSONL files', async () => {
+  const dir = await makeTempDir('agentxray-openclaw-backup-');
+  const root = path.join(dir, 'agents');
+  const archive = path.join(dir, 'archive');
+  const sessions = path.join(root, 'agent-a', 'sessions');
+  await fsp.mkdir(path.join(sessions, 'nested'), { recursive: true });
+  await fsp.writeFile(path.join(sessions, 'main.jsonl'), 'main\n');
+  await fsp.writeFile(path.join(sessions, 'nested', 'child.jsonl'), 'child\n');
+  await fsp.writeFile(path.join(sessions, 'ignore.txt'), 'ignore\n');
+  const counter = makeCounter();
+
+  await backupOpenclaw(counter, root, archive);
+
+  assert.equal(counter.copied, 2);
+  assert.equal(
+    await fsp.readFile(path.join(archive, 'openclaw', 'agent-a', 'sessions', 'main.jsonl'), 'utf8'),
+    'main\n'
+  );
+  assert.equal(
+    await fsp.readFile(path.join(archive, 'openclaw', 'agent-a', 'sessions', 'nested', 'child.jsonl'), 'utf8'),
+    'child\n'
+  );
+  assert.equal(
+    await fsp.access(path.join(archive, 'openclaw', 'agent-a', 'sessions', 'ignore.txt')).then(
+      () => true,
+      () => false
+    ),
+    false
+  );
+  await fsp.rm(dir, { recursive: true, force: true });
+});
+
+test('backupClaudeDesktop copies linked JSONL and metadata but not unrelated logs', async () => {
+  const dir = await makeHomeTempDir('desktop-backup');
+  const root = path.join(dir, 'desktop');
+  const archive = path.join(dir, 'archive');
+  const base = path.join(root, 'account', 'profile');
+  const linkedDir = path.join(base, 'short', '.claude', 'projects', 'session');
+  await fsp.mkdir(linkedDir, { recursive: true });
+  const metadataPath = path.join(base, 'local_aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee.json');
+  const linkedPath = path.join(linkedDir, 'ffffffff-1111-4222-8333-444444444444.jsonl');
+  const unrelatedPath = path.join(linkedDir, 'unrelated.jsonl');
+  await fsp.writeFile(
+    metadataPath,
+    JSON.stringify({
+      sessionId: 'local_aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee',
+      cliSessionId: 'ffffffff-1111-4222-8333-444444444444',
+    })
+  );
+  await fsp.writeFile(linkedPath, '{}\n');
+  await fsp.writeFile(unrelatedPath, '{}\n');
+  const counter = makeCounter();
+
+  await backupClaudeDesktop(counter, root, archive);
+
+  assert.equal(counter.copied, 2);
+  assert.equal(
+    await fsp.access(path.join(archive, 'claude-desktop', path.relative(root, metadataPath))).then(
+      () => true,
+      () => false
+    ),
+    true
+  );
+  assert.equal(
+    await fsp.access(path.join(archive, 'claude-desktop', path.relative(root, linkedPath))).then(
+      () => true,
+      () => false
+    ),
+    true
+  );
+  assert.equal(
+    await fsp.access(path.join(archive, 'claude-desktop', path.relative(root, unrelatedPath))).then(
+      () => true,
+      () => false
+    ),
+    false
+  );
+  await fsp.rm(dir, { recursive: true, force: true });
+});
+
+test('backupDoubao copies only trajectory.jsonl into session/agent archive paths', async () => {
+  const dir = await makeTempDir('agentxray-doubao-backup-');
+  const root = path.join(dir, 'sessions');
+  const archive = path.join(dir, 'archive');
+  const systemDir = path.join(root, 'session-a', 'agents', 'agent-a', 'system');
+  const indexedDbDir = path.join(root, 'IndexedDB');
+  await fsp.mkdir(systemDir, { recursive: true });
+  await fsp.mkdir(indexedDbDir, { recursive: true });
+  await fsp.writeFile(path.join(systemDir, 'trajectory.jsonl'), 'trajectory\n');
+  await fsp.writeFile(path.join(systemDir, 'other.jsonl'), 'other\n');
+  await fsp.writeFile(path.join(indexedDbDir, 'trajectory.jsonl'), 'cache\n');
+  const counter = makeCounter();
+
+  await backupDoubao(counter, root, archive);
+
+  assert.equal(counter.copied, 1);
+  assert.equal(
+    await fsp.readFile(path.join(archive, 'doubao', 'session-a', 'agent-a', 'trajectory.jsonl'), 'utf8'),
+    'trajectory\n'
+  );
+  assert.equal(
+    await fsp.access(path.join(archive, 'doubao', 'IndexedDB')).then(
+      () => true,
+      () => false
+    ),
+    false
+  );
   await fsp.rm(dir, { recursive: true, force: true });
 });
 

@@ -6,13 +6,14 @@ import { useQuery } from '@tanstack/react-query';
 import type { UseQueryResult } from '@tanstack/react-query';
 import { getSessionChild, getSessionChildren, getSessionDetail } from '@/api/client';
 import type { ChildAgentSummary, Platform, SessionDetail } from '@/api/types';
+import { PLATFORM_CAPABILITIES } from '@/api/types';
 import { dirForPlatform, useAppStore } from '@/store';
 
 export type ChildPlatform = 'omp' | 'claude-code' | 'codex';
 
-/** Platforms whose sessions can spawn child agents. */
+/** Platforms whose sessions use the generic children API. OpenClaw spawn maps use separate endpoints. */
 export function hasChildAgents(platform: Platform): platform is ChildPlatform {
-  return platform === 'omp' || platform === 'claude-code' || platform === 'codex';
+  return PLATFORM_CAPABILITIES[platform].spawn && platform !== 'openclaw';
 }
 
 /** Chip/span label: claude-code children carry meta (description/agentType); omp children only a name. */

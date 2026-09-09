@@ -38,6 +38,7 @@ function serverEnv(home, port) {
     HERMES_DIR: path.join(home, '.hermes'),
     DSH_DIR: path.join(home, '.dsh', 'sessions'),
     GEMINI_DIR: path.join(home, '.gemini', 'tmp'),
+    DOUBAO_DIR: path.join(home, '.doubao', 'agent_mode', 'workspace', '.sessions'),
     AGENTXRAY_LIBRARY_DIR: path.join(home, '.agentxray', 'library'),
     AGENTXRAY_ARCHIVE_DIR: path.join(home, '.agentxray', 'archive'),
   };
