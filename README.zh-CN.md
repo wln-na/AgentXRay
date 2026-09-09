@@ -6,6 +6,15 @@ AI Agent 会话 X 光透视工具，支持 **OpenClaw**、**Codex**、**Claude C
 
 **[在线 Demo](https://alloevil.github.io/AgentXRay/)**（合成示例数据，非真实用户会话）
 
+<p align="center">
+  <img src="https://img.shields.io/badge/Node.js-18+-339933?style=flat&logo=node.js&logoColor=white" alt="Node.js" />
+  <a href="https://github.com/alloevil/AgentXRay/actions/workflows/test.yml"><img src="https://img.shields.io/github/actions/workflow/status/alloevil/AgentXRay/test.yml?style=flat&logo=githubactions&logoColor=white&label=tests" alt="Tests" /></a>
+  <a href="https://scorecard.dev/viewer/?uri=github.com/alloevil/AgentXRay"><img src="https://api.scorecard.dev/projects/github.com/alloevil/AgentXRay/badge" alt="OpenSSF Scorecard" /></a>
+  <a href="https://github.com/alloevil/AgentXRay/releases/latest"><img src="https://img.shields.io/github/v/release/alloevil/AgentXRay?style=flat&logo=github&color=blue" alt="Release" /></a>
+  <img src="https://img.shields.io/badge/license-MIT-00ccff?style=flat" alt="License" />
+  <img src="https://img.shields.io/github/stars/alloevil/AgentXRay?style=flat&logo=github&color=yellow" alt="Stars" />
+</p>
+
 ## 为什么是 AgentXRay
 
 AgentXRay 是一个 **local-first 的查看器，看的是你已经拥有的 agent 会话**。
@@ -43,31 +52,31 @@ LangSmith、Langfuse 这类观测平台面向的是*你自己写的* agent：接
 
 ### 会话浏览
 
-侧边栏浏览 Agent 和会话列表。每个会话卡片显示按角色分类的消息数（👤 用户、🤖 助手、🔧 工具）和 spawn 标记。主面板展示会话元数据、Token 用量和热门工具概览。
+侧边栏用于浏览 Agent 和会话列表。每个会话卡片使用语义徽标区分 👤 用户消息、🤖 助手消息、🔧 工具调用和 🌳 派生子 Agent；右侧详情区展示会话元数据、消息历史、工具活动与耗时信息。
 
 ![Main View](screenshots/main-view.png)
 
 ### 工具调用检查
 
-展开任意工具调用可查看其参数和返回结果。折叠状态下按工具类型显示调用次数，方便快速扫视。
+在对话中直接展开工具调用，即可查看结构化参数和配对结果，同时保留前后消息上下文。
 
 ![Tool Calls](screenshots/tool-calls.png)
 
 ### Spawn 追踪
 
-含有子 Agent 的会话会标注 🔗 徽章。点击可导航父子 Agent 调用链。
+含有子 Agent 的会话会显示可点击的 🌳 spawn 徽标。点击后会选中该会话并将右侧详情区切换到 Trace 视图，在模型与工具活动旁展示子 Agent span。
 
 ![Spawn Tracking](screenshots/spawn-tracking.png)
 
 ### 多平台支持
 
-一键切换 OpenClaw、Codex、Claude Code、Claude Desktop、Hermes、OMP、DeepSeek Harness、Gemini CLI 和 Doubao。每个平台的会话均从其本地原生数据源解析。
+通过顶部平台切换栏一键切换 OpenClaw、Codex、Claude Code、Claude Desktop、Hermes、OMP、DeepSeek Harness、Gemini CLI 和 Doubao；侧边栏与详情区会按各平台的原生本地数据源更新。
 
 ![Codex View](screenshots/codex-view.png)
 
 ### 设置面板
 
-在页面上配置各平台目录，保存到 localStorage，无需重启服务。
+在 Settings 中配置各平台日志目录、可选 LLM 后端和会话备份。目录设置保存到 localStorage，无需重启服务即可生效。
 
 ![Settings](screenshots/settings-panel.png)
 
@@ -80,7 +89,7 @@ npx @alloevil/agent-xray            # 默认 http://localhost:3800
 npx @alloevil/agent-xray --port 3900 --host 127.0.0.1
 ```
 
-全局安装（`npm i -g agent-xray`）后可直接使用 `agentxray` 命令。
+全局安装（`npm i -g @alloevil/agent-xray`）后可直接使用 `agentxray` 命令。
 
 **方式二 — 直接从 GitHub 运行 npx**（现在即可用，无需克隆）
 
@@ -153,6 +162,7 @@ npm start
 | OMP         | `~/.omp/agent/sessions`       |
 | DeepSeek Harness | `~/.dsh/sessions`（同时识别 `DSH_HOME`） |
 | Gemini CLI  | `~/.gemini/tmp`               |
+| Doubao      | `~/Library/Application Support/Doubao/Profile 2/.doubao/agent_mode/workspace/.sessions` |
 
 ### 自定义目录
 
@@ -169,6 +179,7 @@ HERMES_DIR=/custom/path/hermes \
 OMP_DIR=/custom/path/omp \
 DSH_DIR=/custom/path/dsh/sessions \
 GEMINI_DIR=/custom/path/gemini/tmp \
+DOUBAO_DIR=/custom/path/doubao/.sessions \
 npm start
 ```
 
@@ -195,21 +206,42 @@ npm start
 | `GET /api/dsh/sessions/:id` | 获取 DeepSeek Harness 会话消息详情 |
 | `GET /api/gemini/sessions` | 获取 Gemini CLI 会话列表 |
 | `GET /api/gemini/sessions/:id` | 获取 Gemini CLI 会话消息详情 |
-| `GET /api/spawn-map` | 获取 Agent spawn 关系图 |
+| `GET /api/doubao/sessions` | 获取按项目分组的 Doubao 会话列表 |
+| `GET /api/doubao/sessions/:id` | 获取合并后的 Doubao IndexedDB + trajectory 消息 |
+| `GET /api/spawn-map` | 获取扁平的 Agent spawn 关系图 |
+| `GET /api/spawn-tree` | 获取完整的分层 spawn 树 |
+| `GET /api/spawn-tree/:sessionId` | 获取以指定会话为根的 spawn 子树及其父节点 |
 | `GET /api/insights` | 聚合分析（工具统计、错误聚类、趋势） |
+| `GET /api/tools/audit` | 获取工具使用与健康状态汇总 |
 | `GET /api/prompts` | 按目录分组的各 session 真人 prompt |
 | `GET /api/prompts/analyze` | 模板聚类 + 效果归因 + Claude 建议（`?refresh=1` 重算，`?skipLlm=1` 仅聚类） |
 | `POST /api/prompts/rewrite` | 通过配置的 LLM 后端改写单条 prompt（`{ "text": "..." }`；无可用后端时返回 503 及配置指引） |
-| `GET/PUT /api/settings/llm` | LLM 后端配置：OpenAI 兼容 `baseUrl`/`model`/`apiKey`,持久化在 `~/.agentxray/llm.json`（key 不回显） |
+| `GET /api/prompts/hidden` | 获取已隐藏 prompt 的 hash 与预览 |
+| `POST /api/prompts/hidden` | 隐藏单条 prompt（`text`）或批量 prompt（`texts`） |
+| `DELETE /api/prompts/hidden/:hash` | 按 hash 恢复已隐藏 prompt |
+| `GET/PUT /api/settings/llm` | LLM 后端配置：OpenAI 兼容 `baseUrl`/`model`/`apiKey`，持久化在 `~/.agentxray/llm.json`（key 不回显） |
 | `GET /api/search` | 会话全文搜索（`?platform=all` 一次搜索全部平台，多关键词 AND） |
-| `GET /api/omp/sessions/:id/children` | 获取该 OMP 会话派生的子 Agent 列表 |
-| `GET /api/omp/sessions/:id/children/:name` | 获取指定子 Agent 的消息详情 |
+| `GET /api/codex/sessions/:id/children` | 获取 Codex 会话派生的子 Agent 列表 |
+| `GET /api/codex/sessions/:id/children/:name` | 获取指定 Codex 子 Agent 的消息详情 |
+| `GET /api/claude-code/sessions/:id/children` | 获取 Claude Code 会话派生的子 Agent 列表 |
+| `GET /api/claude-code/sessions/:id/children/:name` | 获取指定 Claude Code 子 Agent 的消息详情 |
+| `GET /api/omp/sessions/:id/children` | 获取 OMP 会话派生的子 Agent 列表 |
+| `GET /api/omp/sessions/:id/children/:name` | 获取指定 OMP 子 Agent 的消息详情 |
+| `GET /api/:platform/sessions/:id/context?messageIndex=N` | 重建指定消息前的上下文（支持 `codex`、`claude-code`、`claude-desktop`） |
+| `GET /api/:platform/sessions/:id/export?format=md\|html` | 将脱敏后的会话导出为 Markdown 或自包含 HTML |
+| `GET /api/otlp/:platform/:sessionId` | 将支持的平台会话导出为 OTLP 兼容 JSON |
+| `GET /api/watch` | 通过 Server-Sent Events 实时推送会话更新 |
 | `GET /api/library` | 获取资产库 prompt 列表（含各目标的安装状态） |
+| `GET /api/library/usage` | 获取 prompt 资产库使用统计 |
+| `GET /api/library/fabric-patterns` | 获取可用 Fabric 模式及导入状态 |
+| `POST /api/library/import-fabric` | 将选定 Fabric 模式导入 prompt 资产库 |
 | `POST /api/library` | 新建 prompt（`{ "name": "...", "content": "...", "description": "...", "tags": [...] }`） |
 | `PUT /api/library/:name` | 更新 / 重命名 prompt（`newName`、`content`、`description`、`tags`），已安装的副本同步刷新 |
 | `DELETE /api/library/:name` | 删除 prompt 及其已安装的 slash command |
 | `POST /api/library/:name/install` | 安装为 slash command（`{ "targets": ["claude", "codex", "omp"] }`） |
 | `POST /api/library/:name/uninstall` | 卸载已安装的 slash command（请求体同上） |
+| `GET /api/library/:name/history` | 获取单条资产库 prompt 的 Git 版本历史 |
+| `GET /api/library/:name/history/:hash` | 获取指定版本的资产库 prompt |
 | `POST /api/library/suggest-name` | 通过配置的 LLM 后端为 prompt 生成库内命名（`{ "text": "..." }`，无可用后端时返回 `null`） |
 | `POST /api/backup` | 执行一次增量备份到 `~/.agentxray/archive` |
 | `GET /api/backup/status` | 归档统计：文件数、总字节数、最近备份时间 |
@@ -229,13 +261,16 @@ npm start
 | 平台 | 格式 | 路径模式 |
 |------|------|----------|
 | OpenClaw | JSONL | `~/.openclaw/agents/{agent}/sessions/{id}.jsonl` |
-| Codex | JSONL | `~/.codex/sessions/{id}.jsonl` |
-| Claude Code | JSONL | `~/.claude/projects/*/sessions/*/session.jsonl` |
+| Codex | JSONL | `~/.codex/sessions/YYYY/MM/DD/{id}.jsonl` |
+| Claude Code | JSONL | `~/.claude/projects/{project-slug}/*.jsonl`（子 Agent 位于 `{sessionId}/subagents/`） |
 | Claude Desktop | 元数据 JSON + JSONL | `~/Library/Application Support/Claude-3p/local-agent-mode-sessions/**/local_*.json` + 关联的 `.claude/projects/**/{cliSessionId}.jsonl` |
 | Hermes | SQLite | `~/.hermes/state.db` |
 | OMP | JSONL | `~/.omp/agent/sessions/*/{timestamp}_{id}.jsonl` |
 | DeepSeek Harness | JSONL / zstd 压缩 JSONL | `~/.dsh/sessions/{project}/{id}/session.jsonl[.zstd]` |
 | Gemini CLI | JSONL | `~/.gemini/tmp/{projectHash}/chats/session-*.jsonl` |
+| Doubao | Chromium IndexedDB + JSONL trajectory | `~/Library/Application Support/Doubao/Profile 2/IndexedDB/chrome_doubao-chat_0.indexeddb.leveldb` + `.sessions/{id}/agents/*/system/trajectory.jsonl` |
+
+Doubao 使用 IndexedDB 作为实时项目、会话、消息与模型数据源，并用 trajectory 日志补充历史工具调用和 trace。首次刷新需要 `PATH` 中存在 `dfindexeddb` 或 `uv`；使用 `uv` 时，AgentXRay 会在 `~/.agentxray/cache` 下创建隔离的 Python 3.10 解析环境。
 
 dsh 的 `.jsonl.zstd` 日志是多个独立 Zstandard 帧的串联（每个持久化批次一帧）；AgentXRay 会扫描帧边界并逐帧解压，崩溃残留的尾部不完整帧会被容忍丢弃。读取压缩日志需要 Node.js ≥ 22.15（内置 zstd）；未压缩的 `session.jsonl` 在任何受支持的 Node 上都能读。
 

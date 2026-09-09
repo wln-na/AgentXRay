@@ -1,0 +1,11 @@
+{
+  "openclaw": { "search": true, "context": false, "backup": true, "spawn": true, "watch": true },
+  "codex": { "search": true, "context": true, "backup": true, "spawn": true, "watch": true },
+  "claude-code": { "search": true, "context": true, "backup": true, "spawn": true, "watch": true },
+  "claude-desktop": { "search": true, "context": true, "backup": true, "spawn": false, "watch": true },
+  "hermes": { "search": true, "context": false, "backup": false, "spawn": false, "watch": true },
+  "omp": { "search": true, "context": false, "backup": true, "spawn": true, "watch": true },
+  "dsh": { "search": true, "context": false, "backup": true, "spawn": false, "watch": true },
+  "gemini": { "search": true, "context": false, "backup": true, "spawn": false, "watch": true },
+  "doubao": { "search": true, "context": false, "backup": true, "spawn": false, "watch": true }
+}

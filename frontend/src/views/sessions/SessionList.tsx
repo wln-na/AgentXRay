@@ -23,13 +23,30 @@ const VIRT_THRESHOLD = 200; // below this many sessions, render everything
 const VIRT_OVERSCAN = 10; // extra cards above/below the visible range
 const VIRT_ESTIMATE = 96; // estimated card height incl. gap
 
-function chipTexts(session: SessionSummary): string[] {
-  const chips: string[] = [];
-  if (session.model) chips.push(session.model.split('/').pop() || session.model);
-  chips.push(`${session.toolCallCount || 0} 次工具调用`);
-  if (session.childCount || session.spawnCount) chips.push(`${session.childCount || session.spawnCount} 个子 Agent`);
+type SessionChip = {
+  kind: 'user' | 'assistant' | 'tool' | 'spawn' | 'model';
+  text: string;
+};
+
+function chipTexts(session: SessionSummary): SessionChip[] {
+  const chips: SessionChip[] = [];
+  if (session.userCount > 0) chips.push({ kind: 'user', text: `👤 ${session.userCount} 条用户消息` });
+  if (session.assistantCount > 0) chips.push({ kind: 'assistant', text: `🤖 ${session.assistantCount} 条助手消息` });
+  chips.push({ kind: 'tool', text: `🔧 ${session.toolCallCount || 0} 次工具调用` });
+  const spawnCount = session.spawnCount || session.childCount || 0;
+  if (spawnCount > 0) chips.push({ kind: 'spawn', text: `🌳 ${spawnCount} 个子 Agent` });
+  if (session.model) chips.push({ kind: 'model', text: `🧠 ${session.model.split('/').pop() || session.model}` });
   return chips;
 }
+
+const CHIP_CLASSES: Record<SessionChip['kind'], string> = {
+  user: 'border-[#58a6ff]/30 bg-[#58a6ff]/10 text-[#1f6feb] dark:text-[#79c0ff]',
+  assistant: 'border-border bg-secondary text-muted-foreground',
+  tool: 'border-[#d29922]/30 bg-[#d29922]/10 text-[#9a6700] dark:text-[#e3b341]',
+  spawn:
+    'border-[#f0883e]/30 bg-[#f0883e]/10 text-[#bc4c00] hover:bg-[#f0883e]/20 dark:text-[#ffa657]',
+  model: 'border-border bg-secondary text-muted-foreground',
+};
 
 const SessionCard = memo(function SessionCard({
   session,
@@ -41,6 +58,11 @@ const SessionCard = memo(function SessionCard({
   onSelect: (id: string) => void;
 }) {
   const onClick = () => onSelect(session.id);
+  const onSpawnClick = (event: React.MouseEvent<HTMLButtonElement>) => {
+    event.stopPropagation();
+    onSelect(session.id);
+    useAppStore.getState().setSessionView('trace');
+  };
   const preview = session.firstUserMessage
     ? session.firstUserMessage.length > 80
       ? session.firstUserMessage.slice(0, 80) + '…'
@@ -75,11 +97,30 @@ const SessionCard = memo(function SessionCard({
       </div>
       <div className="mt-1 truncate font-medium text-foreground">{session.title || session.id}</div>
       <div className="mt-1 flex flex-wrap gap-1">
-        {chipTexts(session).map((chip) => (
-          <span key={chip} className="rounded bg-secondary px-1.5 py-0.5 text-[10px] text-muted-foreground">
-            {chip}
-          </span>
-        ))}
+        {chipTexts(session).map((chip) =>
+          chip.kind === 'spawn' ? (
+            <button
+              key={chip.kind}
+              type="button"
+              onClick={onSpawnClick}
+              onKeyDown={(event) => event.stopPropagation()}
+              className={cn(
+                'rounded border px-1.5 py-0.5 text-[10px] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+                CHIP_CLASSES[chip.kind]
+              )}
+              aria-label={`${chip.text}，打开追踪视图`}
+            >
+              {chip.text}
+            </button>
+          ) : (
+            <span
+              key={chip.kind}
+              className={cn('rounded border px-1.5 py-0.5 text-[10px]', CHIP_CLASSES[chip.kind])}
+            >
+              {chip.text}
+            </span>
+          )
+        )}
       </div>
       {preview ? <div className="mt-0.5 line-clamp-2 text-[11px] text-muted-foreground">{preview}</div> : null}
     </div>

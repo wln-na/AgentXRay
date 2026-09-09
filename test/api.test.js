@@ -56,6 +56,7 @@ describe('AgentXRay API', () => {
       assert.equal(s1.timestamp, '2026-01-15T10:00:00.000Z');
       assert.equal(s1.cwd, '/fixtures/project-alpha');
       assert.equal(s1.userCount, 2);
+      assert.equal(s1.assistantCount, 2);
       assert.equal(s1.toolCallCount, 1);
       assert.equal(s1.toolResultCount, 1);
       assert.ok(s1.firstUserMessage.startsWith('fixture: search-needle-alpha'));
@@ -157,6 +158,12 @@ describe('AgentXRay API', () => {
       assert.ok(!JSON.stringify(context.messages.items).includes('environment_context'));
       assert.ok(context.systemPrompt.content.includes('Always use TypeScript'));
       assert.ok(context.metadata.missingItems.includes('工具定义 (tool definitions)'));
+    });
+
+    it('rejects context reconstruction for platforms without the capability', async () => {
+      const response = await getJson(srv.base, '/api/omp/sessions/not-used/context?messageIndex=0', 400);
+      assert.match(response.error, /not yet supported for platform: omp/);
+      assert.match(response.error, /Supported: codex, claude-code, claude-desktop/);
     });
 
     it('aggregates only the latest Codex token snapshot per file', async () => {
@@ -631,6 +638,19 @@ describe('backup', () => {
     // Clear any archive created by the 10s auto-backup timer so the test
     // starts from a clean slate regardless of test ordering.
     await fsp.rm(path.join(srv.home, '.agentxray', 'archive'), { recursive: true, force: true });
+    const doubaoSystemDir = path.join(
+      srv.home,
+      '.doubao',
+      'agent_mode',
+      'workspace',
+      '.sessions',
+      'doubao-session-fixture',
+      'agents',
+      'doubao-agent-fixture',
+      'system'
+    );
+    await fsp.mkdir(doubaoSystemDir, { recursive: true });
+    await fsp.writeFile(path.join(doubaoSystemDir, 'trajectory.jsonl'), '{}\n');
   });
   after(async () => {
     await srv.stop();
@@ -638,13 +658,41 @@ describe('backup', () => {
 
   it('copies every session log once, then skips everything on the second run', async () => {
     const first = await sendJson(srv.base, 'POST', '/api/backup', undefined);
-    // codex 6 (5 active incl. child + grandchild + new beta, plus 1 archived) + claude 3 + history.jsonl + omp 3 (2 sessions + 1 child Scout.jsonl) + dsh 2 + gemini 3
-    assert.equal(first.copied, 18);
+    // codex 6 + claude-code 4 + omp 3 + dsh 2 + gemini 3 + openclaw 2 + claude-desktop 2 + doubao 1.
+    assert.equal(first.copied, 23);
     assert.equal(first.skipped, 0);
-    assert.equal(first.total, 18);
+    assert.equal(first.total, 23);
+    assert.deepEqual(first.byPlatform.openclaw, {
+      copied: 2,
+      skipped: 0,
+      failed: 0,
+      warnings: [],
+      skippedFiles: [],
+    });
     assert.deepEqual(first.byPlatform.codex, { copied: 6, skipped: 0, failed: 0, warnings: [], skippedFiles: [] });
     assert.deepEqual(first.byPlatform['claude-code'], {
       copied: 4,
+      skipped: 0,
+      failed: 0,
+      warnings: [],
+      skippedFiles: [],
+    });
+    assert.deepEqual(first.byPlatform['claude-desktop'], {
+      copied: 2,
+      skipped: 0,
+      failed: 0,
+      warnings: [],
+      skippedFiles: [],
+    });
+    assert.deepEqual(first.byPlatform.hermes, {
+      copied: 0,
+      skipped: 0,
+      failed: 0,
+      warnings: ['hermes: SQLite database excluded from file-level backup'],
+      skippedFiles: [],
+    });
+    assert.deepEqual(first.byPlatform.doubao, {
+      copied: 1,
       skipped: 0,
       failed: 0,
       warnings: [],
@@ -656,15 +704,52 @@ describe('backup', () => {
     // Archive stays inside the temp HOME
     assert.equal(first.archiveDir, path.join(srv.home, '.agentxray', 'archive'));
     assert.ok(await exists(path.join(first.archiveDir, 'claude-code', 'history.jsonl')));
+    assert.ok(
+      await exists(
+        path.join(first.archiveDir, 'openclaw', 'fixture-agent', 'sessions', 'openclaw-context-fixture.jsonl')
+      )
+    );
+    assert.ok(
+      await exists(
+        path.join(
+          first.archiveDir,
+          'claude-desktop',
+          'account-fixture',
+          '00000000',
+          'local_dddd1111-2222-4333-8444-555566667777.json'
+        )
+      )
+    );
+    assert.ok(
+      await exists(
+        path.join(
+          first.archiveDir,
+          'claude-desktop',
+          'account-fixture',
+          '00000000',
+          'abcd1234',
+          '.claude',
+          'projects',
+          'session',
+          'eeee1111-2222-4333-8444-555566667777.jsonl'
+        )
+      )
+    );
+
+    assert.ok(
+      await exists(
+        path.join(first.archiveDir, 'doubao', 'doubao-session-fixture', 'doubao-agent-fixture', 'trajectory.jsonl')
+      )
+    );
 
     const second = await sendJson(srv.base, 'POST', '/api/backup', undefined);
     assert.equal(second.copied, 0);
-    assert.equal(second.skipped, 18);
-    assert.equal(second.total, 18);
+    assert.equal(second.skipped, 23);
+    assert.equal(second.total, 23);
 
     const status = await getJson(srv.base, '/api/backup/status');
     assert.equal(status.archiveDir, first.archiveDir);
-    assert.equal(status.files, 18);
+    assert.equal(status.files, 23);
     assert.ok(status.bytes > 0);
     assert.ok(typeof status.lastBackup === 'string');
   });

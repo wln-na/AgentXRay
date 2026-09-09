@@ -2,6 +2,8 @@
 // Typed from real responses sampled via curl + the legacy UI's field usage
 // (public/js/app.js). Open/evolving shapes carry index signatures.
 
+import platformCapabilities from '../../../lib/platforms/capabilities.json';
+
 export type Platform =
   | 'openclaw'
   | 'codex'
@@ -12,6 +14,12 @@ export type Platform =
   | 'dsh'
   | 'gemini'
   | 'doubao';
+
+export type PlatformCapability = 'search' | 'context' | 'backup' | 'spawn' | 'watch';
+
+export type PlatformCapabilities = Record<PlatformCapability, boolean>;
+
+export const PLATFORM_CAPABILITIES = platformCapabilities satisfies Record<Platform, PlatformCapabilities>;
 
 export const PLATFORMS: Platform[] = [
   'openclaw',

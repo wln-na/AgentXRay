@@ -6,13 +6,25 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const path = require('node:path');
 
-const { PLATFORMS, collectSessionFiles } = require(path.join(__dirname, '..', 'lib', 'platforms'));
+const { PLATFORMS, platformSupports, collectSessionFiles } = require(path.join(__dirname, '..', 'lib', 'platforms'));
 const { makeMessage } = require(path.join(__dirname, '..', 'lib', 'platforms', 'shared'));
 const { EXPORT_PLATFORMS } = require(path.join(__dirname, '..', 'lib', 'export'));
 const { OTLP_PLATFORMS } = require(path.join(__dirname, '..', 'lib', 'otlp'));
 const { TOOL_AUDIT_PLATFORMS } = require(path.join(__dirname, '..', 'lib', 'tool-audit'));
 
 const FILE_PLATFORMS = ['openclaw', 'codex', 'claude-code', 'claude-desktop', 'omp', 'dsh', 'gemini', 'doubao'];
+const CAPABILITY_KEYS = ['search', 'context', 'backup', 'spawn', 'watch'];
+const EXPECTED_CAPABILITIES = {
+  openclaw: { search: true, context: false, backup: true, spawn: true, watch: true },
+  codex: { search: true, context: true, backup: true, spawn: true, watch: true },
+  'claude-code': { search: true, context: true, backup: true, spawn: true, watch: true },
+  'claude-desktop': { search: true, context: true, backup: true, spawn: false, watch: true },
+  hermes: { search: true, context: false, backup: false, spawn: false, watch: true },
+  omp: { search: true, context: false, backup: true, spawn: true, watch: true },
+  dsh: { search: true, context: false, backup: true, spawn: false, watch: true },
+  gemini: { search: true, context: false, backup: true, spawn: false, watch: true },
+  doubao: { search: true, context: false, backup: true, spawn: false, watch: true },
+};
 
 test('registry contains every platform with id, label and defaultDir', () => {
   assert.deepEqual(Object.keys(PLATFORMS).sort(), [...FILE_PLATFORMS, 'hermes'].sort());
@@ -22,6 +34,19 @@ test('registry contains every platform with id, label and defaultDir', () => {
     assert.equal(typeof p.defaultDir(), 'string');
     assert.equal(typeof p.getSession, 'function', `${key} missing getSession`);
   }
+});
+
+test('registry exposes the complete platform capability matrix', () => {
+  for (const [id, expected] of Object.entries(EXPECTED_CAPABILITIES)) {
+    const actual = PLATFORMS[id].capabilities;
+    assert.deepEqual(Object.keys(actual).sort(), [...CAPABILITY_KEYS].sort(), `${id} capability keys drifted`);
+    assert.deepEqual(actual, expected, `${id} capabilities drifted`);
+    for (const capability of CAPABILITY_KEYS) {
+      assert.equal(platformSupports(id, capability), expected[capability], `${id}.${capability} helper mismatch`);
+    }
+  }
+  assert.equal(platformSupports('unknown', 'search'), false);
+  assert.equal(platformSupports('codex', 'unknown'), false);
 });
 
 test('file-based platforms expose find/parse/collectFiles/watchParse', () => {
