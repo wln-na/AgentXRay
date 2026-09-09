@@ -13,8 +13,6 @@
   <a href="https://github.com/alloevil/AgentXRay/releases/latest"><img src="https://img.shields.io/github/v/release/alloevil/AgentXRay?style=flat&logo=github&color=blue" alt="Release" /></a>
   <img src="https://img.shields.io/badge/license-MIT-00ccff?style=flat" alt="License" />
   <img src="https://img.shields.io/github/stars/alloevil/AgentXRay?style=flat&logo=github&color=yellow" alt="Stars" />
-  <img src="https://img.shields.io/badge/framework-None-6e7681?style=flat" alt="No framework" />
-  <img src="https://img.shields.io/badge/build-size~70KB-3FB950?style=flat" alt="Lightweight" />
 </p>
 
 <p align="center">
@@ -68,31 +66,31 @@ If you build and operate your own agent in production, use a tracing platform. I
 
 ### Session Browser
 
-Browse agents and sessions in the sidebar. Each session card shows message counts by role (👤 User, 🤖 Assistant, 🔧 Tool) and spawn indicators. The main panel displays session metadata, token usage, and top tools at a glance.
+Browse agents and sessions in the sidebar. Each session card uses semantic chips for 👤 user messages, 🤖 assistant messages, 🔧 tool calls, and 🌳 spawned child agents. The detail pane shows session metadata, message history, tool activity, and timing information.
 
 ![Main View](screenshots/main-view.png)
 
 ### Tool Call Inspection
 
-Expand any tool call to see its arguments and result. Collapsed groups show tool type counts for quick scanning.
+Expand a tool call inline to inspect its structured arguments and paired result while keeping the surrounding conversation visible.
 
 ![Tool Calls](screenshots/tool-calls.png)
 
 ### Spawn Tracking
 
-Sessions that spawn sub-agents are marked with a 🔗 badge. Click to navigate the parent/child relationship chain.
+Sessions with child agents show a clickable 🌳 spawn chip. Clicking it selects the session and switches the detail pane to the Trace view, where child-agent spans appear alongside model and tool activity.
 
 ![Spawn Tracking](screenshots/spawn-tracking.png)
 
 ### Multi-Platform Support
 
-Switch between OpenClaw, Codex, Claude Code, Claude Desktop, Hermes, OMP, DeepSeek Harness, Gemini CLI, and Doubao with one click. Each platform's sessions are parsed from their native local data source.
+Use the top platform bar to switch between OpenClaw, Codex, Claude Code, Claude Desktop, Hermes, OMP, DeepSeek Harness, Gemini CLI, and Doubao; the sidebar and detail pane update for each platform's native local data source.
 
 ![Codex View](screenshots/codex-view.png)
 
 ### Settings
 
-Configure platform directories from the UI. Changes are saved to localStorage — no server restart needed.
+Open Settings to configure per-platform log directories, the optional LLM backend, and session backups. Directory changes are stored in localStorage and applied without restarting the server.
 
 ![Settings](screenshots/settings-panel.png)
 
@@ -107,7 +105,7 @@ npx @alloevil/agent-xray            # default http://localhost:3800
 npx @alloevil/agent-xray --port 3900 --host 127.0.0.1
 ```
 
-A global install (`npm i -g agent-xray`) exposes the same launcher as `agentxray`.
+A global install (`npm i -g @alloevil/agent-xray`) exposes the same launcher as `agentxray`.
 
 **Option 2 — npx straight from GitHub** (works today, no clone)
 
@@ -232,21 +230,40 @@ npm start
 | `GET /api/gemini/sessions/:id` | Get Gemini CLI session messages |
 | `GET /api/doubao/sessions` | List Doubao sessions grouped by project |
 | `GET /api/doubao/sessions/:id` | Get merged Doubao IndexedDB + trajectory messages |
-| `GET /api/spawn-map` | Build agent spawn relationship map |
+| `GET /api/spawn-map` | Build the flat agent spawn relationship map |
+| `GET /api/spawn-tree` | Build the complete hierarchical spawn tree |
+| `GET /api/spawn-tree/:sessionId` | Get the spawn subtree rooted at a session plus its parent node |
 | `GET /api/insights` | Aggregate analytics (tool stats, error clusters, trends) |
+| `GET /api/tools/audit` | Aggregate tool usage and health audit |
 | `GET /api/prompts` | Real human prompts per session, grouped by directory |
 | `GET /api/prompts/analyze` | Template clustering + attribution + Claude suggestions (`?refresh=1` to recompute, `?skipLlm=1` for clustering only) |
 | `POST /api/prompts/rewrite` | Rewrite a single prompt via the configured LLM backend (`{ "text": "..." }`; 503 with guidance when no backend is available) |
+| `GET /api/prompts/hidden` | List hidden prompt hashes and previews |
+| `POST /api/prompts/hidden` | Hide one prompt (`text`) or a batch (`texts`) |
+| `DELETE /api/prompts/hidden/:hash` | Restore a hidden prompt by hash |
 | `GET/PUT /api/settings/llm` | LLM backend config: OpenAI-compatible `baseUrl`/`model`/`apiKey`, persisted in `~/.agentxray/llm.json` (key never echoed back) |
 | `GET /api/search` | Full-text search across sessions (`?platform=all` searches every platform at once, multi-keyword AND) |
+| `GET /api/codex/sessions/:id/children` | List child agents spawned by a Codex session |
+| `GET /api/codex/sessions/:id/children/:name` | Get a Codex child agent's messages |
+| `GET /api/claude-code/sessions/:id/children` | List child agents spawned by a Claude Code session |
+| `GET /api/claude-code/sessions/:id/children/:name` | Get a Claude Code child agent's messages |
 | `GET /api/omp/sessions/:id/children` | List sub-agents spawned by an OMP session |
-| `GET /api/omp/sessions/:id/children/:name` | Get a spawned sub-agent's messages |
+| `GET /api/omp/sessions/:id/children/:name` | Get a spawned OMP sub-agent's messages |
+| `GET /api/:platform/sessions/:id/context?messageIndex=N` | Reconstruct context before a message (`codex`, `claude-code`, `claude-desktop`) |
+| `GET /api/:platform/sessions/:id/export?format=md\|html` | Export a scrubbed session as Markdown or self-contained HTML |
+| `GET /api/otlp/:platform/:sessionId` | Export a supported session as OTLP-compatible JSON |
+| `GET /api/watch` | Stream real-time session updates with Server-Sent Events |
 | `GET /api/library` | List library prompts with their per-target install state |
+| `GET /api/library/usage` | Get prompt-library usage statistics |
+| `GET /api/library/fabric-patterns` | List available Fabric patterns and import state |
+| `POST /api/library/import-fabric` | Import selected Fabric patterns into the prompt library |
 | `POST /api/library` | Create a prompt (`{ "name": "...", "content": "...", "description": "...", "tags": [...] }`) |
 | `PUT /api/library/:name` | Update / rename a prompt (`newName`, `content`, `description`, `tags`); installed copies are refreshed |
 | `DELETE /api/library/:name` | Delete a prompt and any installed slash commands |
 | `POST /api/library/:name/install` | Install as a slash command (`{ "targets": ["claude", "codex", "omp"] }`) |
 | `POST /api/library/:name/uninstall` | Remove the installed slash commands (same body) |
+| `GET /api/library/:name/history` | List the Git-backed revision history for a library prompt |
+| `GET /api/library/:name/history/:hash` | Get a library prompt at a specific revision |
 | `POST /api/library/suggest-name` | Suggest a library name for a prompt via the configured LLM backend (`{ "text": "..." }`; `null` when no backend is available) |
 | `POST /api/backup` | Run an incremental backup into `~/.agentxray/archive` |
 | `GET /api/backup/status` | Archive stats: file count, total bytes, last backup time |
@@ -270,8 +287,8 @@ All list/detail endpoints accept an optional `?dir=` parameter to override the d
 | Platform | Format | Path Pattern |
 |----------|--------|--------------|
 | OpenClaw | JSONL | `~/.openclaw/agents/{agent}/sessions/{id}.jsonl` |
-| Codex | JSONL | `~/.codex/sessions/{id}.jsonl` |
-| Claude Code | JSONL | `~/.claude/projects/*/sessions/*/session.jsonl` |
+| Codex | JSONL | `~/.codex/sessions/YYYY/MM/DD/{id}.jsonl` |
+| Claude Code | JSONL | `~/.claude/projects/{project-slug}/*.jsonl` (child agents under `{sessionId}/subagents/`) |
 | Claude Desktop | Metadata JSON + JSONL | `~/Library/Application Support/Claude-3p/local-agent-mode-sessions/**/local_*.json` + linked `.claude/projects/**/{cliSessionId}.jsonl` |
 | Hermes | SQLite | `~/.hermes/state.db` |
 | OMP | JSONL | `~/.omp/agent/sessions/*/{timestamp}_{id}.jsonl` |
