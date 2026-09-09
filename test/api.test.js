@@ -56,6 +56,7 @@ describe('AgentXRay API', () => {
       assert.equal(s1.timestamp, '2026-01-15T10:00:00.000Z');
       assert.equal(s1.cwd, '/fixtures/project-alpha');
       assert.equal(s1.userCount, 2);
+      assert.equal(s1.assistantCount, 2);
       assert.equal(s1.toolCallCount, 1);
       assert.equal(s1.toolResultCount, 1);
       assert.ok(s1.firstUserMessage.startsWith('fixture: search-needle-alpha'));
