@@ -269,7 +269,7 @@ export function SessionsView() {
         </div>
 
         {sessionView === 'trace' ? (
-          <div className="min-h-0 flex-1 overflow-hidden">
+          <div className="min-h-0 flex-1 overflow-y-auto pr-1" data-testid="trace-scroll">
             <TraceView />
           </div>
         ) : (

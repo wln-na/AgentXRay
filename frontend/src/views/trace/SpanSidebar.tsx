@@ -5,7 +5,7 @@
 
 import { useEffect, useState } from 'react';
 import { Markdown } from '@/components/Markdown';
-import { formatDurationCompact, getTextContent } from '@/lib/pure';
+import { formatDurationCompact, getTextContent, resultLanguage, toolMeta } from '@/lib/pure';
 import type { TraceSpan } from '@/lib/pure';
 import { useAppStore } from '@/store';
 import type { MessageContentPart, SessionMessage } from '@/api/types';
@@ -131,12 +131,21 @@ export function SpanSidebar({
 
   const durText = spanDurationText(span);
   const isTool = span.kind === 'tool' || span.kind === 'tool-error';
+  // Display label: Chinese category + subject for tools (matches TraceView bar labels)
+  const displayLabel = isTool
+    ? span.subject
+      ? `${toolMeta(span.label).label} · ${span.subject}`
+      : toolMeta(span.label).label
+    : span.label;
 
   let body: React.ReactNode;
   if (isTool) {
     const { args, hasArgs, result } = findSpanToolData(span.toolCallId, msgs);
     const argsJson = hasArgs ? JSON.stringify(args, null, 2) : '';
     const resultText = result ? (result.text || '').trim() : '';
+    // Resolve syntax-highlight language for the result: shell tools → bash,
+    // file tools → extension-based (ts/py/json/…), search tools → plain.
+    const resultLang = resultLanguage(span.label, span.subject);
     body = (
       <>
         {span.kind === 'tool-error' && (
@@ -147,15 +156,19 @@ export function SpanSidebar({
         <SectionTitle>Arguments</SectionTitle>
         {argsJson ? (
           <ClampBlock len={argsJson.length}>
-            <Pre text={argsJson} />
+            <Markdown text={`\`\`\`json\n${argsJson}\n\`\`\``} />
           </ClampBlock>
         ) : (
           <div className={EMPTY_CLS}>无参数数据</div>
         )}
-        <SectionTitle>Result</SectionTitle>
+        <SectionTitle>Result{resultLang ? ` · ${resultLang}` : ''}</SectionTitle>
         {result ? (
           <ClampBlock len={resultText.length}>
-            <Pre text={resultText || '(空输出)'} />
+            {resultLang ? (
+              <Markdown text={`\`\`\`${resultLang}\n${resultText || '(空输出)'}\n\`\`\``} />
+            ) : (
+              <Pre text={resultText || '(空输出)'} />
+            )}
           </ClampBlock>
         ) : (
           <div className={EMPTY_CLS}>未找到配对的工具结果</div>
@@ -168,6 +181,30 @@ export function SpanSidebar({
     const usageBadges = Object.entries(msg?.usage || {}).filter(
       ([, v]) => typeof v === 'number' && v > 0
     );
+    // Analyse what this assistant message actually contains. Claude Code
+    // writes one assistant record per API response: it may carry only
+    // `thinking` (model reasoning), only `tool_use` (tool invocation), or
+    // actual `text` (the visible reply). A chat span with no text is NOT
+    // empty — it is the model's reasoning time before a tool call or the
+    // final answer. We surface that explicitly instead of "无文本内容".
+    const contentParts = msg?.content || [];
+    const hasThinking = contentParts.some(
+      (p) => p.type === 'thinking' || p.type === 'reasoning' || p.type === 'reasoning_text'
+    );
+    const hasToolUse = contentParts.some(
+      (p) => p.type === 'tool_use' || p.type === 'toolCall' || p.type === 'function_call'
+    );
+    const thinkingText = contentParts
+      .filter((p) => (p.type === 'thinking' || p.type === 'reasoning') && typeof p.text === 'string')
+      .map((p) => p.text || '')
+      .join('\n\n');
+    const reasoningLabel = hasThinking && hasToolUse
+      ? '推理 + 工具调用（无文本回复）'
+      : hasThinking
+        ? '模型思考（无文本回复）'
+        : hasToolUse
+          ? '工具调用前推理（无文本回复）'
+          : '无文本内容';
     body = (
       <>
         {msg?.model && (
@@ -178,7 +215,7 @@ export function SpanSidebar({
             </span>
           </>
         )}
-        {usageBadges.length > 0 && (
+        {usageBadges.length > 0 ? (
           <>
             <SectionTitle>Tokens</SectionTitle>
             <div className="flex flex-wrap gap-1.5">
@@ -192,14 +229,32 @@ export function SpanSidebar({
               ))}
             </div>
           </>
+        ) : (
+          <>
+            <SectionTitle>Tokens</SectionTitle>
+            <div className={EMPTY_CLS}>
+              此阶段无独立 token 统计 — Claude Code 通常把 token 用量汇总在最终文本回复的那条消息中，中间推理/工具调用阶段不单独计数。
+            </div>
+          </>
         )}
-        <SectionTitle>回复内容</SectionTitle>
+        <SectionTitle>{text ? '回复内容' : '阶段说明'}</SectionTitle>
         {text ? (
           <ClampBlock len={text.length}>
             <Markdown text={text} />
           </ClampBlock>
         ) : (
-          <div className={EMPTY_CLS}>无文本内容</div>
+          <div className="rounded-md border border-[#58a6ff]/30 bg-[#58a6ff]/5 px-2.5 py-2 text-xs text-[#58a6ff]">
+            💡 此阶段是模型的<strong>推理/思考时间</strong>（{reasoningLabel}），不是 bug。
+            模型在生成文本回复或调用工具之前都会花费时间推理，Trace 瀑布图用蓝色条记录这段耗时。
+          </div>
+        )}
+        {thinkingText && (
+          <>
+            <SectionTitle>思考过程</SectionTitle>
+            <ClampBlock len={thinkingText.length}>
+              <Pre text={thinkingText} />
+            </ClampBlock>
+          </>
         )}
       </>
     );
@@ -208,10 +263,15 @@ export function SpanSidebar({
   return (
     <aside className="fixed inset-y-0 right-0 z-50 flex w-[420px] max-w-full flex-col border-l border-border bg-card shadow-2xl">
       <div className="flex items-center gap-2 border-b border-border px-4 py-3">
-        <span>{isTool ? '🔧' : '🤖'}</span>
-        <span className="truncate font-semibold" title={span.label}>
-          {span.label}
+        <span>{isTool ? toolMeta(span.label).icon : '🤖'}</span>
+        <span className="truncate font-semibold" title={displayLabel}>
+          {displayLabel}
         </span>
+        {span.isFinalReply && (
+          <span className="shrink-0 rounded-full border border-[#1f6feb]/40 bg-[#1f6feb]/10 px-1.5 py-0.5 text-[0.65rem] text-[#1f6feb]">
+            ★ 最终回复
+          </span>
+        )}
         <span className="ml-auto shrink-0 font-mono text-xs text-muted-foreground">
           {durText} · {new Date(span.start).toLocaleTimeString()}
         </span>
