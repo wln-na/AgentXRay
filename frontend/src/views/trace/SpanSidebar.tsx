@@ -5,7 +5,16 @@
 
 import { useEffect, useState } from 'react';
 import { Markdown } from '@/components/Markdown';
-import { formatDurationCompact, getTextContent, resultLanguage, toolMeta } from '@/lib/pure';
+import {
+  DEFAULT_MODEL_PRICING,
+  TOKEN_BUCKET_LABELS,
+  estimateSpanCost,
+  formatDurationCompact,
+  formatTokensCompact,
+  getTextContent,
+  resultLanguage,
+  toolMeta,
+} from '@/lib/pure';
 import type { TraceSpan } from '@/lib/pure';
 import { useAppStore } from '@/store';
 import type { MessageContentPart, SessionMessage } from '@/api/types';
@@ -29,15 +38,29 @@ function toolResultPartText(part: MessageContentPart): string {
   return part.text || '';
 }
 
-/** Locate the arguments + paired result for a tool span by toolCallId. */
+/** Locate the arguments + paired result for a tool span by toolCallId.
+ *  Handles two tool-call encodings:
+ *    1. Standalone toolCall message (Codex/OMP): args in m.details
+ *    2. Embedded toolCall content part (OpenClaw/omp/Doubao): args in c.arguments
+ *  Doubao's embedded toolCall parts often carry arguments:null but include
+ *  summary + status fields — we surface those as fallback metadata so the
+ *  sidebar isn't blank when the platform doesn't persist raw args. */
 function findSpanToolData(
   toolCallId: string | undefined,
   msgs: SessionMessage[]
-): { args: unknown; hasArgs: boolean; result: { text: string } | null } {
+): {
+  args: unknown;
+  hasArgs: boolean;
+  result: { text: string } | null;
+  summary: string | null;
+  status: string | number | null;
+} {
   let args: unknown = null;
   let hasArgs = false;
   let result: { text: string } | null = null;
-  if (!toolCallId) return { args, hasArgs, result };
+  let summary: string | null = null;
+  let status: string | number | null = null;
+  if (!toolCallId) return { args, hasArgs, result, summary, status };
   for (const m of msgs) {
     if (m.role === 'toolCall' && m.toolCallId === toolCallId && m.details != null) {
       args = m.details;
@@ -48,15 +71,21 @@ function findSpanToolData(
     }
     for (const c of m.content || []) {
       if ((c.type === 'toolCall' || c.type === 'tool_use') && c.id === toolCallId) {
-        args = c.arguments ?? c.input ?? null;
-        hasArgs = args != null;
+        const rawArgs = c.arguments ?? c.input ?? null;
+        if (rawArgs != null) {
+          args = rawArgs;
+          hasArgs = true;
+        }
+        // Doubao / some platforms persist summary + status instead of raw args
+        if (typeof c.summary === 'string' && c.summary) summary = c.summary;
+        if (c.status != null && (typeof c.status === 'string' || typeof c.status === 'number')) status = c.status;
       }
       if (c.type === 'tool_result' && c.tool_use_id === toolCallId) {
         result = { text: toolResultPartText(c) };
       }
     }
   }
-  return { args, hasArgs, result };
+  return { args, hasArgs, result, summary, status };
 }
 
 /** Legacy .prompt-text clamp: contents >600 chars start clamped with a Show more toggle. */
@@ -140,7 +169,7 @@ export function SpanSidebar({
 
   let body: React.ReactNode;
   if (isTool) {
-    const { args, hasArgs, result } = findSpanToolData(span.toolCallId, msgs);
+    const { args, hasArgs, result, summary, status } = findSpanToolData(span.toolCallId, msgs);
     const argsJson = hasArgs ? JSON.stringify(args, null, 2) : '';
     const resultText = result ? (result.text || '').trim() : '';
     // Resolve syntax-highlight language for the result: shell tools → bash,
@@ -153,13 +182,41 @@ export function SpanSidebar({
             ❌ 工具执行报错
           </div>
         )}
+        {/* Tool metadata: status + summary (Doubao and other platforms that
+            don't persist raw args carry these fields on the toolCall part). */}
+        {(status != null || summary) && (
+          <div className="mb-2 flex flex-wrap items-center gap-1.5">
+            {status != null && (
+              <span
+                className={`rounded-full px-2 py-0.5 text-xs font-medium ${
+                  String(status) === '4' || String(status).toLowerCase() === 'success'
+                    ? 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400'
+                    : String(status).toLowerCase().includes('error') || String(status) === '0'
+                      ? 'bg-red-500/15 text-red-600 dark:text-red-400'
+                      : 'bg-secondary text-muted-foreground'
+                }`}
+                title={`工具状态码: ${status}`}
+              >
+                {String(status) === '4' ? '✓ 完成' : `状态: ${status}`}
+              </span>
+            )}
+            {summary && (
+              <span className="rounded-md bg-secondary px-2 py-0.5 text-xs text-foreground" title={summary}>
+                {summary.length > 80 ? summary.slice(0, 80) + '…' : summary}
+              </span>
+            )}
+          </div>
+        )}
         <SectionTitle>Arguments</SectionTitle>
         {argsJson ? (
           <ClampBlock len={argsJson.length}>
             <Markdown text={`\`\`\`json\n${argsJson}\n\`\`\``} />
           </ClampBlock>
         ) : (
-          <div className={EMPTY_CLS}>无参数数据</div>
+          <div className={EMPTY_CLS}>
+            无参数数据
+            {summary ? '（该平台未保留原始参数，上方为工具执行摘要）' : ''}
+          </div>
         )}
         <SectionTitle>Result{resultLang ? ` · ${resultLang}` : ''}</SectionTitle>
         {result ? (
@@ -171,16 +228,16 @@ export function SpanSidebar({
             )}
           </ClampBlock>
         ) : (
-          <div className={EMPTY_CLS}>未找到配对的工具结果</div>
+          <div className={EMPTY_CLS}>
+            未找到配对的工具结果
+            {summary ? '（工具结果可能已汇总在执行摘要中）' : ''}
+          </div>
         )}
       </>
     );
   } else {
     const msg = msgs.find((m) => m.id === span.msgId);
     const text = msg ? getTextContent(msg.content || []) : '';
-    const usageBadges = Object.entries(msg?.usage || {}).filter(
-      ([, v]) => typeof v === 'number' && v > 0
-    );
     // Analyse what this assistant message actually contains. Claude Code
     // writes one assistant record per API response: it may carry only
     // `thinking` (model reasoning), only `tool_use` (tool invocation), or
@@ -215,27 +272,59 @@ export function SpanSidebar({
             </span>
           </>
         )}
-        {usageBadges.length > 0 ? (
-          <>
-            <SectionTitle>Tokens</SectionTitle>
-            <div className="flex flex-wrap gap-1.5">
-              {usageBadges.map(([k, v]) => (
-                <span
-                  key={k}
-                  className="rounded-full border border-border bg-secondary px-2 py-0.5 text-xs"
-                >
-                  {k}: {formatNumber(v)}
-                </span>
-              ))}
+        {/* Token detail: per-bucket breakdown + cost estimate. Uses the
+            normalised fields on TraceSpan (inputTokens / outputTokens / …)
+            instead of raw msg.usage so it works across all platforms. */}
+        <SectionTitle>Tokens</SectionTitle>
+        {span.totalTokens && span.totalTokens > 0 ? (
+          <div className="space-y-2">
+            {/* Summary row: total + estimated cost */}
+            <div className="flex items-center justify-between rounded-md border border-border bg-secondary/50 px-2.5 py-1.5">
+              <span className="text-xs font-medium text-foreground">
+                总计 {formatTokensCompact(span.totalTokens)} tokens
+              </span>
+              <span className="text-xs text-muted-foreground" title="基于 Claude Sonnet 4 定价估算">
+                ≈ ${estimateSpanCost(span, DEFAULT_MODEL_PRICING).toFixed(4)}
+              </span>
             </div>
-          </>
+            {/* Per-bucket breakdown */}
+            <div className="space-y-1">
+              {TOKEN_BUCKET_LABELS.map(({ key, label, hint }) => {
+                const v = span[key];
+                if (!v || v <= 0) return null;
+                const pct = span.totalTokens ? Math.round((v / span.totalTokens) * 100) : 0;
+                return (
+                  <div key={key} className="flex items-center gap-2" title={hint}>
+                    <span className="w-16 shrink-0 text-xs text-muted-foreground">{label}</span>
+                    <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-secondary">
+                      <div
+                        className={`h-full rounded-full ${
+                          key === 'outputTokens'
+                            ? 'bg-emerald-500'
+                            : key === 'inputTokens'
+                              ? 'bg-blue-500'
+                              : key === 'cacheReadTokens'
+                                ? 'bg-purple-400'
+                                : key === 'cacheWriteTokens'
+                                  ? 'bg-purple-600'
+                                  : 'bg-amber-500'
+                        }`}
+                        style={{ width: `${Math.max(pct, 2)}%` }}
+                      />
+                    </div>
+                    <span className="w-14 shrink-0 text-right text-xs tabular-nums text-foreground">
+                      {formatNumber(v)}
+                    </span>
+                    <span className="w-8 shrink-0 text-right text-xs text-muted-foreground">{pct}%</span>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
         ) : (
-          <>
-            <SectionTitle>Tokens</SectionTitle>
-            <div className={EMPTY_CLS}>
-              此阶段无独立 token 统计 — Claude Code 通常把 token 用量汇总在最终文本回复的那条消息中，中间推理/工具调用阶段不单独计数。
-            </div>
-          </>
+          <div className={EMPTY_CLS}>
+            此阶段无独立 token 统计 — Claude Code 通常把 token 用量汇总在最终文本回复的那条消息中，中间推理/工具调用阶段不单独计数。
+          </div>
         )}
         <SectionTitle>{text ? '回复内容' : '阶段说明'}</SectionTitle>
         {text ? (

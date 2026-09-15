@@ -40,6 +40,9 @@ var __axrPure = (() => {
   });
 
   // frontend/src/lib/pure.ts
+  function num(value) {
+    return typeof value === "number" && Number.isFinite(value) ? value : 0;
+  }
   function formatBytes(bytes) {
     if (!bytes) return "0 B";
     const units = ["B", "KB", "MB", "GB", "TB"];
@@ -237,14 +240,30 @@ var __axrPure = (() => {
       }
       if (m.role === "assistant" && prevTs && t > prevTs) {
         const chatText = getTextContent(m.content || []);
-        turn.spans.push({
+        const u = m.usage || {};
+        const inputTokens = num(u.input) || num(u.input_tokens);
+        const outputTokens = num(u.output) || num(u.output_tokens);
+        const cacheReadTokens = num(u.cacheRead) || num(u.cache_read);
+        const cacheWriteTokens = num(u.cacheWrite) || num(u.cache_write);
+        const reasoningTokens = num(u.reasoning) || num(u.reasoning_tokens);
+        const totalTokens = inputTokens + outputTokens + cacheReadTokens + cacheWriteTokens + reasoningTokens;
+        const span = {
           kind: "chat",
           label: (m.model || "model").split("/").pop(),
           start: prevTs,
           end: t,
           msgId: m.id,
           hasText: chatText.trim().length > 0
-        });
+        };
+        if (totalTokens > 0) {
+          span.inputTokens = inputTokens || void 0;
+          span.outputTokens = outputTokens || void 0;
+          span.cacheReadTokens = cacheReadTokens || void 0;
+          span.cacheWriteTokens = cacheWriteTokens || void 0;
+          span.reasoningTokens = reasoningTokens || void 0;
+          span.totalTokens = totalTokens;
+        }
+        turn.spans.push(span);
       }
       if (m.role !== "reasoning") prevTs = t;
       turn.end = Math.max(turn.end, t);

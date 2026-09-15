@@ -5,7 +5,16 @@
 // sidebar; clicking a purple bar loads that child agent's transcript.
 
 import { useEffect, useMemo, useState } from 'react';
-import { buildTraceTurns, formatDurationCompact, parseTimestampMs, toolMeta } from '@/lib/pure';
+import {
+  analyzeHealth,
+  buildTraceTurns,
+  formatDurationCompact,
+  formatTokensCompact,
+  healthColor,
+  healthLabel,
+  parseTimestampMs,
+  toolMeta,
+} from '@/lib/pure';
 import type { TraceSpan, TraceTurn } from '@/lib/pure';
 import { useAppStore } from '@/store';
 import { SpanSidebar } from './SpanSidebar';
@@ -97,6 +106,38 @@ function TurnCard({
     },
     { tools: 0, errors: 0, thinking: 0, agents: 0 }
   );
+
+  // Detect consecutive duplicate tool calls for anomaly highlighting.
+  // A span is "repeated" if the same tool label appears 2+ times in a row.
+  const repeatInfo = useMemo(() => {
+    const map = new Map<number, { count: number; isFirst: boolean }>();
+    let runStart = -1;
+    let runLabel = '';
+    let runCount = 0;
+    for (let i = 0; i <= turn.spans.length; i++) {
+      const s = turn.spans[i];
+      const isTool = s && (s.kind === 'tool' || s.kind === 'tool-error');
+      if (isTool && s.label === runLabel) {
+        runCount++;
+      } else {
+        if (runCount >= 2 && runStart >= 0) {
+          for (let j = runStart; j < runStart + runCount; j++) {
+            map.set(j, { count: runCount, isFirst: j === runStart });
+          }
+        }
+        if (isTool) {
+          runStart = i;
+          runLabel = s.label;
+          runCount = 1;
+        } else {
+          runStart = -1;
+          runLabel = '';
+          runCount = 0;
+        }
+      }
+    }
+    return map;
+  }, [turn.spans]);
   return (
     <div className="mb-3 overflow-hidden rounded-lg border border-border">
       <div className="flex flex-wrap items-baseline gap-x-2.5 gap-y-1 border-b border-border bg-[hsl(var(--panel-alt))] px-3 py-1.5 text-sm">
@@ -139,9 +180,11 @@ function TurnCard({
           const durText = spanDurationText(s);
           const isAgent = s.kind === 'agent';
           const displayLabel = spanDisplayLabel(s);
+          const repeat = repeatInfo.get(i);
+          const isAnomalous = repeat !== undefined || s.kind === 'tool-error';
           const title = isAgent
             ? `子 Agent ${s.label} — ${durText}，点击查看其执行记录`
-            : `${displayLabel} — ${durText}，点击查看详情`;
+            : `${displayLabel} — ${durText}${repeat ? ` · 连续重复 ${repeat.count} 次` : ''}，点击查看详情`;
           return (
             <div key={i} className="mb-2 grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-2 gap-y-1 sm:mb-1 sm:grid-cols-[150px_minmax(0,1fr)_110px] lg:grid-cols-[170px_minmax(0,1fr)_110px] sm:gap-2.5">
               <div
@@ -149,16 +192,42 @@ function TurnCard({
                 title={displayLabel}
               >
                 {spanIcon(s.kind, s.label)} {displayLabel}
+                {repeat && repeat.isFirst && (
+                  <span
+                    className="ml-1 inline-block rounded-full border border-amber-500/40 bg-amber-500/15 px-1.5 py-0.5 text-[0.6rem] font-medium text-amber-400"
+                    title={`连续重复调用 ${repeat.count} 次，可能存在循环`}
+                  >
+                    重复×{repeat.count}
+                  </span>
+                )}
+                {s.kind === 'tool-error' && (
+                  <span
+                    className="ml-1 inline-block rounded-full border border-red-500/40 bg-red-500/15 px-1.5 py-0.5 text-[0.6rem] font-medium text-red-400"
+                    title="工具调用失败"
+                  >
+                    错误
+                  </span>
+                )}
               </div>
               <span
                 className="whitespace-nowrap text-right font-mono text-[0.68rem] text-muted-foreground sm:col-start-3"
                 title={durText}
               >
                 {durText}
+                {s.totalTokens && s.totalTokens > 0 ? (
+                  <span
+                    className="ml-1.5 inline-block rounded-full bg-blue-500/15 px-1.5 py-0.5 text-[0.6rem] font-medium text-blue-400"
+                    title={`${formatTokensCompact(s.totalTokens)} tokens · 点击查看明细`}
+                  >
+                    {formatTokensCompact(s.totalTokens)}
+                  </span>
+                ) : null}
               </span>
               <div className="relative col-span-2 h-3.5 sm:col-span-1 sm:col-start-2 sm:row-start-1">
                 <div
-                  className="absolute top-0 h-3.5 min-w-1 cursor-pointer rounded-sm opacity-90 hover:opacity-100 hover:outline hover:outline-1 hover:outline-foreground"
+                  className={`absolute top-0 h-3.5 min-w-1 cursor-pointer rounded-sm opacity-90 hover:opacity-100 hover:outline hover:outline-1 hover:outline-foreground ${
+                    isAnomalous ? 'outline outline-1 outline-amber-500/60' : ''
+                  }`}
                   style={{
                     left: `${left.toFixed(2)}%`,
                     width: `${width.toFixed(2)}%`,
@@ -214,6 +283,13 @@ export function TraceView() {
     return msgOrder === 'newest-first' ? [...built].reverse() : built;
   }, [msgs, children, viewingChildAgent, platform, msgOrder]);
 
+  // Health score + per-turn segments for the timeline. Computed from the
+  // chronological (un-reversed) turns so segment order is stable.
+  const health = useMemo(() => {
+    const chronological = msgOrder === 'newest-first' ? [...turns].reverse() : turns;
+    return analyzeHealth(chronological);
+  }, [turns, msgOrder]);
+
   if (detail.isLoading || (!viewingChildAgent && childrenQuery.isLoading)) {
     return <div className="py-8 text-center text-sm text-muted-foreground">Loading…</div>;
   }
@@ -247,6 +323,63 @@ export function TraceView() {
           （点上方「改为最早/最新在上」切换）
         </span>
       </div>
+
+      {/* Health timeline: overall score badge + per-turn color bar.
+          Green=healthy, yellow=good, orange=fair, red=anomalous.
+          Clicking a segment scrolls to that turn's card. */}
+      <div className="mb-4 rounded-lg border border-border bg-card/50 p-3">
+        <div className="mb-2 flex items-center gap-3">
+          <span
+            className="inline-flex h-9 w-9 items-center justify-center rounded-full text-sm font-bold text-white"
+            style={{ backgroundColor: healthColor(health.overall) }}
+            title={`健康度 ${health.overall}/100 · ${healthLabel(health.overall)}`}
+          >
+            {health.overall}
+          </span>
+          <div className="flex-1">
+            <div className="text-sm font-medium text-foreground">
+              会话健康度 · {healthLabel(health.overall)}
+            </div>
+            <div className="mt-0.5 flex gap-3 text-xs text-muted-foreground">
+              <span>完成 {health.dimensions.completion}</span>
+              <span>效率 {health.dimensions.efficiency}</span>
+              <span>工具质量 {health.dimensions.toolQuality}</span>
+              <span>错误恢复 {health.dimensions.errorResilience}</span>
+            </div>
+          </div>
+          {health.flags.length > 0 && (
+            <div className="max-w-xs text-right text-xs">
+              {health.flags.slice(0, 2).map((f, i) => (
+                <div key={i} className={f.type === 'error' ? 'text-red-500' : f.type === 'warning' ? 'text-amber-500' : 'text-muted-foreground'}>
+                  {f.type === 'error' ? '❌' : f.type === 'warning' ? '⚠️' : 'ℹ️'} {f.message}
+                </div>
+              ))}
+              {health.flags.length > 2 && <div className="text-muted-foreground">+{health.flags.length - 2} 更多标记</div>}
+            </div>
+          )}
+        </div>
+        {/* Per-turn health bar */}
+        <div className="flex h-2 w-full overflow-hidden rounded-full bg-secondary">
+          {health.segments.map((seg, i) => {
+            const totalDuration = health.segments.reduce((s, x) => s + (x.end - x.start), 0) || 1;
+            const widthPct = ((seg.end - seg.start) / totalDuration) * 100;
+            return (
+              <div
+                key={i}
+                className="h-full cursor-pointer transition-opacity hover:opacity-80"
+                style={{ width: `${widthPct}%`, backgroundColor: healthColor(seg.score) }}
+                title={`${seg.label} · 健康度 ${seg.score}`}
+              />
+            );
+          })}
+        </div>
+        <div className="mt-1 flex justify-between text-[0.65rem] text-muted-foreground">
+          <span>开始</span>
+          <span>{health.segments.length} 轮</span>
+          <span>结束</span>
+        </div>
+      </div>
+
       {turns.map((turn, i) => (
         <TurnCard
           key={`${turn.start}-${i}`}
