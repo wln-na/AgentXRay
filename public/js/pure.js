@@ -29,6 +29,7 @@ var __axrPure = (() => {
     clusterPrefillContent: () => clusterPrefillContent,
     escapeHtml: () => escapeHtml,
     firstInformativeLine: () => firstInformativeLine,
+    flattenSpans: () => flattenSpans,
     formatBytes: () => formatBytes,
     formatCost: () => formatCost,
     formatDurationCompact: () => formatDurationCompact,
@@ -323,8 +324,46 @@ var __axrPure = (() => {
         if (s.kind === "chat" && s.hasText) lastTextChat = s;
       }
       if (lastTextChat) lastTextChat.isFinalReply = true;
+      tn.spans = treeifySpans(tn.spans);
     }
     return turns.filter((tn) => tn.spans.length > 0);
+  }
+  function treeifySpans(spans) {
+    const chatByMsgId = /* @__PURE__ */ new Map();
+    const roots = [];
+    let lastChat = null;
+    for (const s of spans) {
+      if (s.kind === "chat") {
+        s.children = [];
+        s.depth = 0;
+        if (s.msgId) chatByMsgId.set(s.msgId, s);
+        lastChat = s;
+        roots.push(s);
+      }
+    }
+    for (const s of spans) {
+      if (s.kind === "chat") continue;
+      const parent = s.msgId && chatByMsgId.get(s.msgId) || lastChat;
+      if (parent) {
+        s.depth = 1;
+        parent.children.push(s);
+      } else {
+        s.depth = 0;
+        roots.push(s);
+      }
+    }
+    for (const r of roots) {
+      if (r.children) r.children.sort((a, b) => a.start - b.start);
+    }
+    return roots;
+  }
+  function flattenSpans(spans) {
+    const out = [];
+    for (const s of spans) {
+      out.push(s);
+      if (s.children && s.children.length > 0) out.push(...flattenSpans(s.children));
+    }
+    return out;
   }
 
   // frontend/src/lib/markdown.ts

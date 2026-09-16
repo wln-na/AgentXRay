@@ -4,7 +4,8 @@
 // chain pattern mining, and per-turn efficiency metrics.
 
 import type { SessionMessage } from '@/api/types';
-import { classifyToolSource, firstInformativeLine, getTextContent } from '@/lib/pure';
+import type { MessageContentPart } from '@/api/types';
+import { classifyToolSource, firstInformativeLine, getTextContent, parseTimestampMs } from '@/lib/pure';
 import type { ToolSource } from '@/lib/pure';
 
 export interface SessionToolStat {
@@ -870,5 +871,465 @@ export function computeSessionInsights(msgs: SessionMessage[]): SessionInsightsS
     commonFiles,
     decisionRecords,
     errorKnowledge,
+  };
+}
+
+// ─── Reflection & Retrospective (流程闭环：度量→归因→沉淀→建议) ───────────
+// Inspired by 团队 AI Coding 实践准则: waste attribution, process health
+// checklist, and harvestable-asset detection — all computed locally from
+// session messages, no LLM needed.
+
+/** Five waste root-cause categories from the cost-optimization playbook. */
+export type WasteCategory = 'unclear_requirement' | 'search_divergence' | 'tool_retry' | 'context_bloat' | 'other';
+
+export const WASTE_CATEGORY_LABELS: Record<WasteCategory, string> = {
+  unclear_requirement: '需求不清',
+  search_divergence: '检索发散',
+  tool_retry: '工具失败重试',
+  context_bloat: '上下文膨胀',
+  other: '其他',
+};
+
+export interface WasteAttributionItem {
+  category: WasteCategory;
+  severity: 'high' | 'medium' | 'low';
+  evidence: string;
+  turnIndex?: number;
+  estimatedWastedTokens?: number;
+}
+
+export interface WasteAttribution {
+  items: WasteAttributionItem[];
+  totalEstimatedWastedTokens: number;
+  primaryCategory: WasteCategory | null;
+}
+
+export type HealthCheckStatus = 'pass' | 'fail' | 'manual';
+
+export interface HealthCheckItem {
+  id: string;
+  label: string;
+  description: string;
+  status: HealthCheckStatus;
+  evidence?: string;
+}
+
+export interface ProcessHealthCheck {
+  items: HealthCheckItem[];
+  passCount: number;
+  failCount: number;
+  manualCount: number;
+}
+
+export type HarvestableAssetType = 'terminology' | 'rule' | 'workflow';
+
+export interface HarvestableAsset {
+  type: HarvestableAssetType;
+  label: string;
+  description: string;
+  confidence: 'high' | 'medium' | 'low';
+  source?: string;
+}
+
+export interface ReflectionReport {
+  summary: {
+    taskGoal: string;
+    completed: boolean;
+    totalTurns: number;
+    totalToolCalls: number;
+    totalErrors: number;
+    effectiveTokens: number;
+    totalDurationMs: number;
+  };
+  waste: WasteAttribution;
+  healthCheck: ProcessHealthCheck;
+  assets: HarvestableAsset[];
+  suggestions: string[];
+}
+
+/** Detect whether text contains a file path, code reference, or error line. */
+function hasLocationInfo(text: string): boolean {
+  if (!text) return false;
+  return (
+    /\/[\w.-]+\/[\w.-]+/.test(text) || // absolute/relative path
+    /\b[\w.-]+\.(ts|tsx|js|jsx|py|go|rs|java|md|json|yaml|yml|css|html)\b/.test(text) || // file with ext
+    /line\s*\d+/i.test(text) || // line N
+    /:\d+:\d+/.test(text) || // file:line:col
+    /(error|exception|traceback|failed)/i.test(text) // error mention
+  );
+}
+
+/** Compute waste attribution for a session. Pure, no LLM. */
+export function computeWasteAttribution(msgs: SessionMessage[]): WasteAttribution {
+  const items: WasteAttributionItem[] = [];
+  const userMsgs = msgs.filter((m) => m.role === 'user');
+  const firstUserText = userMsgs.length > 0 ? getTextContent(userMsgs[0].content || []) : '';
+
+  // 1. Unclear requirement: first user message is short and lacks location info
+  if (firstUserText && firstUserText.length < 30 && !hasLocationInfo(firstUserText)) {
+    items.push({
+      category: 'unclear_requirement',
+      severity: firstUserText.length < 15 ? 'high' : 'medium',
+      evidence: `首条提问仅 ${firstUserText.length} 字，未包含文件路径/代码/错误信息："${firstUserText.slice(0, 50)}"`,
+      turnIndex: 0,
+    });
+  }
+
+  // 2. Search divergence: many distinct file reads or consecutive search tools
+  const readFiles = new Set<string>();
+  let searchRun = 0;
+  let maxSearchRun = 0;
+  for (const m of msgs) {
+    for (const c of m.content || []) {
+      if ((c.type === 'toolCall' || c.type === 'tool_use') && c.name) {
+        const name = c.name.toLowerCase();
+        if (name.includes('read') || name.includes('grep') || name.includes('glob')) {
+          searchRun++;
+          maxSearchRun = Math.max(maxSearchRun, searchRun);
+          // Try to extract file path from args
+          const args = (c as MessageContentPart).arguments ?? (c as MessageContentPart).input;
+          if (args && typeof args === 'object') {
+            const fp = (args as Record<string, unknown>).file_path || (args as Record<string, unknown>).path || (args as Record<string, unknown>).file;
+            if (typeof fp === 'string') readFiles.add(fp);
+          }
+        } else {
+          searchRun = 0;
+        }
+      }
+    }
+  }
+  if (readFiles.size > 8 || maxSearchRun >= 4) {
+    items.push({
+      category: 'search_divergence',
+      severity: readFiles.size > 12 || maxSearchRun >= 6 ? 'high' : 'medium',
+      evidence: `读取了 ${readFiles.size} 个不同文件，最长连续检索 ${maxSearchRun} 次${readFiles.size > 0 ? `（如 ${[...readFiles].slice(0, 3).join(', ')}${readFiles.size > 3 ? '…' : ''}）` : ''}`,
+    });
+  }
+
+  // 3. Tool failure retry: error followed by same tool call
+  const toolCalls: { name: string; isError: boolean; index: number }[] = [];
+  for (const m of msgs) {
+    if (m.role === 'toolCall' && m.toolName) {
+      toolCalls.push({ name: m.toolName, isError: false, index: toolCalls.length });
+    }
+    if (m.role === 'toolResult' && m.isError) {
+      const last = toolCalls[toolCalls.length - 1];
+      if (last) last.isError = true;
+    }
+    for (const c of m.content || []) {
+      if ((c.type === 'toolCall' || c.type === 'tool_use') && c.name) {
+        toolCalls.push({ name: c.name, isError: false, index: toolCalls.length });
+      }
+      if (c.type === 'tool_result' && c.is_error) {
+        const last = toolCalls[toolCalls.length - 1];
+        if (last) last.isError = true;
+      }
+    }
+  }
+  let retryCount = 0;
+  const retryTools = new Set<string>();
+  for (let i = 1; i < toolCalls.length; i++) {
+    if (toolCalls[i - 1].isError && toolCalls[i].name === toolCalls[i - 1].name) {
+      retryCount++;
+      retryTools.add(toolCalls[i].name);
+    }
+  }
+  if (retryCount > 0) {
+    items.push({
+      category: 'tool_retry',
+      severity: retryCount >= 3 ? 'high' : 'medium',
+      evidence: `${retryCount} 次失败后重试${retryTools.size > 0 ? `（涉及 ${[...retryTools].join(', ')}）` : ''}，每次重试都携带完整历史`,
+    });
+  }
+
+  // 4. Context bloat: many turns or growing input tokens
+  const turnCount = userMsgs.length;
+  if (turnCount > 15) {
+    items.push({
+      category: 'context_bloat',
+      severity: turnCount > 25 ? 'high' : 'medium',
+      evidence: `会话共 ${turnCount} 轮，超过 15 轮阈值；每轮新调用都要携带全部历史，后期轮次的输入 Token 会显著膨胀`,
+    });
+  }
+
+  // Sort by severity
+  const severityOrder = { high: 0, medium: 1, low: 2 };
+  items.sort((a, b) => severityOrder[a.severity] - severityOrder[b.severity]);
+
+  const totalEstimatedWastedTokens = items.reduce((s, i) => s + (i.estimatedWastedTokens || 0), 0);
+  const primaryCategory = items.length > 0 ? items[0].category : null;
+
+  return { items, totalEstimatedWastedTokens, primaryCategory };
+}
+
+/** Compute process health checklist (9 items from the playbook). */
+export function computeProcessHealthCheck(msgs: SessionMessage[]): ProcessHealthCheck {
+  const items: HealthCheckItem[] = [];
+  const userMsgs = msgs.filter((m) => m.role === 'user');
+  const firstUserText = userMsgs.length > 0 ? getTextContent(userMsgs[0].content || []) : '';
+
+  // 1. Deterministic tasks don't need model — manual judgment
+  items.push({
+    id: 'deterministic',
+    label: '确定性任务不调模型',
+    description: '格式化/批量重命名/简单文案等有唯一答案的任务应交给工具，不消耗模型调用',
+    status: 'manual',
+    evidence: '需人工判断本会话中是否有可交给确定性工具的步骤',
+  });
+
+  // 2. Prompt with location info
+  const hasLocation = hasLocationInfo(firstUserText);
+  items.push({
+    id: 'location_info',
+    label: '提问带定位信息',
+    description: '首条提问应包含入口文件、关注重点和排除项；给路径不贴整段内容',
+    status: hasLocation ? 'pass' : 'fail',
+    evidence: hasLocation ? '首条提问包含文件路径/代码/错误信息' : `首条提问未包含定位信息（${firstUserText.length} 字）`,
+  });
+
+  // 3. Batch related questions
+  const avgToolsPerTurn = userMsgs.length > 0 ? msgs.filter((m) => m.role === 'toolCall').length / userMsgs.length : 0;
+  const batchOk = !(userMsgs.length > 3 && avgToolsPerTurn < 2);
+  items.push({
+    id: 'batch_questions',
+    label: '相关问题批量提',
+    description: '共享代码背景的问题应一次性列全，避免串行提问导致工具结果反复携带',
+    status: batchOk ? 'pass' : 'fail',
+    evidence: batchOk ? `平均每轮 ${avgToolsPerTurn.toFixed(1)} 次工具调用` : `${userMsgs.length} 轮用户提问但平均每轮仅 ${avgToolsPerTurn.toFixed(1)} 次工具调用，可能是串行提问`,
+  });
+
+  // 4. Session hygiene — one task per session
+  const turnCount = userMsgs.length;
+  const hygieneOk = turnCount <= 20;
+  items.push({
+    id: 'session_hygiene',
+    label: '一事一会话，跑偏就重开',
+    description: '任务切换/上下文跑偏/超 20 轮/同一错误重试 3 次时应重开会话',
+    status: hygieneOk ? 'pass' : 'fail',
+    evidence: hygieneOk ? `共 ${turnCount} 轮，在 20 轮阈值内` : `共 ${turnCount} 轮，超过 20 轮阈值，建议拆会话`,
+  });
+
+  // 5. Process intensity matches risk — manual
+  items.push({
+    id: 'process_intensity',
+    label: '按任务风险选流程强度',
+    description: '小需求走轻量路径（澄清→spec→实现→验收），跨服务/迁移/安全才走完整 spec',
+    status: 'manual',
+    evidence: '需人工判断流程强度与任务风险是否匹配',
+  });
+
+  // 6. Verification via deterministic tools
+  const hasBuildOrTest = msgs.some((m) => {
+    for (const c of m.content || []) {
+      if ((c.type === 'toolCall' || c.type === 'tool_use') && c.name) {
+        const n = c.name.toLowerCase();
+        if (n.includes('build') || n.includes('test') || n.includes('lint') || n.includes('typecheck') || n.includes('npm') || n.includes('make')) return true;
+      }
+    }
+    return m.role === 'toolCall' && m.toolName && /build|test|lint|typecheck|npm|make/i.test(m.toolName);
+  });
+  items.push({
+    id: 'deterministic_verification',
+    label: '验证交确定性工具',
+    description: '构建/测试/lint 由 CLI 确定性执行，Agent 只负责调用和解读结果，不每次从零拼装',
+    status: hasBuildOrTest ? 'pass' : 'fail',
+    evidence: hasBuildOrTest ? '会话中使用了 build/test/lint 等确定性验证工具' : '会话中未检测到 build/test/lint 等验证工具调用',
+  });
+
+  // 7. Large search goes to subagent
+  const searchCount = msgs.filter((m) => {
+    for (const c of m.content || []) {
+      if ((c.type === 'toolCall' || c.type === 'tool_use') && c.name) {
+        const n = c.name.toLowerCase();
+        if (n.includes('grep') || n.includes('glob') || n.includes('search')) return true;
+      }
+    }
+    return false;
+  }).length;
+  const hasSubagent = msgs.some((m) => m.role === 'assistant' && m.content?.some((c) => (c.type === 'toolCall' || c.type === 'tool_use') && c.name && /task|spawn|agent|subagent/i.test(c.name)));
+  const largeSearchOk = !(searchCount > 5 && !hasSubagent);
+  items.push({
+    id: 'subagent_search',
+    label: '大搜索丢给子代理',
+    description: '全仓搜索/批量文件扫描的中间产物远大于结论，应交给 subagent，主会话只收结论',
+    status: largeSearchOk ? 'pass' : 'fail',
+    evidence: largeSearchOk ? '检索量适中或使用了子代理' : `${searchCount} 次搜索/扫描但未使用子代理，中间产物可能膨胀上下文`,
+  });
+
+  // 8. Model selection — manual
+  items.push({
+    id: 'model_selection',
+    label: '按任务选模型和推理强度',
+    description: '格式改动/简单问答用轻量模型，复杂设计/跨模块变更才上旗舰+高推理',
+    status: 'manual',
+    evidence: '需人工判断模型选择与任务难度是否匹配',
+  });
+
+  // 9. Review consumption distribution — pass (this report is doing it)
+  items.push({
+    id: 'consumption_review',
+    label: '定期看消耗分布',
+    description: '每月统计 Token 消耗分布，Top 高消耗会话归因，沉淀改进动作',
+    status: 'pass',
+    evidence: '本反思报告即为消耗分布审查的产物',
+  });
+
+  const passCount = items.filter((i) => i.status === 'pass').length;
+  const failCount = items.filter((i) => i.status === 'fail').length;
+  const manualCount = items.filter((i) => i.status === 'manual').length;
+
+  return { items, passCount, failCount, manualCount };
+}
+
+/** Identify harvestable assets from the session (terminology, rules, workflows). */
+export function computeHarvestableAssets(msgs: SessionMessage[]): HarvestableAsset[] {
+  const assets: HarvestableAsset[] = [];
+
+  // 1. Rules: user corrections/instructions
+  const ruleKeywords = ['不要', '应该', '必须', '记得', '注意', '别', '禁止', '始终', '永远'];
+  for (const m of msgs) {
+    if (m.role !== 'user') continue;
+    const text = getTextContent(m.content || []);
+    if (!text || text.length > 200) continue;
+    for (const kw of ruleKeywords) {
+      if (text.includes(kw)) {
+        assets.push({
+          type: 'rule',
+          label: text.slice(0, 60),
+          description: `用户指令："${text.slice(0, 100)}"`,
+          confidence: 'medium',
+          source: '用户消息',
+        });
+        break;
+      }
+    }
+  }
+
+  // 2. Workflow: repeated tool sequences (build → test → lint etc.)
+  const toolSequence: string[] = [];
+  for (const m of msgs) {
+    if (m.role === 'toolCall' && m.toolName) toolSequence.push(m.toolName.toLowerCase());
+    for (const c of m.content || []) {
+      if ((c.type === 'toolCall' || c.type === 'tool_use') && c.name) toolSequence.push(c.name.toLowerCase());
+    }
+  }
+  // Look for repeated 3-step sequences
+  const seqCount = new Map<string, number>();
+  for (let i = 0; i < toolSequence.length - 2; i++) {
+    const seq = `${toolSequence[i]} → ${toolSequence[i + 1]} → ${toolSequence[i + 2]}`;
+    seqCount.set(seq, (seqCount.get(seq) || 0) + 1);
+  }
+  for (const [seq, count] of seqCount) {
+    if (count >= 2) {
+      assets.push({
+        type: 'workflow',
+        label: seq,
+        description: `该工具序列重复出现 ${count} 次，可沉淀为 CLI workflow 或脚本`,
+        confidence: count >= 3 ? 'high' : 'medium',
+        source: '工具调用序列',
+      });
+    }
+  }
+
+  // Deduplicate by label
+  const seen = new Set<string>();
+  return assets.filter((a) => {
+    if (seen.has(a.label)) return false;
+    seen.add(a.label);
+    return true;
+  });
+}
+
+/** Generate actionable improvement suggestions based on waste + health check. */
+function generateSuggestions(waste: WasteAttribution, health: ProcessHealthCheck): string[] {
+  const suggestions: string[] = [];
+
+  for (const item of waste.items) {
+    switch (item.category) {
+      case 'unclear_requirement':
+        suggestions.push('提问时带上入口文件路径、关注重点和明确排除项，减少 Agent 的自由探索轮次');
+        break;
+      case 'search_divergence':
+        suggestions.push('大范围文件搜索考虑交给子代理执行，主会话只接收结论，避免中间产物膨胀上下文');
+        break;
+      case 'tool_retry':
+        suggestions.push('工具连续失败 3 次时应人工介入或重开会话，不要让 Agent 在污染的上下文里继续猜');
+        break;
+      case 'context_bloat':
+        suggestions.push('超过 15 轮时考虑拆分会话或触发上下文压缩，指定要保留的内容比等自动截断更可控');
+        break;
+    }
+  }
+
+  for (const item of health.items) {
+    if (item.status === 'fail') {
+      switch (item.id) {
+        case 'deterministic_verification':
+          suggestions.push('将构建/测试/lint 流程沉淀为可复用脚本或 CLI workflow，Agent 只负责调用和解读 report.json');
+          break;
+        case 'subagent_search':
+          suggestions.push('批量检索类任务拆给子代理，主会话只收结论，过程随子会话一起消失');
+          break;
+      }
+    }
+  }
+
+  // Always include the meta-suggestion
+  if (suggestions.length === 0) {
+    suggestions.push('本会话流程健康，无明显浪费。可关注是否有可沉淀的术语/规则/workflow 供后续会话复用。');
+  }
+
+  return suggestions.slice(0, 5);
+}
+
+/** Full reflection report: summary + waste attribution + health check + assets + suggestions. */
+export function computeReflectionReport(msgs: SessionMessage[]): ReflectionReport {
+  const userMsgs = msgs.filter((m) => m.role === 'user');
+  const firstUserText = userMsgs.length > 0 ? getTextContent(userMsgs[0].content || []) : '';
+  const waste = computeWasteAttribution(msgs);
+  const health = computeProcessHealthCheck(msgs);
+  const assets = computeHarvestableAssets(msgs);
+
+  // Summary stats
+  let totalToolCalls = 0;
+  let totalErrors = 0;
+  let totalInputTokens = 0;
+  let totalOutputTokens = 0;
+  let totalDurationMs = 0;
+  let lastTs: number | null = null;
+  for (const m of msgs) {
+    if (m.role === 'toolCall') totalToolCalls++;
+    if (m.role === 'toolResult' && m.isError) totalErrors++;
+    const u = m.usage || {};
+    totalInputTokens += (u.input || u.input_tokens || 0) as number;
+    totalOutputTokens += (u.output || u.output_tokens || 0) as number;
+    const ts = parseTimestampMs(m.timestamp);
+    if (ts && lastTs) totalDurationMs += ts - lastTs;
+    if (ts) lastTs = ts;
+  }
+  // Also count tool calls inside content blocks
+  for (const m of msgs) {
+    for (const c of m.content || []) {
+      if (c.type === 'toolCall' || c.type === 'tool_use') totalToolCalls++;
+      if (c.type === 'tool_result' && c.is_error) totalErrors++;
+    }
+  }
+
+  const completed = msgs.some((m) => m.role === 'assistant' && getTextContent(m.content || []).trim().length > 0);
+
+  return {
+    summary: {
+      taskGoal: firstUserText.slice(0, 100) || '(无用户提问)',
+      completed,
+      totalTurns: userMsgs.length,
+      totalToolCalls,
+      totalErrors,
+      effectiveTokens: totalInputTokens + totalOutputTokens,
+      totalDurationMs,
+    },
+    waste,
+    healthCheck: health,
+    assets,
+    suggestions: generateSuggestions(waste, health),
   };
 }

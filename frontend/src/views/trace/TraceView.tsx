@@ -8,6 +8,7 @@ import { useEffect, useMemo, useState } from 'react';
 import {
   analyzeHealth,
   buildTraceTurns,
+  flattenSpans,
   formatDurationCompact,
   formatTokensCompact,
   healthColor,
@@ -85,6 +86,150 @@ function spanDurationText(span: TraceSpan): string {
   return duration;
 }
 
+/** Recursive tree row for a single span + its children.
+ *  Chat spans with children get a collapse toggle; tool/agent spans are
+ *  leaves (or parents in deeper nesting levels). Indentation grows with
+ *  depth so the parent-child relationship is visually obvious. */
+function SpanRow({
+  span,
+  turnStart,
+  dur,
+  depth,
+  repeat,
+  onSpanClick,
+  onAgentClick,
+}: {
+  span: TraceSpan;
+  turnStart: number;
+  dur: number;
+  depth: number;
+  repeat?: { count: number; isFirst: boolean };
+  onSpanClick: (span: TraceSpan) => void;
+  onAgentClick: (name: string) => void;
+}) {
+  const [collapsed, setCollapsed] = useState(false);
+  const hasChildren = span.children && span.children.length > 0;
+  const left = ((span.start - turnStart) / dur) * 100;
+  const width = Math.max(((span.end - span.start) / dur) * 100, 0.4);
+  const durText = spanDurationText(span);
+  const isAgent = span.kind === 'agent';
+  const displayLabel = spanDisplayLabel(span);
+  const isAnomalous = repeat !== undefined || span.kind === 'tool-error';
+  const title = isAgent
+    ? `子 Agent ${span.label} — ${durText}，点击查看其执行记录`
+    : `${displayLabel} — ${durText}${repeat ? ` · 连续重复 ${repeat.count} 次` : ''}，点击查看详情`;
+
+  return (
+    <div>
+      <div className="mb-2 grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-2 gap-y-1 sm:mb-1 sm:grid-cols-[150px_minmax(0,1fr)_110px] lg:grid-cols-[170px_minmax(0,1fr)_110px] sm:gap-2.5">
+        <div
+          className="truncate font-mono text-xs text-muted-foreground sm:text-right"
+          style={{ paddingLeft: depth > 0 ? `${depth * 16}px` : undefined }}
+          title={displayLabel}
+        >
+          {hasChildren && (
+            <button
+              className="mr-1 inline-block w-3.5 text-center text-[0.65rem] text-muted-foreground hover:text-foreground"
+              onClick={(e) => { e.stopPropagation(); setCollapsed(!collapsed); }}
+              title={collapsed ? '展开子节点' : '折叠子节点'}
+            >
+              {collapsed ? '▶' : '▼'}
+            </button>
+          )}
+          {!hasChildren && depth > 0 && <span className="mr-1 inline-block w-3.5 text-center text-[0.65rem] text-muted-foreground/40">└</span>}
+          {spanIcon(span.kind, span.label)} {displayLabel}
+          {repeat && repeat.isFirst && (
+            <span
+              className="ml-1 inline-block rounded-full border border-amber-500/40 bg-amber-500/15 px-1.5 py-0.5 text-[0.6rem] font-medium text-amber-400"
+              title={`连续重复调用 ${repeat.count} 次，可能存在循环`}
+            >
+              重复×{repeat.count}
+            </span>
+          )}
+          {span.kind === 'tool-error' && (
+            <span
+              className="ml-1 inline-block rounded-full border border-red-500/40 bg-red-500/15 px-1.5 py-0.5 text-[0.6rem] font-medium text-red-400"
+              title="工具调用失败"
+            >
+              错误
+            </span>
+          )}
+        </div>
+        <span
+          className="whitespace-nowrap text-right font-mono text-[0.68rem] text-muted-foreground sm:col-start-3"
+          title={durText}
+        >
+          {durText}
+          {span.totalTokens && span.totalTokens > 0 ? (
+            <span
+              className="ml-1.5 inline-block rounded-full bg-blue-500/15 px-1.5 py-0.5 text-[0.6rem] font-medium text-blue-400"
+              title={`${formatTokensCompact(span.totalTokens)} tokens · 点击查看明细`}
+            >
+              {formatTokensCompact(span.totalTokens)}
+            </span>
+          ) : null}
+        </span>
+        <div className="relative col-span-2 h-3.5 sm:col-span-1 sm:col-start-2 sm:row-start-1">
+          <div
+            className={`absolute top-0 h-3.5 min-w-1 cursor-pointer rounded-sm opacity-90 hover:opacity-100 hover:outline hover:outline-1 hover:outline-foreground ${
+              isAnomalous ? 'outline outline-1 outline-amber-500/60' : ''
+            }`}
+            style={{
+              left: `${left.toFixed(2)}%`,
+              width: `${width.toFixed(2)}%`,
+              ...spanBarStyle(span),
+            }}
+            title={title}
+            onClick={() => {
+              if (isAgent) {
+                if (span.agentName) onAgentClick(span.agentName);
+              } else {
+                onSpanClick(span);
+              }
+            }}
+          >
+          </div>
+        </div>
+      </div>
+      {/* Recursively render children unless collapsed */}
+      {hasChildren && !collapsed && (
+        <div>
+          {span.children!.map((child, ci) => {
+            // Compute repeat info within this sibling group
+            const prevChild = ci > 0 ? span.children![ci - 1] : null;
+            const isTool = child.kind === 'tool' || child.kind === 'tool-error';
+            let childRepeat: { count: number; isFirst: boolean } | undefined;
+            if (isTool && prevChild && (prevChild.kind === 'tool' || prevChild.kind === 'tool-error') && prevChild.label === child.label) {
+              // Count run length
+              let runLen = 1;
+              for (let j = ci - 1; j >= 0; j--) {
+                const p = span.children![j];
+                if ((p.kind === 'tool' || p.kind === 'tool-error') && p.label === child.label) runLen++;
+                else break;
+              }
+              // Check if this is the first in the run
+              const isFirst = ci - runLen + 1 === ci ? false : ci === 0 || span.children![ci - 1].label !== child.label;
+              childRepeat = { count: runLen, isFirst: isFirst || runLen === 1 };
+            }
+            return (
+              <SpanRow
+                key={ci}
+                span={child}
+                turnStart={turnStart}
+                dur={dur}
+                depth={depth + 1}
+                repeat={childRepeat}
+                onSpanClick={onSpanClick}
+                onAgentClick={onAgentClick}
+              />
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function TurnCard({
   turn,
   onSpanClick,
@@ -95,8 +240,9 @@ function TurnCard({
   onAgentClick: (name: string) => void;
 }) {
   const dur = Math.max(turn.end - turn.start, 1);
-  // Per-turn span stats (borrowed from botmux's "已调用 N 次工具" badge)
-  const stats = turn.spans.reduce(
+  // Per-turn span stats — must flatten the tree to count nested tool/agent spans.
+  const allSpans = flattenSpans(turn.spans);
+  const stats = allSpans.reduce(
     (acc, s) => {
       if (s.kind === 'tool') acc.tools++;
       else if (s.kind === 'tool-error') acc.errors++;
@@ -107,37 +253,6 @@ function TurnCard({
     { tools: 0, errors: 0, thinking: 0, agents: 0 }
   );
 
-  // Detect consecutive duplicate tool calls for anomaly highlighting.
-  // A span is "repeated" if the same tool label appears 2+ times in a row.
-  const repeatInfo = useMemo(() => {
-    const map = new Map<number, { count: number; isFirst: boolean }>();
-    let runStart = -1;
-    let runLabel = '';
-    let runCount = 0;
-    for (let i = 0; i <= turn.spans.length; i++) {
-      const s = turn.spans[i];
-      const isTool = s && (s.kind === 'tool' || s.kind === 'tool-error');
-      if (isTool && s.label === runLabel) {
-        runCount++;
-      } else {
-        if (runCount >= 2 && runStart >= 0) {
-          for (let j = runStart; j < runStart + runCount; j++) {
-            map.set(j, { count: runCount, isFirst: j === runStart });
-          }
-        }
-        if (isTool) {
-          runStart = i;
-          runLabel = s.label;
-          runCount = 1;
-        } else {
-          runStart = -1;
-          runLabel = '';
-          runCount = 0;
-        }
-      }
-    }
-    return map;
-  }, [turn.spans]);
   return (
     <div className="mb-3 overflow-hidden rounded-lg border border-border">
       <div className="flex flex-wrap items-baseline gap-x-2.5 gap-y-1 border-b border-border bg-[hsl(var(--panel-alt))] px-3 py-1.5 text-sm">
@@ -175,76 +290,30 @@ function TurnCard({
       </div>
       <div className="px-3 pb-2.5 pt-1.5">
         {turn.spans.map((s, i) => {
-          const left = ((s.start - turn.start) / dur) * 100;
-          const width = Math.max(((s.end - s.start) / dur) * 100, 0.4);
-          const durText = spanDurationText(s);
-          const isAgent = s.kind === 'agent';
-          const displayLabel = spanDisplayLabel(s);
-          const repeat = repeatInfo.get(i);
-          const isAnomalous = repeat !== undefined || s.kind === 'tool-error';
-          const title = isAgent
-            ? `子 Agent ${s.label} — ${durText}，点击查看其执行记录`
-            : `${displayLabel} — ${durText}${repeat ? ` · 连续重复 ${repeat.count} 次` : ''}，点击查看详情`;
+          // Compute repeat info for root-level sibling spans
+          const prev = i > 0 ? turn.spans[i - 1] : null;
+          const isTool = s.kind === 'tool' || s.kind === 'tool-error';
+          let rootRepeat: { count: number; isFirst: boolean } | undefined;
+          if (isTool && prev && (prev.kind === 'tool' || prev.kind === 'tool-error') && prev.label === s.label) {
+            let runLen = 1;
+            for (let j = i - 1; j >= 0; j--) {
+              const p = turn.spans[j];
+              if ((p.kind === 'tool' || p.kind === 'tool-error') && p.label === s.label) runLen++;
+              else break;
+            }
+            rootRepeat = { count: runLen, isFirst: i - runLen + 1 === i };
+          }
           return (
-            <div key={i} className="mb-2 grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-2 gap-y-1 sm:mb-1 sm:grid-cols-[150px_minmax(0,1fr)_110px] lg:grid-cols-[170px_minmax(0,1fr)_110px] sm:gap-2.5">
-              <div
-                className="truncate font-mono text-xs text-muted-foreground sm:text-right"
-                title={displayLabel}
-              >
-                {spanIcon(s.kind, s.label)} {displayLabel}
-                {repeat && repeat.isFirst && (
-                  <span
-                    className="ml-1 inline-block rounded-full border border-amber-500/40 bg-amber-500/15 px-1.5 py-0.5 text-[0.6rem] font-medium text-amber-400"
-                    title={`连续重复调用 ${repeat.count} 次，可能存在循环`}
-                  >
-                    重复×{repeat.count}
-                  </span>
-                )}
-                {s.kind === 'tool-error' && (
-                  <span
-                    className="ml-1 inline-block rounded-full border border-red-500/40 bg-red-500/15 px-1.5 py-0.5 text-[0.6rem] font-medium text-red-400"
-                    title="工具调用失败"
-                  >
-                    错误
-                  </span>
-                )}
-              </div>
-              <span
-                className="whitespace-nowrap text-right font-mono text-[0.68rem] text-muted-foreground sm:col-start-3"
-                title={durText}
-              >
-                {durText}
-                {s.totalTokens && s.totalTokens > 0 ? (
-                  <span
-                    className="ml-1.5 inline-block rounded-full bg-blue-500/15 px-1.5 py-0.5 text-[0.6rem] font-medium text-blue-400"
-                    title={`${formatTokensCompact(s.totalTokens)} tokens · 点击查看明细`}
-                  >
-                    {formatTokensCompact(s.totalTokens)}
-                  </span>
-                ) : null}
-              </span>
-              <div className="relative col-span-2 h-3.5 sm:col-span-1 sm:col-start-2 sm:row-start-1">
-                <div
-                  className={`absolute top-0 h-3.5 min-w-1 cursor-pointer rounded-sm opacity-90 hover:opacity-100 hover:outline hover:outline-1 hover:outline-foreground ${
-                    isAnomalous ? 'outline outline-1 outline-amber-500/60' : ''
-                  }`}
-                  style={{
-                    left: `${left.toFixed(2)}%`,
-                    width: `${width.toFixed(2)}%`,
-                    ...spanBarStyle(s),
-                  }}
-                  title={title}
-                  onClick={() => {
-                    if (isAgent) {
-                      if (s.agentName) onAgentClick(s.agentName);
-                    } else {
-                      onSpanClick(s);
-                    }
-                  }}
-                >
-                </div>
-              </div>
-            </div>
+            <SpanRow
+              key={i}
+              span={s}
+              turnStart={turn.start}
+              dur={dur}
+              depth={0}
+              repeat={rootRepeat}
+              onSpanClick={onSpanClick}
+              onAgentClick={onAgentClick}
+            />
           );
         })}
       </div>

@@ -146,6 +146,11 @@ export interface TraceSpan {
   /** Total tokens = input + output + cacheRead + cacheWrite + reasoning.
    *  Precomputed so the waterfall badge doesn't need to sum five fields. */
   totalTokens?: number;
+  /** Tree children: tool/agent spans nested under their parent chat span.
+   *  Undefined when the span is a leaf or when tree view is disabled. */
+  children?: TraceSpan[];
+  /** Tree depth: 0 = root (chat or orphaned tool), 1 = direct child. */
+  depth?: number;
 }
 
 export interface TraceTurn {
@@ -567,8 +572,53 @@ export function buildTraceTurns(msgs: SessionMessage[], agentSpans: AgentSpan[] 
       if (s.kind === 'chat' && s.hasText) lastTextChat = s;
     }
     if (lastTextChat) lastTextChat.isFinalReply = true;
+
+    // Treeify: nest tool/agent spans under their parent chat span.
+    // Parent is matched by msgId (the assistant message that emitted the
+    // tool_use); falls back to "last chat before this span" when msgId is
+    // absent or unmatched. Chat spans become roots; orphaned non-chat spans
+    // (no preceding chat) stay at depth 0.
+    tn.spans = treeifySpans(tn.spans);
   }
   return turns.filter((tn) => tn.spans.length > 0);
+}
+
+/** Nest tool/agent spans under the chat span that emitted them.
+ *  Primary key: msgId (toolCall.msgId === chat.msgId).
+ *  Fallback: attach to the most recent chat span in list order.
+ *  Returns the root spans (chat + orphans) in original order. */
+function treeifySpans(spans: TraceSpan[]): TraceSpan[] {
+  // Pass 1: initialise every chat span as a potential parent, collect roots.
+  const chatByMsgId = new Map<string, TraceSpan>();
+  const roots: TraceSpan[] = [];
+  let lastChat: TraceSpan | null = null;
+  for (const s of spans) {
+    if (s.kind === 'chat') {
+      s.children = [];
+      s.depth = 0;
+      if (s.msgId) chatByMsgId.set(s.msgId, s);
+      lastChat = s;
+      roots.push(s);
+    }
+  }
+  // Pass 2: attach non-chat spans to their parent.
+  for (const s of spans) {
+    if (s.kind === 'chat') continue;
+    const parent = (s.msgId && chatByMsgId.get(s.msgId)) || lastChat;
+    if (parent) {
+      s.depth = 1;
+      parent.children!.push(s);
+    } else {
+      s.depth = 0;
+      roots.push(s);
+    }
+  }
+  // Sort children by start time (they were collected in pass-2 order which
+  // follows the original flat sort, but explicit sort is safer).
+  for (const r of roots) {
+    if (r.children) r.children.sort((a, b) => a.start - b.start);
+  }
+  return roots;
 }
 
 // ─── Token helpers ─────────────────────────────────────────────────────────
@@ -672,6 +722,18 @@ export interface AgentHealthScore {
   segments: HealthSegment[];
 }
 
+/** Recursively flatten a tree of spans into a flat array (depth-first).
+ *  Used by health metrics and any code that needs to count all spans
+ *  regardless of tree nesting. */
+export function flattenSpans(spans: TraceSpan[]): TraceSpan[] {
+  const out: TraceSpan[] = [];
+  for (const s of spans) {
+    out.push(s);
+    if (s.children && s.children.length > 0) out.push(...flattenSpans(s.children));
+  }
+  return out;
+}
+
 /** Compute raw health metrics from trace turns. Pure, no LLM needed. */
 export function computeHealthMetrics(turns: TraceTurn[]): AgentHealthMetrics {
   let totalToolCalls = 0;
@@ -688,8 +750,9 @@ export function computeHealthMetrics(turns: TraceTurn[]): AgentHealthMetrics {
 
   for (const turn of turns) {
     totalDurationMs += turn.end - turn.start;
-    for (let i = 0; i < turn.spans.length; i++) {
-      const s = turn.spans[i];
+    const allSpans = flattenSpans(turn.spans);
+    for (let i = 0; i < allSpans.length; i++) {
+      const s = allSpans[i];
       if (s.kind === 'tool' || s.kind === 'tool-error') {
         totalToolCalls++;
         toolNames.push(s.label);
@@ -714,7 +777,7 @@ export function computeHealthMetrics(turns: TraceTurn[]): AgentHealthMetrics {
 
   // Estimate final reply length from the last chat span with text
   for (let ti = turns.length - 1; ti >= 0; ti--) {
-    const lastChat = [...turns[ti].spans].reverse().find((s) => s.kind === 'chat' && s.hasText);
+    const lastChat = [...flattenSpans(turns[ti].spans)].reverse().find((s) => s.kind === 'chat' && s.hasText);
     if (lastChat) {
       finalReplyLength = 1; // placeholder; actual text length needs message access
       break;
@@ -818,7 +881,8 @@ export function scoreHealth(metrics: AgentHealthMetrics): AgentHealthScore {
 export function buildHealthSegments(turns: TraceTurn[]): HealthSegment[] {
   return turns.map((turn, idx) => {
     let score = 100;
-    const toolSpans = turn.spans.filter((s) => s.kind === 'tool' || s.kind === 'tool-error');
+    const allSpans = flattenSpans(turn.spans);
+    const toolSpans = allSpans.filter((s) => s.kind === 'tool' || s.kind === 'tool-error');
     const errors = toolSpans.filter((s) => s.kind === 'tool-error').length;
     const uniqueTools = new Set(toolSpans.map((s) => s.label)).size;
 
@@ -833,7 +897,7 @@ export function buildHealthSegments(turns: TraceTurn[]): HealthSegment[] {
       else if (redundancy > 0.3) score -= 10;
     }
 
-    const hasFinalReply = turn.spans.some((s) => s.kind === 'chat' && s.isFinalReply);
+    const hasFinalReply = allSpans.some((s) => s.kind === 'chat' && s.isFinalReply);
     const label = hasFinalReply ? `第 ${idx + 1} 轮 · 最终回复` : `第 ${idx + 1} 轮`;
 
     return {

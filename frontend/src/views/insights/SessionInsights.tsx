@@ -11,7 +11,8 @@ import { formatDurationCompact } from '@/lib/pure';
 import { dirForPlatform, useAppStore } from '@/store';
 import { ContextUsageCard } from '@/views/sessions/ContextUsageCard';
 import { InsightSection, ScopeChip, StatCard, UsageBar, fmtTokens, formatNumber } from './bits';
-import { computeSessionInsights, PROMPT_CATEGORY_LABELS } from './sessionStats';
+import { computeSessionInsights, computeReflectionReport, PROMPT_CATEGORY_LABELS, WASTE_CATEGORY_LABELS } from './sessionStats';
+import type { WasteCategory } from './sessionStats';
 
 // Tool sequence chip palette — legacy toolColorPalette order preserved.
 const TOOL_PALETTE = [
@@ -57,6 +58,7 @@ export function SessionInsights() {
   const msgs = query.data.messages;
   const session = query.data.session || {};
   const st = computeSessionInsights(msgs);
+  const reflection = computeReflectionReport(msgs);
   const tokenUsage = query.data.tokenUsage || session.tokenUsage;
   const contextUsage = query.data.contextUsage || session.contextUsage;
   const tokenInput = tokenUsage?.input ?? st.totalInputTokens;
@@ -877,6 +879,140 @@ export function SessionInsights() {
           )}
         </InsightSection>
       )}
+
+      {/* ─── 反思与总结（流程闭环：度量→归因→沉淀→建议） ─── */}
+      <InsightSection title={
+        <span className="flex items-center gap-2">
+          🔄 反思与总结
+          <span className="text-xs font-normal text-muted-foreground">流程闭环 · 浪费归因 · 健康检查 · 资产沉淀</span>
+        </span>
+      }>
+        {/* 执行摘要 */}
+        <div className="mb-4 grid grid-cols-2 gap-2 sm:grid-cols-4">
+          <div className="rounded-md border border-border bg-secondary/30 p-2.5">
+            <div className="text-[0.65rem] text-muted-foreground">任务目标</div>
+            <div className="mt-0.5 truncate text-xs font-medium" title={reflection.summary.taskGoal}>{reflection.summary.taskGoal || '(无)'}</div>
+          </div>
+          <div className="rounded-md border border-border bg-secondary/30 p-2.5">
+            <div className="text-[0.65rem] text-muted-foreground">完成状态</div>
+            <div className={`mt-0.5 text-xs font-medium ${reflection.summary.completed ? 'text-[#3fb950]' : 'text-amber-500'}`}>
+              {reflection.summary.completed ? '✓ 有最终回复' : '⚠ 无最终回复'}
+            </div>
+          </div>
+          <div className="rounded-md border border-border bg-secondary/30 p-2.5">
+            <div className="text-[0.65rem] text-muted-foreground">轮次 / 工具 / 错误</div>
+            <div className="mt-0.5 text-xs font-medium">
+              {reflection.summary.totalTurns} 轮 · {reflection.summary.totalToolCalls} 工具
+              {reflection.summary.totalErrors > 0 && <span className="text-destructive"> · {reflection.summary.totalErrors} 错误</span>}
+            </div>
+          </div>
+          <div className="rounded-md border border-border bg-secondary/30 p-2.5">
+            <div className="text-[0.65rem] text-muted-foreground">有效 Token / 耗时</div>
+            <div className="mt-0.5 text-xs font-medium">
+              {fmtTokens(reflection.summary.effectiveTokens)} · {formatDurationCompact(reflection.summary.totalDurationMs)}
+            </div>
+          </div>
+        </div>
+
+        {/* 浪费归因 */}
+        <div className="mb-4">
+          <h3 className="mb-2 text-sm font-semibold">浪费归因</h3>
+          {reflection.waste.items.length === 0 ? (
+            <div className="rounded-md border border-[#3fb950]/30 bg-[#3fb950]/5 p-3 text-xs text-[#3fb950]">
+              ✓ 未检测到明显浪费模式，本会话流程健康
+            </div>
+          ) : (
+            <div className="flex flex-col gap-2">
+              {reflection.waste.items.map((w, i) => (
+                <div key={i} className={`rounded-md border p-2.5 ${
+                  w.severity === 'high' ? 'border-destructive/40 bg-destructive/5' :
+                  w.severity === 'medium' ? 'border-amber-500/40 bg-amber-500/5' :
+                  'border-border bg-secondary/30'
+                }`}>
+                  <div className="flex items-center gap-2">
+                    <span className={`shrink-0 rounded-full px-1.5 py-0.5 text-[0.6rem] font-medium ${
+                      w.severity === 'high' ? 'bg-destructive/15 text-destructive' :
+                      w.severity === 'medium' ? 'bg-amber-500/15 text-amber-500' :
+                      'bg-secondary text-muted-foreground'
+                    }`}>
+                      {w.severity === 'high' ? '高' : w.severity === 'medium' ? '中' : '低'}
+                    </span>
+                    <span className="text-xs font-medium">{WASTE_CATEGORY_LABELS[w.category as WasteCategory]}</span>
+                  </div>
+                  <div className="mt-1 text-xs text-muted-foreground">{w.evidence}</div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* 流程健康检查 */}
+        <div className="mb-4">
+          <h3 className="mb-2 text-sm font-semibold">
+            流程健康检查
+            <span className="ml-2 text-xs font-normal text-muted-foreground">
+              {reflection.healthCheck.passCount} 通过 · {reflection.healthCheck.failCount} 未通过 · {reflection.healthCheck.manualCount} 需人工判断
+            </span>
+          </h3>
+          <div className="grid gap-1.5 sm:grid-cols-2">
+            {reflection.healthCheck.items.map((item) => (
+              <div key={item.id} className="flex items-start gap-2 rounded-md border border-border bg-secondary/20 p-2">
+                <span className={`mt-0.5 shrink-0 text-xs ${
+                  item.status === 'pass' ? 'text-[#3fb950]' :
+                  item.status === 'fail' ? 'text-destructive' :
+                  'text-amber-500'
+                }`}>
+                  {item.status === 'pass' ? '✓' : item.status === 'fail' ? '✗' : '?'}
+                </span>
+                <div className="min-w-0">
+                  <div className="text-xs font-medium">{item.label}</div>
+                  {item.evidence && <div className="mt-0.5 text-[0.65rem] text-muted-foreground">{item.evidence}</div>}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* 可沉淀资产 */}
+        {reflection.assets.length > 0 && (
+          <div className="mb-4">
+            <h3 className="mb-2 text-sm font-semibold">
+              可沉淀资产
+              <span className="ml-2 text-xs font-normal text-muted-foreground">从本会话中识别，可沉淀为 CONTEXT.md / spec / workflow</span>
+            </h3>
+            <div className="flex flex-col gap-1.5">
+              {reflection.assets.map((a, i) => (
+                <div key={i} className="flex items-start gap-2 rounded-md border border-[#58a6ff]/30 bg-[#58a6ff]/5 p-2">
+                  <span className={`mt-0.5 shrink-0 rounded px-1.5 py-0.5 text-[0.6rem] font-medium ${
+                    a.type === 'rule' ? 'bg-amber-500/15 text-amber-500' :
+                    a.type === 'workflow' ? 'bg-[#3fb950]/15 text-[#3fb950]' :
+                    'bg-[#58a6ff]/15 text-[#58a6ff]'
+                  }`}>
+                    {a.type === 'rule' ? '规则' : a.type === 'workflow' ? 'Workflow' : '术语'}
+                  </span>
+                  <div className="min-w-0">
+                    <div className="truncate text-xs font-medium" title={a.label}>{a.label}</div>
+                    <div className="mt-0.5 text-[0.65rem] text-muted-foreground">{a.description}</div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* 改进建议 */}
+        <div>
+          <h3 className="mb-2 text-sm font-semibold">改进建议</h3>
+          <div className="flex flex-col gap-1.5">
+            {reflection.suggestions.map((s, i) => (
+              <div key={i} className="flex items-start gap-2 rounded-md border border-border bg-secondary/20 p-2">
+                <span className="mt-0.5 shrink-0 text-xs text-[#58a6ff]">{i + 1}.</span>
+                <div className="text-xs">{s}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </InsightSection>
     </div>
   );
 }
