@@ -69,8 +69,8 @@ describe('search session matcher', () => {
 describe('structured search documents', () => {
   it('splits a full path into basename and parent-path evidence terms', () => {
     assert.deepEqual(
-      buildSearchKeywords('/Users/linda/Projects/demo/.codebuddy'),
-      ['codebuddy', '/users/linda/projects/demo']
+      buildSearchKeywords('/workspace/demo/.codebuddy'),
+      ['codebuddy', '/workspace/demo']
     );
   });
 
@@ -84,7 +84,7 @@ describe('structured search documents', () => {
           type: 'CommandExecution',
           id: 'exec-create-skill',
           command: ['/bin/zsh', '-lc', 'agentbuddy skill add package --copy -y'],
-          cwd: 'file:///Users/linda/Projects/demo',
+          cwd: 'file:///workspace/demo',
           stdout: 'Installed to CodeBuddy',
         },
       },
@@ -93,15 +93,15 @@ describe('structured search documents', () => {
       docs.map((doc) => [doc.source, doc.messageId, doc.text]),
       [
         ['command', 'exec-create-skill', '/bin/zsh -lc agentbuddy skill add package --copy -y'],
-        ['working_directory', 'exec-create-skill', '/Users/linda/Projects/demo'],
+        ['working_directory', 'exec-create-skill', '/workspace/demo'],
         ['tool_result', 'exec-create-skill', 'Installed to CodeBuddy'],
       ]
     );
   });
 
   it('ranks mutation evidence ahead of passive mentions', () => {
-    const matcher = createSessionMatcher(['codebuddy', '/users/linda/projects/demo']);
-    matcher.consider('/Users/linda/Projects/demo', 'session', 't0', { source: 'working_directory' });
+    const matcher = createSessionMatcher(['codebuddy', '/workspace/demo']);
+    matcher.consider('/workspace/demo', 'session', 't0', { source: 'working_directory' });
     matcher.consider('existing .codebuddy directory', 'toolResult', 't1', { source: 'tool_result' });
     assert.equal(matcher.done, false);
     matcher.consider('Installed to CodeBuddy', 'toolResult', 't2', { source: 'tool_result' });

@@ -68,6 +68,7 @@ describe('Codex incremental FTS index', () => {
   });
 
   it('returns null for short terms so the caller preserves substring semantics', async () => {
-    assert.equal(await indexedCodexCandidates([{ path: '/tmp/missing' }], ['ab'], extractSearchDocuments), null);
+    const missingPath = path.join(os.tmpdir(), 'agentxray-missing-session');
+    assert.equal(await indexedCodexCandidates([{ path: missingPath }], ['ab'], extractSearchDocuments), null);
   });
 });

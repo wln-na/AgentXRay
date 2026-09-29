@@ -83,13 +83,19 @@ describe('search execution optimizations', () => {
   });
 
   it('skips ripgrep startup overhead for small file sets', async () => {
-    const files = [{ path: '/tmp/a.jsonl' }, { path: '/tmp/b.jsonl' }];
+    const files = [
+      { path: path.join(os.tmpdir(), 'a.jsonl') },
+      { path: path.join(os.tmpdir(), 'b.jsonl') },
+    ];
     assert.equal(await ripgrepCandidatePaths(files, ['needle']), null);
     assert.deepEqual(await prefilterJsonlFiles(files, ['needle']), files);
   });
 
   it('falls back to the original file set when ripgrep is unavailable', async () => {
-    const files = [{ path: '/tmp/a.jsonl' }, { path: '/tmp/b.jsonl' }];
+    const files = [
+      { path: path.join(os.tmpdir(), 'a.jsonl') },
+      { path: path.join(os.tmpdir(), 'b.jsonl') },
+    ];
     const candidates = await ripgrepCandidatePaths(files, ['needle'], {
       command: path.join(os.tmpdir(), 'agentxray-missing-rg'),
       minFiles: 0,
