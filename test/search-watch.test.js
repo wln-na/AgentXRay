@@ -9,7 +9,7 @@ const fsp = require('node:fs/promises');
 const os = require('node:os');
 const path = require('node:path');
 
-const { extractSnippet, createSessionMatcher } = require(path.join(__dirname, '..', 'lib', 'search'));
+const { extractSnippet, createSessionMatcher, buildSearchKeywords, extractSearchDocuments } = require(path.join(__dirname, '..', 'lib', 'search'));
 const { readNewLines, parseWatchLines } = require(path.join(__dirname, '..', 'lib', 'watch'));
 const { PLATFORMS } = require(path.join(__dirname, '..', 'lib', 'platforms'));
 
@@ -50,7 +50,7 @@ describe('search session matcher', () => {
     assert.ok(m.matches[0].snippet.includes('alpha'));
   });
 
-  it('caps snippets at 3 per session and reports done once all keywords seen', () => {
+  it('caps ordinary searches at three snippets and reports done once all keywords are seen', () => {
     const m = createSessionMatcher(['kw']);
     for (let i = 0; i < 5; i++) m.consider(`kw hit ${i}`, 'user', null);
     assert.equal(m.matches.length, 3);
@@ -63,6 +63,52 @@ describe('search session matcher', () => {
     m.consider('only kw here', 'user', null);
     assert.equal(m.satisfied, false); // zzz missing → no snippet either
     assert.equal(m.matches.length, 0);
+  });
+});
+
+describe('structured search documents', () => {
+  it('splits a full path into basename and parent-path evidence terms', () => {
+    assert.deepEqual(
+      buildSearchKeywords('/Users/linda/Projects/demo/.codebuddy'),
+      ['codebuddy', '/users/linda/projects/demo']
+    );
+  });
+
+  it('indexes Codex command, cwd and stdout with stable source labels', () => {
+    const docs = extractSearchDocuments({
+      timestamp: '2026-09-15T09:19:16.602Z',
+      type: 'event_msg',
+      payload: {
+        type: 'item_completed',
+        item: {
+          type: 'CommandExecution',
+          id: 'exec-create-skill',
+          command: ['/bin/zsh', '-lc', 'agentbuddy skill add package --copy -y'],
+          cwd: 'file:///Users/linda/Projects/demo',
+          stdout: 'Installed to CodeBuddy',
+        },
+      },
+    });
+    assert.deepEqual(
+      docs.map((doc) => [doc.source, doc.messageId, doc.text]),
+      [
+        ['command', 'exec-create-skill', '/bin/zsh -lc agentbuddy skill add package --copy -y'],
+        ['working_directory', 'exec-create-skill', '/Users/linda/Projects/demo'],
+        ['tool_result', 'exec-create-skill', 'Installed to CodeBuddy'],
+      ]
+    );
+  });
+
+  it('ranks mutation evidence ahead of passive mentions', () => {
+    const matcher = createSessionMatcher(['codebuddy', '/users/linda/projects/demo']);
+    matcher.consider('/Users/linda/Projects/demo', 'session', 't0', { source: 'working_directory' });
+    matcher.consider('existing .codebuddy directory', 'toolResult', 't1', { source: 'tool_result' });
+    assert.equal(matcher.done, false);
+    matcher.consider('Installed to CodeBuddy', 'toolResult', 't2', { source: 'tool_result' });
+    assert.equal(matcher.satisfied, true);
+    assert.equal(matcher.done, true);
+    assert.equal(matcher.matches[0].evidenceType, 'mutation');
+    assert.match(matcher.matches[0].snippet, /Installed to CodeBuddy/);
   });
 });
 

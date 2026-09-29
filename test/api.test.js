@@ -398,6 +398,20 @@ describe('AgentXRay API', () => {
       assert.ok(results[0].matches[0].snippet.includes('search-needle-alpha'));
     });
 
+    it('finds structured tool results and combines them with the session cwd for full-path queries', async () => {
+      const toolResult = await getJson(srv.base, '/api/search?q=fixture-file.txt&platform=codex');
+      assert.equal(toolResult.length, 1);
+      assert.equal(toolResult[0].matches[0].source, 'tool_result');
+      assert.equal(toolResult[0].matches[0].messageId, 'call-fx-1');
+
+      const fullPath = encodeURIComponent('/fixtures/project-alpha/fixture-file.txt');
+      const pathResult = await getJson(srv.base, `/api/search?q=${fullPath}&platform=codex`);
+      assert.equal(pathResult.length, 1);
+      assert.equal(pathResult[0].sessionId, CODEX1);
+      assert.equal(pathResult[0].cwd, '/fixtures/project-alpha');
+      assert.match(pathResult[0].matches[0].snippet, /fixture-file\.txt/);
+    });
+
     it('maps Codex child-thread matches to the parent session', async () => {
       const results = await getJson(srv.base, '/api/search?q=child%20branch&platform=codex');
       assert.equal(results.length, 1);
