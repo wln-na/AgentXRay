@@ -279,7 +279,7 @@ test('buildTraceTurns pairs standalone toolCall→toolResult and flags errors', 
     estimatedDurationMs: 9000,
   };
   const turns = pure.buildTraceTurns(messages);
-  const tool = turns[0].spans.find((s) => s.toolCallId === 'call-1');
+  const tool = pure.flattenSpans(turns[0].spans).find((s) => s.toolCallId === 'call-1');
   assert.ok(tool, 'expected tool span for call-1');
   assert.equal(tool.kind, 'tool-error');
   assert.equal(tool.label, 'bash');
@@ -290,7 +290,7 @@ test('buildTraceTurns pairs standalone toolCall→toolResult and flags errors', 
 
 test('buildTraceTurns pairs content-part tool_use→tool_result in the owning turn', () => {
   const turns = pure.buildTraceTurns(syntheticMessages());
-  const tool = turns[1].spans.find((s) => s.toolCallId === 'call-2');
+  const tool = pure.flattenSpans(turns[1].spans).find((s) => s.toolCallId === 'call-2');
   assert.ok(tool, 'expected tool span for call-2');
   assert.equal(tool.kind, 'tool');
   assert.equal(tool.label, 'Read');
@@ -310,7 +310,7 @@ test('buildTraceTurns uses explicit estimates only when no measured tool result 
     },
   ];
   const turns = pure.buildTraceTurns(msgs);
-  const span = turns[0].spans.find((s) => s.toolCallId === 'estimated');
+  const span = pure.flattenSpans(turns[0].spans).find((s) => s.toolCallId === 'estimated');
   assert.equal(span.end, T0 + 4000);
   assert.equal(span.durationSource, 'estimated');
 });
@@ -334,12 +334,12 @@ test('buildTraceTurns attaches agentSpans to the turn they started in', () => {
     { name: 'Child2', start: T0 + 21000, end: null }, // no end → 50ms floor; label falls back to name
   ];
   const turns = pure.buildTraceTurns(syntheticMessages(), spans);
-  const a1 = turns[0].spans.find((s) => s.kind === 'agent');
+  const a1 = pure.flattenSpans(turns[0].spans).find((s) => s.kind === 'agent');
   assert.ok(a1, 'agent span in turn 1');
   assert.equal(a1.label, 'scout child');
   assert.equal(a1.agentName, 'Child1');
   assert.equal(turns[0].end, T0 + 15000); // turn end extended by the agent span
-  const a2 = turns[1].spans.find((s) => s.kind === 'agent');
+  const a2 = pure.flattenSpans(turns[1].spans).find((s) => s.kind === 'agent');
   assert.equal(a2.label, 'Child2');
   assert.equal(a2.end, T0 + 21000 + 50);
 });

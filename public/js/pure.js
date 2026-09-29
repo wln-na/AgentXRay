@@ -29,6 +29,7 @@ var __axrPure = (() => {
     clusterPrefillContent: () => clusterPrefillContent,
     escapeHtml: () => escapeHtml,
     firstInformativeLine: () => firstInformativeLine,
+    flattenSpans: () => flattenSpans,
     formatBytes: () => formatBytes,
     formatCost: () => formatCost,
     formatDurationCompact: () => formatDurationCompact,
@@ -40,6 +41,9 @@ var __axrPure = (() => {
   });
 
   // frontend/src/lib/pure.ts
+  function num(value) {
+    return typeof value === "number" && Number.isFinite(value) ? value : 0;
+  }
   function formatBytes(bytes) {
     if (!bytes) return "0 B";
     const units = ["B", "KB", "MB", "GB", "TB"];
@@ -111,6 +115,85 @@ var __axrPure = (() => {
     }
     return examples[0];
   }
+  var TOOL_SUBJECT_FIELDS = [
+    // Shell / command
+    "command",
+    "cmd",
+    "code",
+    "script",
+    "shell",
+    "bash",
+    // File paths
+    "file_path",
+    "path",
+    "file",
+    "filename",
+    "file_name",
+    "source",
+    "target",
+    "destination",
+    // Search / query
+    "pattern",
+    "query",
+    "search",
+    "keyword",
+    "keywords",
+    "regex",
+    // URL / web
+    "url",
+    "uri",
+    "endpoint",
+    "link",
+    // Generic
+    "skill",
+    "subject",
+    "description",
+    "prompt",
+    "name",
+    "title",
+    "input",
+    "content",
+    "text",
+    // Database
+    "sql",
+    "database",
+    "db",
+    "table",
+    // Git
+    "branch",
+    "commit",
+    "message"
+  ];
+  var TOOL_SUBJECT_MAX_CHARS = 80;
+  function extractToolSubject(args) {
+    if (args == null) return "";
+    let raw = "";
+    if (typeof args === "string") {
+      raw = args;
+    } else if (typeof args === "object") {
+      const o = args;
+      const pick = TOOL_SUBJECT_FIELDS.map((k) => o[k]).find((v) => typeof v === "string" && v.trim().length > 0 || Array.isArray(v));
+      if (pick === void 0) return "";
+      raw = Array.isArray(pick) ? String(pick[pick.length - 1] ?? "").trim() : String(pick).trim();
+    }
+    if (!raw) return "";
+    if (raw.startsWith("{") && raw.length > 200) {
+      for (const key of TOOL_SUBJECT_FIELDS) {
+        const m = raw.match(new RegExp(`"${key}"\\s*:\\s*"((?:[^"\\\\]|\\\\.)*)"`));
+        if (m) {
+          try {
+            const v = JSON.parse(`"${m[1]}"`);
+            if (typeof v === "string" && v.trim()) raw = v.trim();
+            break;
+          } catch {
+          }
+        }
+      }
+    }
+    const collapsed = raw.replace(/\s+/g, " ").trim();
+    if (!collapsed) return "";
+    return collapsed.length > TOOL_SUBJECT_MAX_CHARS ? `${collapsed.slice(0, TOOL_SUBJECT_MAX_CHARS)}…` : collapsed;
+  }
   function buildTraceTurns(msgs, agentSpans = []) {
     const ts = (m) => parseTimestampMs(m.timestamp);
     const calls = /* @__PURE__ */ new Map();
@@ -122,7 +205,8 @@ var __axrPure = (() => {
           name: m.toolName || "?",
           ts: t,
           msgId: m.id,
-          estimatedDurationMs: typeof m.details?.estimatedDurationMs === "number" && m.details.estimatedDurationMs > 0 ? m.details.estimatedDurationMs : null
+          estimatedDurationMs: typeof m.details?.estimatedDurationMs === "number" && m.details.estimatedDurationMs > 0 ? m.details.estimatedDurationMs : null,
+          args: m.details ?? null
         });
       if (m.role === "toolResult" && m.toolCallId) results.set(m.toolCallId, { ts: t, isError: !!m.isError });
       for (const c of m.content || []) {
@@ -131,7 +215,8 @@ var __axrPure = (() => {
             name: c.name || "?",
             ts: t,
             msgId: m.id,
-            estimatedDurationMs: typeof c.estimatedDurationMs === "number" && c.estimatedDurationMs > 0 ? c.estimatedDurationMs : null
+            estimatedDurationMs: typeof c.estimatedDurationMs === "number" && c.estimatedDurationMs > 0 ? c.estimatedDurationMs : null,
+            args: c.arguments ?? c.input ?? null
           });
         if (c.type === "tool_result" && c.tool_use_id) results.set(c.tool_use_id, { ts: t, isError: !!c.is_error });
       }
@@ -155,17 +240,36 @@ var __axrPure = (() => {
         prevTs = t;
       }
       if (m.role === "assistant" && prevTs && t > prevTs) {
-        turn.spans.push({
+        const chatText = getTextContent(m.content || []);
+        const u = m.usage || {};
+        const inputTokens = num(u.input) || num(u.input_tokens);
+        const outputTokens = num(u.output) || num(u.output_tokens);
+        const cacheReadTokens = num(u.cacheRead) || num(u.cache_read);
+        const cacheWriteTokens = num(u.cacheWrite) || num(u.cache_write);
+        const reasoningTokens = num(u.reasoning) || num(u.reasoning_tokens);
+        const totalTokens = inputTokens + outputTokens + cacheReadTokens + cacheWriteTokens + reasoningTokens;
+        const span = {
           kind: "chat",
           label: (m.model || "model").split("/").pop(),
           start: prevTs,
           end: t,
-          msgId: m.id
-        });
+          msgId: m.id,
+          hasText: chatText.trim().length > 0
+        };
+        if (totalTokens > 0) {
+          span.inputTokens = inputTokens || void 0;
+          span.outputTokens = outputTokens || void 0;
+          span.cacheReadTokens = cacheReadTokens || void 0;
+          span.cacheWriteTokens = cacheWriteTokens || void 0;
+          span.reasoningTokens = reasoningTokens || void 0;
+          span.totalTokens = totalTokens;
+        }
+        turn.spans.push(span);
       }
       if (m.role !== "reasoning") prevTs = t;
       turn.end = Math.max(turn.end, t);
     }
+    turns.sort((a, b) => a.start - b.start);
     for (const [cid, c] of calls) {
       if (!c.ts) continue;
       const r = results.get(cid);
@@ -185,7 +289,8 @@ var __axrPure = (() => {
         end,
         durationSource: measured ? "measured" : estimated ? "estimated" : "unknown",
         msgId: c.msgId,
-        toolCallId: cid
+        toolCallId: cid,
+        subject: extractToolSubject(c.args)
       });
       owner.end = Math.max(owner.end, end);
     }
@@ -201,8 +306,64 @@ var __axrPure = (() => {
       owner.spans.push({ kind: "agent", label: a.label || a.name, start: a.start, end, agentName: a.name });
       owner.end = Math.max(owner.end, end);
     }
-    for (const tn of turns) tn.spans.sort((a, b) => a.start - b.start);
+    const SPAN_KIND_ORDER = {
+      chat: 0,
+      agent: 1,
+      tool: 2,
+      "tool-error": 3
+    };
+    for (const tn of turns) {
+      tn.spans.sort((a, b) => {
+        if (a.start !== b.start) return a.start - b.start;
+        const ko = SPAN_KIND_ORDER[a.kind] - SPAN_KIND_ORDER[b.kind];
+        if (ko !== 0) return ko;
+        return a.label.localeCompare(b.label);
+      });
+      let lastTextChat = null;
+      for (const s of tn.spans) {
+        if (s.kind === "chat" && s.hasText) lastTextChat = s;
+      }
+      if (lastTextChat) lastTextChat.isFinalReply = true;
+      tn.spans = treeifySpans(tn.spans);
+    }
     return turns.filter((tn) => tn.spans.length > 0);
+  }
+  function treeifySpans(spans) {
+    const chatByMsgId = /* @__PURE__ */ new Map();
+    const roots = [];
+    let lastChat = null;
+    for (const s of spans) {
+      if (s.kind === "chat") {
+        s.children = [];
+        s.depth = 0;
+        if (s.msgId) chatByMsgId.set(s.msgId, s);
+        lastChat = s;
+        roots.push(s);
+      }
+    }
+    for (const s of spans) {
+      if (s.kind === "chat") continue;
+      const parent = s.msgId && chatByMsgId.get(s.msgId) || lastChat;
+      if (parent) {
+        s.depth = 1;
+        parent.children.push(s);
+      } else {
+        s.depth = 0;
+        roots.push(s);
+      }
+    }
+    for (const r of roots) {
+      if (r.children) r.children.sort((a, b) => a.start - b.start);
+    }
+    return roots;
+  }
+  function flattenSpans(spans) {
+    const out = [];
+    for (const s of spans) {
+      out.push(s);
+      if (s.children && s.children.length > 0) out.push(...flattenSpans(s.children));
+    }
+    return out;
   }
 
   // frontend/src/lib/markdown.ts
