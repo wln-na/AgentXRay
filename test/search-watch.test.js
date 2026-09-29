@@ -9,7 +9,9 @@ const fsp = require('node:fs/promises');
 const os = require('node:os');
 const path = require('node:path');
 
-const { extractSnippet, createSessionMatcher, buildSearchKeywords, extractSearchDocuments } = require(path.join(__dirname, '..', 'lib', 'search'));
+const { extractSnippet, createSessionMatcher, buildSearchKeywords, extractSearchDocuments } = require(
+  path.join(__dirname, '..', 'lib', 'search')
+);
 const { readNewLines, parseWatchLines } = require(path.join(__dirname, '..', 'lib', 'watch'));
 const { PLATFORMS } = require(path.join(__dirname, '..', 'lib', 'platforms'));
 
@@ -68,10 +70,7 @@ describe('search session matcher', () => {
 
 describe('structured search documents', () => {
   it('splits a full path into basename and parent-path evidence terms', () => {
-    assert.deepEqual(
-      buildSearchKeywords('/workspace/demo/.codebuddy'),
-      ['codebuddy', '/workspace/demo']
-    );
+    assert.deepEqual(buildSearchKeywords('/workspace/demo/.codebuddy'), ['codebuddy', '/workspace/demo']);
   });
 
   it('indexes Codex command, cwd and stdout with stable source labels', () => {
