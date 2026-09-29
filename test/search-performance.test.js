@@ -10,10 +10,16 @@ const {
   clearSearchFileCache,
   ripgrepCandidatePaths,
   prefilterJsonlFiles,
+  stripTrailingSlashes,
 } = require('../lib/search');
 
 describe('search execution optimizations', () => {
   beforeEach(() => clearSearchFileCache());
+
+  it('strips a very long run of trailing slashes without regex backtracking', () => {
+    const value = `/workspace/demo${'/'.repeat(100_000)}`;
+    assert.equal(stripTrailingSlashes(value), '/workspace/demo');
+  });
 
   it('runs bounded work concurrently while preserving input order', async () => {
     let active = 0;
