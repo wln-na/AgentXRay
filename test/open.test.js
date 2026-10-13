@@ -35,6 +35,23 @@ const CLAUDE_ID = 'aaaa1111-2222-4333-8444-555566667777';
 const OMP_ID = '2026-01-20T08-00-00-000Z_019a0000-0000-7000-8000-00000000aaaa';
 const GEMINI_ID = 'gemini-fixture-session-0002';
 
+// The unit tests below pass __filename (the test file itself) as a stand-in
+// log path: it exists on disk, so the access check passes. It is not inside a
+// real session root, so the allowlist check needs this directory as an extra
+// root (a test-only extension; production roots come from lib/config).
+const TEST_EXTRA_ROOT = path.dirname(__filename);
+
+// Exact check for the doubao session deep link (https://www.doubao.com/chat/<id>):
+// parse and compare origin + path prefix instead of a bare substring match.
+function isDoubaoChatUrl(arg) {
+  try {
+    const u = new URL(String(arg));
+    return u.protocol === 'https:' && u.hostname === 'www.doubao.com' && u.pathname.startsWith('/chat/');
+  } catch {
+    return false;
+  }
+}
+
 // A fake runner that records (file, args) instead of executing anything.
 function recordingRunner() {
   const calls = [];
@@ -113,7 +130,7 @@ test('escapeAppleScript escapes backslashes and double quotes', () => {
 test('locateSession reveals an existing file in Finder (open -R)', async () => {
   const { run, calls } = recordingRunner();
   // Use the test file itself: it exists on disk, so the access check passes.
-  const result = await locateSession(__filename, { isMac: true, run });
+  const result = await locateSession(__filename, { isMac: true, run, extraRoots: [TEST_EXTRA_ROOT] });
   assert.equal(result.ok, true);
   assert.equal(result.action, 'locate');
   assert.deepEqual(calls, [{ file: 'open', args: ['-R', __filename] }]);
@@ -221,7 +238,11 @@ test('openSession launches the owning app for claude-desktop (Claude)', async ()
 
 test('openSession falls back to the default editor when the Claude app is missing', async () => {
   const { run, calls } = failAppLaunchRunner();
-  const result = await openSession('claude-desktop', 'abc123', __filename, '/p', { isMac: true, run });
+  const result = await openSession('claude-desktop', 'abc123', __filename, '/p', {
+    isMac: true,
+    run,
+    extraRoots: [TEST_EXTRA_ROOT],
+  });
   assert.equal(result.ok, true);
   assert.match(result.detail, /默认应用打开/);
   assert.equal(calls.length, 2);
@@ -276,7 +297,7 @@ test('openSession falls back to the app launch when the doubao deep link fails',
   const calls = [];
   async function run(file, args) {
     calls.push({ file, args });
-    if (file === 'open' && args.some((a) => String(a).includes('https://www.doubao.com/chat/'))) {
+    if (file === 'open' && args.some((a) => isDoubaoChatUrl(a))) {
       throw new Error('doubao deep link rejected');
     }
     return '';
@@ -296,7 +317,7 @@ test('openSession falls back to the display-name launch when both the doubao dee
   const calls = [];
   async function run(file, args) {
     calls.push({ file, args });
-    if (file === 'open' && args.some((a) => String(a).includes('https://www.doubao.com/chat/'))) {
+    if (file === 'open' && args.some((a) => isDoubaoChatUrl(a))) {
       throw new Error('doubao deep link rejected');
     }
     if (file === 'open' && args[0] === '-b') throw new Error('unknown bundle id');
@@ -325,6 +346,7 @@ test('openSession opens the log file with the default app for file-based platfor
   const result = await openSession('gemini', 'abc123', __filename, '/p', {
     isMac: true,
     run,
+    extraRoots: [TEST_EXTRA_ROOT],
   });
   assert.equal(result.ok, true);
   assert.deepEqual(calls, [{ file: 'open', args: [__filename] }]);
