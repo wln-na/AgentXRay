@@ -189,7 +189,9 @@ test('openSession falls back to a plain app launch when the codex deep link fail
   ]);
 });
 
-test('openSession falls back to terminal resume when both the deep link and the app are unavailable (codex)', { skip: !IS_MAC }, async () => {
+test('openSession falls back to terminal resume when both the deep link and the app are unavailable (codex)', {
+  skip: !IS_MAC,
+}, async () => {
   const { run, calls } = failAppLaunchRunner();
   const result = await openSession('codex', 'abc123', '/logs/abc123.jsonl', '/work dir', {
     isMac: true,
