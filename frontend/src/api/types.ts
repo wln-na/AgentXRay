@@ -13,6 +13,7 @@ export type Platform =
   | 'omp'
   | 'dsh'
   | 'gemini'
+  | 'cursor'
   | 'doubao';
 
 export type PlatformCapability = 'search' | 'context' | 'backup' | 'spawn' | 'watch';
@@ -30,6 +31,7 @@ export const PLATFORMS: Platform[] = [
   'omp',
   'dsh',
   'gemini',
+  'cursor',
   'doubao',
 ];
 
@@ -42,6 +44,7 @@ export const PLATFORM_LABELS: Record<Platform, string> = {
   omp: 'OMP',
   dsh: 'DeepSeek Harness',
   gemini: 'Gemini CLI',
+  cursor: 'Cursor',
   doubao: 'Doubao',
 };
 
@@ -207,6 +210,28 @@ export interface SessionDetail {
   tokenUsage?: MessageUsage | null;
   contextUsage?: ContextUsage | null;
   stats?: SessionStats | null;
+}
+
+/** POST /api/<platform>/sessions/:id/open — one-click locate/open a session. */
+export interface OpenSessionResult {
+  ok: boolean;
+  action?: 'locate' | 'open';
+  detail?: string;
+  error?: string;
+  fallback?: {
+    type: 'copy-path' | 'copy-command';
+    path?: string;
+    command?: string;
+  } | null;
+  /**
+   * Advisory "active elsewhere" signal: another process is currently holding
+   * the session log open (e.g. the ChatGPT app writing a codex rollout), so
+   * the session is in active use elsewhere and may not refresh in this view.
+   */
+  hint?: {
+    pid: string;
+    process: string | null;
+  } | null;
 }
 
 /** Item of GET /api/{omp,claude-code}/sessions/:id/children */
@@ -454,11 +479,19 @@ export interface SearchMatch {
   role: string;
   snippet: string;
   timestamp: string | null;
+  messageId?: string | null;
+  source?: 'message' | 'reasoning' | 'tool_arguments' | 'command' | 'tool_result' | 'working_directory' | string;
+  toolName?: string | null;
+  matchedTerm?: string;
+  score?: number;
+  evidenceType?: 'mutation' | string;
+  action?: string;
 }
 
 /** Item of GET /api/search */
 export interface SearchResult {
-  sessionId: string;
+  sessionId: string | null;
+  childSessionId?: string;
   file: string;
   platform: string;
   matches: SearchMatch[];
@@ -466,6 +499,10 @@ export interface SearchResult {
   /** true → a Claude-cleaned history entry: display-only, not clickable */
   history?: boolean;
   project?: string;
+  cwd?: string;
+  originator?: string;
+  agentRole?: string;
+  agentNickname?: string;
   [key: string]: unknown;
 }
 

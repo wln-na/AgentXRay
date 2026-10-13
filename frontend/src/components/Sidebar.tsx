@@ -126,7 +126,7 @@ export function Sidebar({
     try {
       const results = await searchSessions(q, settings, platform);
       if (searchRequestRef.current !== requestId) return;
-      setMatchedSessionIds(new Set(results.map((result) => result.sessionId)));
+      setMatchedSessionIds(new Set(results.flatMap((result) => result.sessionId ? [result.sessionId] : [])));
     } catch (searchError) {
       if (searchRequestRef.current !== requestId) return;
       setMatchedSessionIds(null);
@@ -174,16 +174,19 @@ export function Sidebar({
 
   const sidebarContent = (
     <aside
-      className="flex h-full min-h-0 flex-col gap-3 overflow-hidden border-r border-border bg-panel-alt/95 p-4"
+      className="flex h-full min-h-0 flex-col gap-3 overflow-hidden border-r border-border/60 bg-panel-alt/70 p-4 backdrop-blur-sm"
       aria-label="会话列表与筛选"
     >
       <div className="flex items-center justify-between">
         <div className="min-w-0">
-          <h1 className="truncate text-lg font-semibold tracking-wide">AgentXRay</h1>
-          <div className="text-xs text-muted-foreground">{PLATFORM_LABELS[platform]} 会话</div>
+          <div className="flex items-center gap-2">
+            <span className="inline-block h-2.5 w-2.5 shrink-0 rounded-full bg-gradient-to-br from-primary to-assistant shadow-soft-sm" />
+            <h1 className="truncate text-[17px] font-semibold tracking-tight">AgentXRay</h1>
+          </div>
+          <div className="mt-0.5 pl-[18px] text-[11px] font-medium text-muted-foreground">{PLATFORM_LABELS[platform]} 会话</div>
         </div>
         <div className="flex items-center gap-1">
-          <Button variant="outline" size="icon" title="设置" onClick={() => setSettingsOpen(true)}>
+          <Button variant="ghost" size="icon" title="设置" onClick={() => setSettingsOpen(true)} className="rounded-full">
             <Settings className="h-4 w-4" />
           </Button>
           <Button
@@ -191,7 +194,7 @@ export function Sidebar({
             size="icon"
             title="关闭会话列表"
             aria-label="关闭会话列表"
-            className="lg:hidden"
+            className="rounded-full lg:hidden"
             onClick={() => onMobileOpenChange(false)}
           >
             <X className="h-5 w-5" />
@@ -215,13 +218,14 @@ export function Sidebar({
               e.preventDefault();
               const q = filterTerm.trim();
               if (!q) return;
-              runPlatformSearch(q);
+              setCmdkSeed(q);
+              setCmdkOpen(true);
             } else if (e.key === 'Escape') {
               clearSearch();
             }
           }}
-          placeholder="输入过滤 · 回车全文搜索当前平台"
-          title="直接输入：按 ID/标题/首条消息过滤列表；按回车：在当前平台全文搜索；Esc 清除"
+          placeholder="输入过滤 · 回车查看历史命中证据"
+          title="直接输入：按 ID/标题/首条消息过滤列表；按回车：跨平台搜索消息、思考、工具参数、命令和结果；Esc 清除"
           className="pl-7 pr-16 text-xs"
         />
         {filterTerm ? (
@@ -292,14 +296,12 @@ export function Sidebar({
         isSearching={isSearching}
         onSessionSelected={() => onMobileOpenChange(false)}
       />
-      <SettingsDialog open={settingsOpen} onOpenChange={setSettingsOpen} />
-      <CmdkDialog open={cmdkOpen} onOpenChange={setCmdkOpen} seedQuery={cmdkSeed} />
     </aside>
   );
 
   return (
     <>
-      <div className="hidden min-h-0 lg:block">{sidebarContent}</div>
+      <div className="hidden h-full min-h-0 lg:block">{sidebarContent}</div>
       {mobileOpen ? (
         <div className="fixed inset-0 z-50 lg:hidden" role="dialog" aria-modal="true" aria-label="会话列表">
           <button
@@ -311,6 +313,8 @@ export function Sidebar({
           <div className="absolute inset-y-0 left-0 w-[min(88vw,360px)] shadow-xl">{sidebarContent}</div>
         </div>
       ) : null}
+      <SettingsDialog open={settingsOpen} onOpenChange={setSettingsOpen} />
+      <CmdkDialog open={cmdkOpen} onOpenChange={setCmdkOpen} seedQuery={cmdkSeed} />
     </>
   );
 }

@@ -6,6 +6,7 @@
 import { useEffect, useState } from 'react';
 import type { ContextSnapshot, Platform, SessionMessage } from '@/api/types';
 import { getSessionContext } from '@/api/client';
+import { DEMO } from '@/demo/flag';
 import { getTextContent } from '@/lib/pure';
 import { cn } from '@/lib/utils';
 
@@ -92,6 +93,7 @@ export function ContextPanel({
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
+    if (DEMO) return;
     let cancelled = false;
     setLoading(true);
     setError(null);
@@ -109,6 +111,14 @@ export function ContextPanel({
       cancelled = true;
     };
   }, [platform, sessionId, messageIndex, messageId, dir]);
+
+  if (DEMO) {
+    return (
+      <div className="rounded-md border border-[#58a6ff]/30 bg-[#58a6ff]/5 px-2.5 py-2 text-[11px] text-[#58a6ff]">
+        💡 演示模式不支持上下文重建。连接本地 AgentXRay 后端（<code className="font-mono">npm start</code>）后，可在真实会话中查看模型重建的完整上下文。
+      </div>
+    );
+  }
 
   if (loading) {
     return <div className="px-2 py-3 text-center text-[11px] text-muted-foreground">正在重建上下文…</div>;

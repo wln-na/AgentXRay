@@ -672,10 +672,12 @@ describe('backup', () => {
 
   it('copies every session log once, then skips everything on the second run', async () => {
     const first = await sendJson(srv.base, 'POST', '/api/backup', undefined);
-    // codex 6 + claude-code 4 + omp 3 + dsh 2 + gemini 3 + openclaw 2 + claude-desktop 2 + doubao 1.
-    assert.equal(first.copied, 23);
+    // codex 6 + claude-code 4 + omp 3 + dsh 2 + gemini 3 + openclaw 2 +
+    // claude-desktop 2 + cursor 2 + doubao 1. (Cursor fixture has 2 main
+    // transcripts; its subagent transcript is deliberately excluded.)
+    assert.equal(first.copied, 25);
     assert.equal(first.skipped, 0);
-    assert.equal(first.total, 23);
+    assert.equal(first.total, 25);
     assert.deepEqual(first.byPlatform.openclaw, {
       copied: 2,
       skipped: 0,
@@ -758,12 +760,12 @@ describe('backup', () => {
 
     const second = await sendJson(srv.base, 'POST', '/api/backup', undefined);
     assert.equal(second.copied, 0);
-    assert.equal(second.skipped, 23);
-    assert.equal(second.total, 23);
+    assert.equal(second.skipped, 25);
+    assert.equal(second.total, 25);
 
     const status = await getJson(srv.base, '/api/backup/status');
     assert.equal(status.archiveDir, first.archiveDir);
-    assert.equal(status.files, 23);
+    assert.equal(status.files, 25);
     assert.ok(status.bytes > 0);
     assert.ok(typeof status.lastBackup === 'string');
   });

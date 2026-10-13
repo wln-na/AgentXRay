@@ -933,3 +933,112 @@ export function healthLabel(score: number): string {
   if (score >= 20) return '较差';
   return '异常';
 }
+
+// ─── Tool-call argument rendering helpers ─────────────────────────────────
+// Codex/OMP persist tool arguments as raw JSON strings (e.g.
+// "{\"patch\":\"*** Update File: src/x.ts\\n@@\\n-…\"}"), and Codex's
+// custom_tool_call records may store the raw generated code instead
+// (`const patch = \"…\"; text(await tools.apply_patch(patch));`). The UI used
+// to JSON.stringify those strings a second time, so quotes and newlines
+// surfaced escaped. These helpers normalise any persisted shape into
+// renderable text and detect diff-shaped payloads for the diff view.
+
+export interface ParsedToolArgs {
+  /** Normalised object when the payload parsed to a JSON object. */
+  object: Record<string, unknown> | null;
+  /** Unescaped, human-readable text (pretty JSON or raw text). */
+  text: string;
+  /** True when the payload was a JSON string that we successfully parsed. */
+  wasJsonString: boolean;
+}
+
+/** Normalise persisted tool arguments into an object + unescaped text.
+ *  JSON strings (Codex/OMP) are parsed, so `\"` and `\n` become real quotes
+ *  and newlines; objects are pretty-printed; anything else stays raw text. */
+export function parseToolArguments(args: unknown): ParsedToolArgs {
+  if (args == null) return { object: null, text: '', wasJsonString: false };
+  if (typeof args === 'string') {
+    const trimmed = args.trim();
+    if (trimmed) {
+      try {
+        const parsed = JSON.parse(trimmed);
+        if (parsed !== null && typeof parsed === 'object') {
+          return { object: parsed as Record<string, unknown>, text: JSON.stringify(parsed, null, 2), wasJsonString: true };
+        }
+        return { object: null, text: String(parsed), wasJsonString: true };
+      } catch {
+        // not JSON — raw text (e.g. Codex custom tool pseudo-code)
+        return { object: null, text: args, wasJsonString: false };
+      }
+    }
+    return { object: null, text: '', wasJsonString: false };
+  }
+  if (typeof args === 'object') {
+    return { object: args as Record<string, unknown>, text: JSON.stringify(args, null, 2), wasJsonString: false };
+  }
+  return { object: null, text: String(args), wasJsonString: false };
+}
+
+const PATCH_FILE_MARKERS = ['*** Begin Patch', '*** Update File:', '*** Add File:', '*** Delete File:', 'diff --git '];
+
+/** True when the text looks like an apply_patch / unified diff payload:
+ *  a file header line plus at least one hunk or +/- change line. */
+export function detectPatch(text: string): boolean {
+  if (!text) return false;
+  const lines = text.split('\n');
+  const hasFileHeader = lines.some((l) => PATCH_FILE_MARKERS.some((m) => l.includes(m)));
+  const hasHunk = lines.some((l) => l.startsWith('@@'));
+  const hasChange = lines.some((l) => l.startsWith('+') || l.startsWith('-'));
+  return hasFileHeader && (hasHunk || hasChange);
+}
+
+/** Best-effort extraction of a quoted patch payload embedded in raw tool-call
+ *  code (Codex custom_tool_call: `const patch = \"…\"; text(await …)`).
+ *  Returns null when no decodable quoted patch-looking string is present. */
+export function extractEmbeddedPatch(text: string): string | null {
+  if (!text) return null;
+  if (!text.includes('*** ') && !text.includes('diff --git') && !text.includes('@@')) return null;
+  const re = /"((?:[^"\\]|\\.)*)"/g;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(text))) {
+    const body = m[1];
+    if (!body.includes('*** ') && !body.includes('diff --git') && !body.includes('@@')) continue;
+    try {
+      const decoded = JSON.parse(`"${body}"`);
+      if (typeof decoded === 'string' && decoded.length > 10 && detectPatch(decoded)) return decoded;
+    } catch {
+      /* not a decodable string literal — try the next quoted region */
+    }
+  }
+  return null;
+}
+
+export type DiffSegmentType = 'file' | 'hunk' | 'add' | 'del' | 'context';
+
+export interface DiffSegment {
+  type: DiffSegmentType;
+  text: string;
+}
+
+/** Split patch text into colour-coded segments for the diff view:
+ *  file headers (`*** Update File:` / `diff --git` / `---` / `+++`),
+ *  hunk headers (`@@ … @@`), added (`+`), removed (`-`) and context lines. */
+export function diffLineSegments(text: string): DiffSegment[] {
+  const lines = text.split('\n');
+  // A trailing newline yields a phantom empty final line — drop it.
+  if (lines.length > 1 && lines[lines.length - 1] === '') lines.pop();
+  return lines.map((line) => {
+    if (
+      line.startsWith('*** ') ||
+      line.startsWith('diff --git ') ||
+      line.startsWith('--- ') ||
+      line.startsWith('+++ ') ||
+      line.startsWith('index ')
+    )
+      return { type: 'file', text: line };
+    if (line.startsWith('@@')) return { type: 'hunk', text: line };
+    if (line.startsWith('+')) return { type: 'add', text: line };
+    if (line.startsWith('-')) return { type: 'del', text: line };
+    return { type: 'context', text: line };
+  });
+}

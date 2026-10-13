@@ -44,11 +44,20 @@ export default {
         user: 'hsl(var(--user))',
         assistant: 'hsl(var(--assistant))',
         danger: 'hsl(var(--danger))',
+        success: 'hsl(var(--success))',
+        warning: 'hsl(var(--warning))',
       },
       borderRadius: {
         lg: 'var(--radius)',
         md: 'calc(var(--radius) - 2px)',
         sm: 'calc(var(--radius) - 4px)',
+        xl: 'calc(var(--radius) + 4px)',
+        '2xl': 'calc(var(--radius) + 8px)',
+      },
+      boxShadow: {
+        soft: 'var(--shadow-md)',
+        'soft-lg': 'var(--shadow-lg)',
+        'soft-sm': 'var(--shadow-sm)',
       },
       fontFamily: {
         mono: [
@@ -60,10 +69,14 @@ export default {
           'monospace',
         ],
         sans: [
+          'Inter',
           'ui-sans-serif',
           '-apple-system',
           'BlinkMacSystemFont',
           'Segoe UI',
+          'PingFang SC',
+          'Hiragino Sans GB',
+          'Microsoft YaHei',
           'sans-serif',
         ],
       },

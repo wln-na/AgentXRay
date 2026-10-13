@@ -5,6 +5,7 @@
 import { createContext, useContext } from 'react';
 import type { MessageContentPart, Platform, SessionMessage } from '@/api/types';
 import { Markdown } from '@/components/Markdown';
+import { ToolCallViewer } from '@/components/ToolCallViewer';
 import { formatDurationCompact, getTextContent } from '@/lib/pure';
 import { cn } from '@/lib/utils';
 import type { TimingMeta } from './lib';
@@ -86,15 +87,15 @@ function Collapse({
     <details
       data-link-id={anchorId}
       className={cn(
-        'group my-1 rounded-md border',
-        error ? 'border-destructive/50 bg-destructive/5' : 'border-border bg-secondary/40'
+        'group my-1.5 rounded-xl border',
+        error ? 'border-destructive/30 bg-destructive/[0.04]' : 'border-border/60 bg-secondary/50'
       )}
     >
-      <summary className="flex cursor-pointer list-none items-center justify-between gap-2 px-2 py-1.5 text-xs [&::-webkit-details-marker]:hidden">
+      <summary className="flex cursor-pointer list-none items-center justify-between gap-2 px-3 py-2 text-xs [&::-webkit-details-marker]:hidden">
         <span className="flex min-w-0 items-center gap-1.5 truncate">{header}</span>
         <span className="shrink-0 text-[10px] text-muted-foreground transition-transform group-open:rotate-90">▶</span>
       </summary>
-      <div className="border-t border-border/60 px-2 py-1.5">{children}</div>
+      <div className="border-t border-border/50 px-3 py-2.5">{children}</div>
     </details>
   );
 }
@@ -149,7 +150,7 @@ export function ToolCallPart({ part }: { part: MessageContentPart }) {
               {status}
             </div>
           ) : null}
-          {hasArguments ? <pre className={PRE_CLASS}>{JSON.stringify(part.arguments, null, 2)}</pre> : null}
+          {hasArguments ? <ToolCallViewer args={part.arguments} /> : null}
           {content ? <pre className={PRE_CLASS}>{content}</pre> : null}
           {!hasArguments && !summary && !path && !content && !status ? (
             <div className="text-[11px] text-muted-foreground">源会话未记录该工具调用的详细内容。</div>
@@ -239,8 +240,8 @@ export function GraphLane({ message }: { message: SessionMessage }) {
         : 'bg-[hsl(var(--assistant))]';
   return (
     <div className="relative flex w-4 shrink-0 justify-center">
-      <div className="absolute inset-y-0 w-px bg-border" />
-      <span title={tip} className={cn('relative mt-3 h-2.5 w-2.5 rounded-full', cls)} />
+      <div className="absolute inset-y-0 w-px bg-border/70" />
+      <span title={tip} className={cn('relative mt-3 h-2.5 w-2.5 rounded-full ring-2 ring-card', cls)} />
     </div>
   );
 }
@@ -272,7 +273,7 @@ export function MessageBubble({
     return (
       <article
         id={`message-${anchor}`}
-        className="rounded-lg border border-[hsl(var(--user))]/40 bg-[hsl(var(--user))]/10 p-2.5"
+        className="rounded-2xl rounded-tl-md border border-primary/15 bg-primary/[0.06] p-4 shadow-soft-sm"
       >
         <MessageHead
           role={<span className="font-semibold text-primary">User</span>}
@@ -326,7 +327,7 @@ export function MessageBubble({
     return (
       <article
         id={`message-${anchor}`}
-        className="rounded-lg border border-border/60 bg-card/50 p-2.5 opacity-75"
+        className="rounded-2xl rounded-tl-md border border-border/60 bg-card/60 p-4 opacity-80"
       >
         <MessageHead
           role={<span className="font-semibold text-muted-foreground">Reasoning</span>}
@@ -342,7 +343,7 @@ export function MessageBubble({
     return (
       <article
         id={`message-${anchor}`}
-        className="rounded-lg border border-border bg-card p-2.5"
+        className="rounded-2xl rounded-tl-md border border-border/70 bg-card p-4 shadow-soft-sm"
       >
         <MessageHead
           role={<span className="font-semibold">Tool Call</span>}
@@ -359,7 +360,7 @@ export function MessageBubble({
             </>
           }
         >
-          <pre className={PRE_CLASS}>{JSON.stringify(message.details || {}, null, 2)}</pre>
+          <ToolCallViewer args={message.details} />
         </Collapse>
       </article>
     );
@@ -368,9 +369,9 @@ export function MessageBubble({
   if (message.role === 'assistant') {
     const toolCalls = (message.content || []).filter((c) => c.type === 'toolCall');
     return (
-      <article id={`message-${anchor}`} className="rounded-lg border border-[hsl(var(--assistant))]/40 bg-card p-2.5">
+      <article id={`message-${anchor}`} className="rounded-2xl rounded-tl-md border border-assistant/20 bg-card p-4 shadow-soft-sm">
         <MessageHead
-          role={<span className="font-semibold text-[hsl(var(--assistant))]">Assistant</span>}
+          role={<span className="font-semibold text-assistant">Assistant</span>}
           meta={
             <>
               <span className="text-muted-foreground">{message.model || 'model not recorded'}</span>
@@ -403,8 +404,8 @@ export function MessageBubble({
     <article
       id={`tool-result-${message.toolCallId || anchor}`}
       className={cn(
-        'rounded-lg border p-2.5',
-        message.isError ? 'border-destructive/60 bg-destructive/10' : 'border-border bg-card'
+        'rounded-2xl rounded-tl-md border p-4 shadow-soft-sm',
+        message.isError ? 'border-destructive/30 bg-destructive/[0.05]' : 'border-border/70 bg-card'
       )}
     >
       <MessageHead

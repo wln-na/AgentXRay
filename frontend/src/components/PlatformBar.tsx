@@ -24,6 +24,7 @@ const PLATFORM_TIPS: Record<Platform, string> = {
   omp: 'oh-my-pi 会话（~/.omp/agent/sessions）',
   dsh: 'DeepSeek Harness 会话（~/.dsh/sessions）',
   gemini: 'Gemini CLI 会话（~/.gemini/tmp）',
+  cursor: 'Cursor Agent 会话（~/.cursor/projects）',
   doubao: 'Doubao 会话（~/.doubao/agent_mode/workspace/.sessions）',
 };
 
@@ -51,19 +52,19 @@ export function PlatformBar({ onOpenSessions }: { onOpenSessions: () => void }) 
   const collapsed = PLATFORMS.filter((p) => isCollapsed(p));
 
   return (
-    <div className="flex min-h-14 items-center gap-2 border-b border-border bg-panel-alt/95 px-2 py-2 sm:px-3">
+    <div className="flex min-h-14 items-center gap-2 border-b border-border/70 bg-panel-alt/80 px-2 py-2 backdrop-blur-sm sm:px-3">
       <button
         type="button"
         title="打开会话列表"
         aria-label="打开会话列表"
         onClick={onOpenSessions}
-        className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-md border border-border text-muted-foreground hover:border-primary/40 hover:text-foreground lg:hidden"
+        className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground lg:hidden"
       >
         <List className="h-5 w-5" />
       </button>
       <div className="min-w-0 flex-1 lg:hidden">
         <Select value={platform} onValueChange={(value) => setPlatform(value as Platform)}>
-          <SelectTrigger className="h-11 w-full" aria-label="选择 AI Agent 平台">
+          <SelectTrigger className="h-9 w-full" aria-label="选择 AI Agent 平台">
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
@@ -75,7 +76,7 @@ export function PlatformBar({ onOpenSessions }: { onOpenSessions: () => void }) 
           </SelectContent>
         </Select>
       </div>
-      <div className="hidden min-w-0 flex-1 items-center gap-1.5 overflow-x-auto lg:flex">
+      <div className="hidden min-w-0 flex-1 items-center gap-1 overflow-x-auto lg:flex">
         {shown.map((p) => (
           <button
             key={p}
@@ -83,10 +84,10 @@ export function PlatformBar({ onOpenSessions }: { onOpenSessions: () => void }) 
             title={PLATFORM_TIPS[p]}
             onClick={() => setPlatform(p)}
             className={cn(
-              'min-h-9 shrink-0 rounded-md border px-3 py-1 text-sm transition-colors',
+              'min-h-8 shrink-0 rounded-full px-3.5 text-[13px] font-medium transition-all',
               p === platform
-                ? 'border-primary/60 bg-primary/15 text-foreground'
-                : 'border-border bg-transparent text-muted-foreground hover:border-primary/40 hover:text-foreground'
+                ? 'bg-primary/10 text-primary shadow-soft-sm ring-1 ring-primary/20'
+                : 'text-muted-foreground hover:bg-secondary hover:text-foreground'
             )}
           >
             {PLATFORM_LABELS[p]}
@@ -97,7 +98,7 @@ export function PlatformBar({ onOpenSessions }: { onOpenSessions: () => void }) 
             type="button"
             title={`暂无会话的平台：${collapsed.map((p) => PLATFORM_LABELS[p]).join('、')} — 点击展开`}
             onClick={() => setExpanded(true)}
-            className="min-h-9 shrink-0 rounded-md border border-dashed border-border px-3 py-1 text-sm text-muted-foreground hover:text-foreground"
+            className="min-h-8 shrink-0 rounded-full px-3 text-[13px] text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
           >
             +{collapsed.length}
           </button>
@@ -108,7 +109,7 @@ export function PlatformBar({ onOpenSessions }: { onOpenSessions: () => void }) 
         title={theme === 'dark' ? '切换到浅色主题' : '切换到深色主题'}
         aria-label={theme === 'dark' ? '切换到浅色主题' : '切换到深色主题'}
         onClick={toggleTheme}
-        className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-md border border-border bg-transparent text-muted-foreground transition-colors hover:border-primary/40 hover:text-foreground"
+        className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
       >
         {theme === 'dark' ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
       </button>

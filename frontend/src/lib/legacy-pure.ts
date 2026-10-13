@@ -14,5 +14,9 @@ export {
   buildTraceTurns,
   flattenSpans,
   pickAutoPlatform,
+  parseToolArguments,
+  detectPatch,
+  extractEmbeddedPatch,
+  diffLineSegments,
 } from './pure';
 export { escapeHtml, renderMarkdownHtml, renderMarkdown } from './markdown';

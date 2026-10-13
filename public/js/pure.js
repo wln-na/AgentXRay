@@ -27,7 +27,10 @@ var __axrPure = (() => {
   __export(legacy_pure_exports, {
     buildTraceTurns: () => buildTraceTurns,
     clusterPrefillContent: () => clusterPrefillContent,
+    detectPatch: () => detectPatch,
+    diffLineSegments: () => diffLineSegments,
     escapeHtml: () => escapeHtml,
+    extractEmbeddedPatch: () => extractEmbeddedPatch,
     firstInformativeLine: () => firstInformativeLine,
     flattenSpans: () => flattenSpans,
     formatBytes: () => formatBytes,
@@ -35,6 +38,7 @@ var __axrPure = (() => {
     formatDurationCompact: () => formatDurationCompact,
     getTextContent: () => getTextContent,
     parseTimestampMs: () => parseTimestampMs,
+    parseToolArguments: () => parseToolArguments,
     pickAutoPlatform: () => pickAutoPlatform,
     renderMarkdown: () => renderMarkdown,
     renderMarkdownHtml: () => renderMarkdownHtml
@@ -364,6 +368,65 @@ var __axrPure = (() => {
       if (s.children && s.children.length > 0) out.push(...flattenSpans(s.children));
     }
     return out;
+  }
+  function parseToolArguments(args) {
+    if (args == null) return { object: null, text: "", wasJsonString: false };
+    if (typeof args === "string") {
+      const trimmed = args.trim();
+      if (trimmed) {
+        try {
+          const parsed = JSON.parse(trimmed);
+          if (parsed !== null && typeof parsed === "object") {
+            return { object: parsed, text: JSON.stringify(parsed, null, 2), wasJsonString: true };
+          }
+          return { object: null, text: String(parsed), wasJsonString: true };
+        } catch {
+          return { object: null, text: args, wasJsonString: false };
+        }
+      }
+      return { object: null, text: "", wasJsonString: false };
+    }
+    if (typeof args === "object") {
+      return { object: args, text: JSON.stringify(args, null, 2), wasJsonString: false };
+    }
+    return { object: null, text: String(args), wasJsonString: false };
+  }
+  var PATCH_FILE_MARKERS = ["*** Begin Patch", "*** Update File:", "*** Add File:", "*** Delete File:", "diff --git "];
+  function detectPatch(text) {
+    if (!text) return false;
+    const lines = text.split("\n");
+    const hasFileHeader = lines.some((l) => PATCH_FILE_MARKERS.some((m) => l.includes(m)));
+    const hasHunk = lines.some((l) => l.startsWith("@@"));
+    const hasChange = lines.some((l) => l.startsWith("+") || l.startsWith("-"));
+    return hasFileHeader && (hasHunk || hasChange);
+  }
+  function extractEmbeddedPatch(text) {
+    if (!text) return null;
+    if (!text.includes("*** ") && !text.includes("diff --git") && !text.includes("@@")) return null;
+    const re = /"((?:[^"\\]|\\.)*)"/g;
+    let m;
+    while (m = re.exec(text)) {
+      const body = m[1];
+      if (!body.includes("*** ") && !body.includes("diff --git") && !body.includes("@@")) continue;
+      try {
+        const decoded = JSON.parse(`"${body}"`);
+        if (typeof decoded === "string" && decoded.length > 10 && detectPatch(decoded)) return decoded;
+      } catch {
+      }
+    }
+    return null;
+  }
+  function diffLineSegments(text) {
+    const lines = text.split("\n");
+    if (lines.length > 1 && lines[lines.length - 1] === "") lines.pop();
+    return lines.map((line) => {
+      if (line.startsWith("*** ") || line.startsWith("diff --git ") || line.startsWith("--- ") || line.startsWith("+++ ") || line.startsWith("index "))
+        return { type: "file", text: line };
+      if (line.startsWith("@@")) return { type: "hunk", text: line };
+      if (line.startsWith("+")) return { type: "add", text: line };
+      if (line.startsWith("-")) return { type: "del", text: line };
+      return { type: "context", text: line };
+    });
   }
 
   // frontend/src/lib/markdown.ts

@@ -896,3 +896,79 @@ test('findCodexSessionFileFast returns null for empty sessionId', async () => {
     fs.rmSync(base, { recursive: true, force: true });
   }
 });
+
+// --- Tool-call argument rendering helpers (pure.ts) ---
+
+test('parseToolArguments unescapes persisted Codex JSON-string args', () => {
+  const details = '{"patch":"*** Update File: src/x.ts\\n@@\\n-old\\n+new"}';
+  const parsed = pure.parseToolArguments(details);
+  assert.equal(parsed.wasJsonString, true);
+  assert.equal(typeof parsed.object, 'object');
+  assert.equal(parsed.object.patch, '*** Update File: src/x.ts\n@@\n-old\n+new');
+  assert.ok(parsed.text.includes('"patch"'));
+  assert.ok(!parsed.text.includes('\\"'), 'text should not carry escaped quotes');
+});
+
+test('parseToolArguments keeps objects as pretty JSON', () => {
+  const parsed = pure.parseToolArguments({ command: ['ls', '-la'] });
+  assert.equal(parsed.wasJsonString, false);
+  assert.deepEqual(parsed.object, { command: ['ls', '-la'] });
+  assert.ok(parsed.text.includes('"ls"'));
+});
+
+test('parseToolArguments keeps non-JSON strings as raw text', () => {
+  const parsed = pure.parseToolArguments('text(await tools.apply_patch(patch));');
+  assert.equal(parsed.wasJsonString, false);
+  assert.equal(parsed.object, null);
+  assert.equal(parsed.text, 'text(await tools.apply_patch(patch));');
+});
+
+test('parseToolArguments handles null / empty', () => {
+  assert.deepEqual(pure.parseToolArguments(null), { object: null, text: '', wasJsonString: false });
+  assert.deepEqual(pure.parseToolArguments(undefined), { object: null, text: '', wasJsonString: false });
+  assert.equal(pure.parseToolArguments('').text, '');
+});
+
+test('detectPatch recognises apply_patch and git diff payloads', () => {
+  const applyPatch = '*** Begin Patch\n*** Update File: src/x.ts\n@@\n-old\n+new\n*** End Patch';
+  const gitDiff = 'diff --git a/src/x.ts b/src/x.ts\n--- a/src/x.ts\n+++ b/src/x.ts\n@@ -1,2 +1,2 @@\n-old\n+new';
+  assert.equal(pure.detectPatch(applyPatch), true);
+  assert.equal(pure.detectPatch(gitDiff), true);
+  assert.equal(pure.detectPatch('hello world'), false);
+  assert.equal(pure.detectPatch(''), false);
+  assert.equal(pure.detectPatch('*** Update File: x.ts\nno hunks here'), false);
+});
+
+test('extractEmbeddedPatch recovers quoted patch from Codex raw tool code', () => {
+  const raw =
+    'const patch = "*** Begin Patch\\n*** Update File: /a/b.py\\n@@\\n-    old\\n+    new\\n*** End Patch";\\ntext(await tools.apply_patch(patch));';
+  const extracted = pure.extractEmbeddedPatch(raw);
+  assert.ok(extracted);
+  assert.ok(extracted.startsWith('*** Begin Patch'));
+  assert.ok(extracted.includes('\n'), 'embedded patch should be unescaped to real newlines');
+  assert.ok(!extracted.includes('\\n'), 'embedded patch should not carry literal \\n');
+});
+
+test('extractEmbeddedPatch returns null without a decodable quoted patch', () => {
+  assert.equal(pure.extractEmbeddedPatch('text(await tools.apply_patch(patch));'), null);
+  assert.equal(pure.extractEmbeddedPatch('just some text'), null);
+  assert.equal(pure.extractEmbeddedPatch(''), null);
+});
+
+test('diffLineSegments classifies headers, hunks, adds, dels and context', () => {
+  const patch = '*** Update File: src/x.ts\n@@ -1,2 +1,2 @@\n context\n-old\n+new\n';
+  const segs = pure.diffLineSegments(patch).map((s) => s.type);
+  assert.deepEqual(segs, ['file', 'hunk', 'context', 'del', 'add']);
+});
+
+test('diffLineSegments treats bare @@ lines as hunk headers', () => {
+  const segs = pure.diffLineSegments('@@\n-old\n+new\n');
+  assert.equal(segs[0].type, 'hunk');
+});
+
+test('diffLineSegments handles git diff file headers', () => {
+  const segs = pure.diffLineSegments('diff --git a/x b/x\n--- a/x\n+++ b/x\n');
+  assert.equal(segs[0].type, 'file');
+  assert.equal(segs[1].type, 'file');
+  assert.equal(segs[2].type, 'file');
+});

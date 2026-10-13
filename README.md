@@ -25,7 +25,7 @@
 
 ---
 
-X-ray vision into your AI agent sessions. Supports **OpenClaw**, **Codex**, **Claude Code**, **Claude Desktop**, **Hermes**, **OMP**, **DeepSeek Harness**, **Gemini CLI**, and **Doubao** — all in one interface.
+X-ray vision into your AI agent sessions. Supports **OpenClaw**, **Codex**, **Claude Code**, **Claude Desktop**, **Hermes**, **OMP**, **DeepSeek Harness**, **Gemini CLI**, **Cursor**, and **Doubao** — all in one interface.
 
 ## Why AgentXRay
 
@@ -41,7 +41,7 @@ If you build and operate your own agent in production, use a tracing platform. I
 
 ## Features
 
-- **Multi-platform** — Unified view across OpenClaw, Codex, Claude Code, Claude Desktop Agent/Cowork, Hermes, OMP, DeepSeek Harness, Gemini CLI, and Doubao sessions (dsh's multi-frame zstd session logs are decompressed transparently; Gemini CLI's `/rewind` checkpoints are folded so rewound history never renders twice)
+- **Multi-platform** — Unified view across OpenClaw, Codex, Claude Code, Claude Desktop Agent/Cowork, Hermes, OMP, DeepSeek Harness, Gemini CLI, Cursor, and Doubao sessions (dsh's multi-frame zstd session logs are decompressed transparently; Gemini CLI's `/rewind` checkpoints are folded so rewound history never renders twice; Cursor agent transcripts are read from `~/.cursor/projects` — subagent transcripts are excluded, and timestamps come from file mtime since Cursor records carry none)
 - **Session browser** — Browse agents, filter/search sessions, view message history
 - **Tool call inspection** — Expandable tool calls with arguments and results
 - **Trace view** — Per-turn waterfall of where the time went: model inference (blue) vs tool execution (green, red on error); click any bar to jump to that message
@@ -54,8 +54,10 @@ If you build and operate your own agent in production, use a tracing platform. I
 - **OMP sub-agents** — Sub-agents spawned by an OMP session show up as chips in the summary; click one to read the child agent's full transcript
 - **Message timeline** — Visual graph showing conversation flow with role indicators
 - **Resume command** — One click copies the exact command to resume a session in its own CLI (`codex resume`, `claude --resume`, `omp --resume=`)
+- **Locate & open** — One click reveals a session's log file in Finder, deep-links into the exact session (codex → `codex://threads/<sessionId>` in the ChatGPT app — the Codex thread id equals the rollout session id; doubao → `https://www.doubao.com/chat/<conversationId>` opened inside the Doubao work client), otherwise launches the owning app (claude-desktop → Claude, cursor → Cursor), resumes CLI sessions in a fresh iTerm2/Terminal window (claude-code / omp), or opens the log with the default editor (Hermes: locate only). App-first platforms fall back gracefully when the app is missing (codex → terminal resume; claude-desktop / cursor → default editor). If another process is actively writing the session log at open time (the "open in another app" situation), the UI warns which process holds it. Copyable path/command fallbacks on non-macOS (macOS only; see `/api/:platform/sessions/:id/open`)
+- **Active sessions at a glance** — Sessions written within the last 3 minutes are flagged "活跃中" (live) in the list and detail header, so you can tell which agent is working right now
 - **Collapsible summary** — Fold the session summary away when you want the full height for messages
-- **Auto-refresh** — Live-updating session list and messages
+- **Auto-refresh** — Live-updating session list and messages: SSE streams new lines the moment they land, and the list + detail reconcile every 5s so the view self-heals even if the stream drops
 - **Settings panel** — Configure platform directories from the UI, persisted in localStorage
 - **Session backup** — Incremental archive of your session logs into `~/.agentxray/archive`, one click in settings (also runs automatically, daily); unchanged files are skipped
 - **Keyboard navigation** — Arrow keys to move between sessions
@@ -84,7 +86,7 @@ Sessions with child agents show a clickable 🌳 spawn chip. Clicking it selects
 
 ### Multi-Platform Support
 
-Use the top platform bar to switch between OpenClaw, Codex, Claude Code, Claude Desktop, Hermes, OMP, DeepSeek Harness, Gemini CLI, and Doubao; the sidebar and detail pane update for each platform's native local data source.
+Use the top platform bar to switch between OpenClaw, Codex, Claude Code, Claude Desktop, Hermes, OMP, DeepSeek Harness, Gemini CLI, Cursor, and Doubao; the sidebar and detail pane update for each platform's native local data source.
 
 ![Codex View](screenshots/codex-view.png)
 
@@ -132,7 +134,7 @@ Open http://localhost:3800
 
 ### Basic Workflow
 
-1. **Select a platform** — Click `OpenClaw`, `Codex`, `Claude Code`, `Claude Desktop`, `Hermes`, `OMP`, `DeepSeek Harness`, `Gemini CLI`, or `Doubao` in the top bar
+1. **Select a platform** — Click `OpenClaw`, `Codex`, `Claude Code`, `Claude Desktop`, `Hermes`, `OMP`, `DeepSeek Harness`, `Gemini CLI`, `Cursor`, or `Doubao` in the top bar
 2. **Pick an agent** — For OpenClaw, choose an agent from the dropdown (e.g. `xiaot`, `mimo`)
 3. **Browse sessions** — Sessions are sorted by date, newest first. Each card shows:
    - Timestamp and status (`active` / `archived`)
@@ -182,6 +184,7 @@ Click the **Prompts** tab (next to Sessions / Insights) to see every real human 
 | OMP         | `~/.omp/agent/sessions`       |
 | DeepSeek Harness | `~/.dsh/sessions` (honors `DSH_HOME`) |
 | Gemini CLI  | `~/.gemini/tmp`               |
+| Cursor      | `~/.cursor/projects`          |
 | Doubao      | `~/Library/Application Support/Doubao/Profile 2/.doubao/agent_mode/workspace/.sessions` |
 
 ### Custom directories
@@ -199,6 +202,7 @@ HERMES_DIR=/custom/path/hermes \
 OMP_DIR=/custom/path/omp \
 DSH_DIR=/custom/path/dsh/sessions \
 GEMINI_DIR=/custom/path/gemini/tmp \
+CURSOR_DIR=/custom/path/cursor/projects \
 DOUBAO_DIR=/custom/path/doubao/.sessions \
 npm start
 ```
@@ -228,6 +232,8 @@ npm start
 | `GET /api/dsh/sessions/:id` | Get DeepSeek Harness session messages |
 | `GET /api/gemini/sessions` | List Gemini CLI sessions |
 | `GET /api/gemini/sessions/:id` | Get Gemini CLI session messages |
+| `GET /api/cursor/sessions` | List Cursor agent transcripts (subagents excluded) |
+| `GET /api/cursor/sessions/:id` | Get a Cursor agent session's messages |
 | `GET /api/doubao/sessions` | List Doubao sessions grouped by project |
 | `GET /api/doubao/sessions/:id` | Get merged Doubao IndexedDB + trajectory messages |
 | `GET /api/spawn-map` | Build the flat agent spawn relationship map |
@@ -250,6 +256,8 @@ npm start
 | `GET /api/omp/sessions/:id/children` | List sub-agents spawned by an OMP session |
 | `GET /api/omp/sessions/:id/children/:name` | Get a spawned OMP sub-agent's messages |
 | `GET /api/:platform/sessions/:id/context?messageIndex=N` | Reconstruct context before a message (`codex`, `claude-code`, `claude-desktop`) |
+| `POST /api/:platform/sessions/:id/open` | One-click locate/open a session (all platforms except OpenClaw; `{ "action": "locate" \| "open" }`): locate reveals the log in Finder; open deep-links into the exact session (codex via `codex://threads/<sessionId>` in the ChatGPT app; doubao via `https://www.doubao.com/chat/<conversationId>` opened inside the Doubao work client), launches the owning app (claude-desktop→Claude, cursor→Cursor), or resumes CLI sessions in a fresh terminal window (claude-code/omp), or opens the log with the default editor. App-first platforms fall back when the app is missing (codex→terminal resume; claude-desktop/cursor→default editor). When another process is actively writing the log, the response carries a `hint` with the holding process so the UI can warn "open in another app". macOS only — non-macOS and failures return a copyable `fallback` path/command |
+| `POST /api/agents/:name/sessions/:id/open` | Same locate/open actions for an OpenClaw agent's session (`{ "action": "locate" \| "open" }`; OpenClaw is served here, not on the generic route) |
 | `GET /api/:platform/sessions/:id/export?format=md\|html` | Export a scrubbed session as Markdown or self-contained HTML |
 | `GET /api/otlp/:platform/:sessionId` | Export a supported session as OTLP-compatible JSON |
 | `GET /api/watch` | Stream real-time session updates with Server-Sent Events |
@@ -287,13 +295,14 @@ All list/detail endpoints accept an optional `?dir=` parameter to override the d
 | Platform | Format | Path Pattern |
 |----------|--------|--------------|
 | OpenClaw | JSONL | `~/.openclaw/agents/{agent}/sessions/{id}.jsonl` |
-| Codex | JSONL | `~/.codex/sessions/YYYY/MM/DD/{id}.jsonl` |
+| Codex | JSONL | `~/.codex/sessions/YYYY/MM/DD/rollout-*.jsonl` (rollout files embed the session id: `rollout-<timestamp>-<sessionId>.jsonl`) |
 | Claude Code | JSONL | `~/.claude/projects/{project-slug}/*.jsonl` (child agents under `{sessionId}/subagents/`) |
 | Claude Desktop | Metadata JSON + JSONL | `~/Library/Application Support/Claude-3p/local-agent-mode-sessions/**/local_*.json` + linked `.claude/projects/**/{cliSessionId}.jsonl` |
 | Hermes | SQLite | `~/.hermes/state.db` |
 | OMP | JSONL | `~/.omp/agent/sessions/*/{timestamp}_{id}.jsonl` |
 | DeepSeek Harness | JSONL / zstd-compressed JSONL | `~/.dsh/sessions/{project}/{id}/session.jsonl[.zstd]` |
 | Gemini CLI | JSONL | `~/.gemini/tmp/{projectHash}/chats/session-*.jsonl` |
+| Cursor | JSONL | `~/.cursor/projects/{project-slug}/agent-transcripts/{id}/{id}.jsonl` (subagent transcripts under `{id}/subagents/` are excluded; the human query is wrapped in `<user_query>`, records carry no timestamps so mtime is used) |
 | Doubao | Chromium IndexedDB + JSONL trajectory | `~/Library/Application Support/Doubao/Profile 2/IndexedDB/chrome_doubao-chat_0.indexeddb.leveldb` + `.sessions/{id}/agents/*/system/trajectory.jsonl` |
 
 Doubao uses IndexedDB as the live project/session/message/model source and trajectory logs as the historical tool/trace supplement. The first refresh requires either `dfindexeddb` on `PATH` or `uv`; with `uv`, AgentXRay creates an isolated Python 3.10 parser runtime under `~/.agentxray/cache`. Only project/session IDs and titles, message text/tool summaries, timestamps, section IDs, and model names are copied into `~/.agentxray/cache/doubao.sqlite`. Older message bodies can be unavailable when Chromium has already removed their blob files and no trajectory exists.
