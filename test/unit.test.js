@@ -940,7 +940,8 @@ test('detectPatch recognises apply_patch and git diff payloads', () => {
 });
 
 test('extractEmbeddedPatch recovers quoted patch from Codex raw tool code', () => {
-  const raw = 'const patch = "*** Begin Patch\\n*** Update File: /a/b.py\\n@@\\n-    old\\n+    new\\n*** End Patch";\\ntext(await tools.apply_patch(patch));';
+  const raw =
+    'const patch = "*** Begin Patch\\n*** Update File: /a/b.py\\n@@\\n-    old\\n+    new\\n*** End Patch";\\ntext(await tools.apply_patch(patch));';
   const extracted = pure.extractEmbeddedPatch(raw);
   assert.ok(extracted);
   assert.ok(extracted.startsWith('*** Begin Patch'));

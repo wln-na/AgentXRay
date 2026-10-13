@@ -481,10 +481,7 @@ test('stripDoubaoNoise removes injected context blocks (current-state, system-re
     '那为什么run_end_date 和 queued_dttm 校验成功了并创建加白工单了。是不是不改也可以？\n' +
       '<current-state>\nProject: aws-log-collector\nFolders:\n- /Users/linda/Projects/aicode_library/byted_game/aws-log-collector\n</current-state>'
   );
-  assert.equal(
-    cleaned,
-    '那为什么run_end_date 和 queued_dttm 校验成功了并创建加白工单了。是不是不改也可以？'
-  );
+  assert.equal(cleaned, '那为什么run_end_date 和 queued_dttm 校验成功了并创建加白工单了。是不是不改也可以？');
   assert.equal(doubao.stripDoubaoNoise('hello\n<system-reminder>injected</system-reminder> world'), 'hello\n world');
   assert.equal(
     doubao.stripDoubaoNoise('<usage_guide>rules</usage_guide>\n<current-state>state</current-state>task'),
@@ -513,10 +510,7 @@ test('mergeDoubaoMessages dedupes same user message when the cached copy carries
 test('mergeDoubaoMessages keeps distinct messages from both sources while dropping true duplicates', () => {
   const doubao = require('../lib/platforms/doubao');
   const make = (role, text, ts) => ({ role, content: [{ type: 'text', text }], timestamp: ts });
-  const trajectory = [
-    make('user', 'A', '2026-10-13T00:00:01Z'),
-    make('user', 'B', '2026-10-13T00:00:02Z'),
-  ];
+  const trajectory = [make('user', 'A', '2026-10-13T00:00:01Z'), make('user', 'B', '2026-10-13T00:00:02Z')];
   const cached = [
     make('user', 'A\n<system-reminder>x</system-reminder>', '2026-10-13T00:00:01Z'),
     make('user', 'C', '2026-10-13T00:00:03Z'),

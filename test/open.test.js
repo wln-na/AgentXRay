@@ -260,9 +260,7 @@ test('openSession deep-links doubao into the Doubao 2 conversation (https://www.
   assert.match(result.detail, /已在 Doubao 2 中打开会话/);
   // The doubao deep link is an https URL, so it must be opened with `-a` to
   // stay inside the Doubao work client instead of the system default browser.
-  assert.deepEqual(calls, [
-    { file: 'open', args: ['-a', 'Doubao 2', 'https://www.doubao.com/chat/abc123'] },
-  ]);
+  assert.deepEqual(calls, [{ file: 'open', args: ['-a', 'Doubao 2', 'https://www.doubao.com/chat/abc123'] }]);
 });
 
 test('openSession falls back to the app launch when the doubao deep link fails', async () => {
