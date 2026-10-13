@@ -12,6 +12,10 @@ const os = require('node:os');
 const path = require('node:path');
 const fsp = require('node:fs/promises');
 
+// The Cursor open/locate action is macOS-only (`open -a Cursor` / `open -R`);
+// skip its route case on non-macOS (CI runs Linux).
+const IS_MAC = process.platform === 'darwin';
+
 const cursorModule = require(path.join(__dirname, '..', 'lib', 'platforms', 'cursor'));
 const { PLATFORMS } = require(path.join(__dirname, '..', 'lib', 'platforms'));
 const { startServer, getJson, sendJson, FIXTURE_HOME } = require('./helpers.js');
@@ -179,7 +183,7 @@ test('cursor routes list and read sessions', async () => {
   }
 });
 
-test('cursor open route launches the Cursor app (recorded, no desktop effects)', async () => {
+test('cursor open route launches the Cursor app (recorded, no desktop effects)', { skip: !IS_MAC }, async () => {
   const dir = await fsp.mkdtemp(path.join(os.tmpdir(), 'axr-cursor-open-'));
   const recordFile = path.join(dir, 'calls.jsonl');
   const srv = await startServer({ AGENTXRAY_OPEN_SESSION_RECORD_FILE: recordFile });

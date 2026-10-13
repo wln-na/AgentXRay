@@ -9,6 +9,13 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const path = require('node:path');
 
+// The open/locate feature is macOS-only: it drives Finder (`open -R`),
+// LaunchServices (`open -a` / `open <scheme>`), AppleScript terminal windows
+// (iTerm2 / Terminal) and iTerm2's own presence check. Unit tests inject a
+// fake runner, but the terminal-script cases and the route cases exercise
+// real platform detection, so they are skipped on non-macOS (CI runs Linux).
+const IS_MAC = process.platform === 'darwin';
+
 const openSessionModule = require(path.join(__dirname, '..', 'lib', 'open-session'));
 const { PLATFORMS } = require(path.join(__dirname, '..', 'lib', 'platforms'));
 const { startServer, sendJson } = require('./helpers.js');
@@ -132,7 +139,7 @@ test('locateSession reports when no file path exists at all', async () => {
 
 // --- open (unit, fake runner) ---
 
-test('openSession resumes a CLI session in a new terminal window', async () => {
+test('openSession resumes a CLI session in a new terminal window', { skip: !IS_MAC }, async () => {
   const { run, calls } = recordingRunner();
   const result = await openSession('claude-code', 'abc123', '/logs/abc123.jsonl', '/work dir', {
     isMac: true,
@@ -182,7 +189,7 @@ test('openSession falls back to a plain app launch when the codex deep link fail
   ]);
 });
 
-test('openSession falls back to terminal resume when both the deep link and the app are unavailable (codex)', async () => {
+test('openSession falls back to terminal resume when both the deep link and the app are unavailable (codex)', { skip: !IS_MAC }, async () => {
   const { run, calls } = failAppLaunchRunner();
   const result = await openSession('codex', 'abc123', '/logs/abc123.jsonl', '/work dir', {
     isMac: true,
@@ -489,7 +496,7 @@ async function recordedCalls() {
   };
 }
 
-test('open route: locate reveals the resolved fixture log file', async () => {
+test('open route: locate reveals the resolved fixture log file', { skip: !IS_MAC }, async () => {
   const record = await recordedCalls();
   const srv = await startServer({ AGENTXRAY_OPEN_SESSION_RECORD_FILE: record.file });
   try {
@@ -509,7 +516,7 @@ test('open route: locate reveals the resolved fixture log file', async () => {
   }
 });
 
-test('open route: app-first for codex, terminal resume for claude-code / omp', async () => {
+test('open route: app-first for codex, terminal resume for claude-code / omp', { skip: !IS_MAC }, async () => {
   const record = await recordedCalls();
   const srv = await startServer({ AGENTXRAY_OPEN_SESSION_RECORD_FILE: record.file });
   try {
@@ -541,7 +548,7 @@ test('open route: app-first for codex, terminal resume for claude-code / omp', a
   }
 });
 
-test('open route: file-based platform opens the log with the default app', async () => {
+test('open route: file-based platform opens the log with the default app', { skip: !IS_MAC }, async () => {
   const record = await recordedCalls();
   const srv = await startServer({ AGENTXRAY_OPEN_SESSION_RECORD_FILE: record.file });
   try {
