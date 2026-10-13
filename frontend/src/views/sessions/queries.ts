@@ -66,5 +66,15 @@ export function useSessionDetail() {
   const sessionId = useAppStore((s) => s.selectedSessionId);
   const agent = useAppStore((s) => s.selectedAgent);
   const settings = useAppStore((s) => s.settings);
-  return useQuery(sessionDetailOptions({ platform, sessionId, agent, settings }));
+  const autoRefresh = useAppStore((s) => s.autoRefresh);
+  return useQuery({
+    ...sessionDetailOptions({ platform, sessionId, agent, settings }),
+    // Poll alongside the SSE tail while auto-refresh is on: the transcript
+    // self-heals (re-syncs full state, replaces the cache) even if the
+    // EventSource drops, the tab is background-throttled, or a session file
+    // is rewritten rather than appended. The SSE remains the low-latency
+    // path; the poll is the reconciliation path (backend parse is ~30-150ms
+    // even for multi-MB rollouts).
+    refetchInterval: autoRefresh ? 5000 : false,
+  });
 }

@@ -48,12 +48,20 @@ export function useSessionSse(onNewMessages: (count: number) => void): SseStatus
       };
       const newMsgs = payload.messages;
       if (!Array.isArray(newMsgs) || newMsgs.length === 0) return;
-      queryClient.setQueryData<SessionDetail>(['session', platform, sessionId], (old) =>
-        old
-          ? { session: { ...old.session, ...(payload.session || {}) }, messages: [...old.messages, ...newMsgs] }
-          : old
-      );
-      onNewRef.current(newMsgs.length);
+      // Idempotent append: dedupe against messages already in the cache so a
+      // concurrent detail poll (full refetch) can never be double-counted.
+      // No cache yet → skip; the next detail fetch reconciles from the file.
+      const keyOf = (m: SessionMessage) => m.id || `${m.timestamp || ''}|${m.role || ''}|${m.toolCallId || ''}`;
+      const current = queryClient.getQueryData<SessionDetail>(['session', platform, sessionId]);
+      if (!current) return;
+      const existing = new Set(current.messages.map(keyOf));
+      const fresh = newMsgs.filter((m) => !existing.has(keyOf(m)));
+      if (fresh.length === 0) return;
+      queryClient.setQueryData<SessionDetail>(['session', platform, sessionId], {
+        session: { ...current.session, ...(payload.session || {}) },
+        messages: [...current.messages, ...fresh],
+      });
+      onNewRef.current(fresh.length);
       // Refresh sidebar counters (legacy loadSessions(true) on newMessages)
       queryClient.invalidateQueries({ queryKey: ['sessions', platform] });
     });

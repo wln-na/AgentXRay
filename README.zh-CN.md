@@ -29,7 +29,7 @@ LangSmith、Langfuse 这类观测平台面向的是*你自己写的* agent：接
 
 ## 功能特性
 
-- **多平台支持** — 一个界面统一查看 OpenClaw、Codex、Claude Code、Claude Desktop Agent/Cowork、Hermes、OMP、DeepSeek Harness、Gemini CLI 和 Doubao 的会话日志（dsh 的多帧 zstd 压缩日志透明解压；Gemini CLI 的 `/rewind` 回滚记录会先折叠，回滚掉的历史不会重复渲染）
+- **多平台支持** — 一个界面统一查看 OpenClaw、Codex、Claude Code、Claude Desktop Agent/Cowork、Hermes、OMP、DeepSeek Harness、Gemini CLI、Cursor 和 Doubao 的会话日志（dsh 的多帧 zstd 压缩日志透明解压；Gemini CLI 的 `/rewind` 回滚记录会先折叠，回滚掉的历史不会重复渲染；Cursor 的 agent 转写读自 `~/.cursor/projects`，子代理转写已排除，且记录本身无时间戳、以文件 mtime 为准）
 - **会话浏览** — 浏览 Agent 列表，搜索/过滤会话，查看消息历史
 - **工具调用检查** — 可展开的工具调用详情，包含参数和返回结果
 - **Trace 视图** — 每轮对话的耗时瀑布图：模型推理（蓝）与工具执行（绿，出错为红）一目了然，点击色条跳转到对应消息
@@ -42,8 +42,10 @@ LangSmith、Langfuse 这类观测平台面向的是*你自己写的* agent：接
 - **OMP 子 Agent** — OMP 会话派生的子 Agent 会在摘要区以标签列出，点击即可查看子 Agent 的完整对话
 - **消息时间线** — 可视化对话流程图，不同角色用不同颜色标识
 - **Resume 命令** — 一键复制该会话在原 CLI 中的续跑命令（`codex resume`、`claude --resume`、`omp --resume=`）
+- **定位与打开** — 一键在 Finder 中定位会话日志；或通过深链直接跳到对应会话（codex → `codex://threads/<sessionId>` 直达 ChatGPT 应用中的会话，Codex 的 thread id 就是 rollout 的 session id；doubao → 在豆包工作客户端内打开 `https://www.doubao.com/chat/<conversationId>` 直达对应对话），否则打开宿主应用（claude-desktop → Claude、cursor → Cursor）、在新 iTerm2/Terminal 窗口续跑 CLI 会话（claude-code / omp）、用默认编辑器打开日志（Hermes 仅支持定位）。应用优先的平台在应用缺失时自动兜底（codex → 终端续跑；claude-desktop / cursor → 默认编辑器）。打开时若检测到其他进程正在写入该日志（即 "open in another app" 场景），界面会警告是哪个进程占用着。非 macOS 或失败时返回可复制的路径/命令兜底（仅 macOS；见 `/api/:platform/sessions/:id/open`）
+- **活跃会话一目了然** — 最近 3 分钟内有写入的会话会在列表和详情头部打上「活跃中」标记，一眼看出哪个 agent 正在干活
 - **摘要可折叠** — 需要更多阅读空间时可折叠会话摘要
-- **自动刷新** — 会话列表和消息实时更新
+- **自动刷新** — 会话列表和消息实时更新：SSE 实时推送新写入的行，列表与详情每 5 秒对账一次，即使推送中断视图也能自愈
 - **设置面板** — 在页面上直接配置各平台目录，保存到 localStorage，无需重启
 - **会话备份** — 增量归档会话日志到 `~/.agentxray/archive`，在设置面板一键触发（也会每天自动执行），未变化的文件自动跳过
 - **键盘导航** — 使用方向键在会话之间切换
@@ -70,7 +72,7 @@ LangSmith、Langfuse 这类观测平台面向的是*你自己写的* agent：接
 
 ### 多平台支持
 
-通过顶部平台切换栏一键切换 OpenClaw、Codex、Claude Code、Claude Desktop、Hermes、OMP、DeepSeek Harness、Gemini CLI 和 Doubao；侧边栏与详情区会按各平台的原生本地数据源更新。
+通过顶部平台切换栏一键切换 OpenClaw、Codex、Claude Code、Claude Desktop、Hermes、OMP、DeepSeek Harness、Gemini CLI、Cursor 和 Doubao；侧边栏与详情区会按各平台的原生本地数据源更新。
 
 ![Codex View](screenshots/codex-view.png)
 
@@ -162,6 +164,7 @@ npm start
 | OMP         | `~/.omp/agent/sessions`       |
 | DeepSeek Harness | `~/.dsh/sessions`（同时识别 `DSH_HOME`） |
 | Gemini CLI  | `~/.gemini/tmp`               |
+| Cursor      | `~/.cursor/projects`          |
 | Doubao      | `~/Library/Application Support/Doubao/Profile 2/.doubao/agent_mode/workspace/.sessions` |
 
 ### 自定义目录
@@ -206,6 +209,8 @@ npm start
 | `GET /api/dsh/sessions/:id` | 获取 DeepSeek Harness 会话消息详情 |
 | `GET /api/gemini/sessions` | 获取 Gemini CLI 会话列表 |
 | `GET /api/gemini/sessions/:id` | 获取 Gemini CLI 会话消息详情 |
+| `GET /api/cursor/sessions` | 获取 Cursor agent 转写列表（不含子代理） |
+| `GET /api/cursor/sessions/:id` | 获取 Cursor agent 会话消息详情 |
 | `GET /api/doubao/sessions` | 获取按项目分组的 Doubao 会话列表 |
 | `GET /api/doubao/sessions/:id` | 获取合并后的 Doubao IndexedDB + trajectory 消息 |
 | `GET /api/spawn-map` | 获取扁平的 Agent spawn 关系图 |
@@ -228,6 +233,8 @@ npm start
 | `GET /api/omp/sessions/:id/children` | 获取 OMP 会话派生的子 Agent 列表 |
 | `GET /api/omp/sessions/:id/children/:name` | 获取指定 OMP 子 Agent 的消息详情 |
 | `GET /api/:platform/sessions/:id/context?messageIndex=N` | 重建指定消息前的上下文（支持 `codex`、`claude-code`、`claude-desktop`） |
+| `POST /api/:platform/sessions/:id/open` | 一键定位/打开会话（除 OpenClaw 外全部平台；`{ "action": "locate" \| "open" }`）：locate 在 Finder 中定位日志；open 通过深链直接跳到对应会话（codex → `codex://threads/<sessionId>` 直达 ChatGPT 应用中的会话；doubao → 在豆包工作客户端内打开 `https://www.doubao.com/chat/<conversationId>` 直达对应对话），或打开宿主应用（claude-desktop→Claude、cursor→Cursor）、在新终端窗口续跑 CLI 会话（claude-code/omp）或用默认编辑器打开日志。应用优先的平台在应用缺失时自动兜底（codex→终端续跑；claude-desktop/cursor→默认编辑器）；若打开时检测到其他进程正在写入日志，响应带 `hint`（占用进程），前端据此提示 "open in another app"。仅 macOS —— 非 macOS 或失败时返回可复制的 `fallback` 路径/命令 |
+| `POST /api/agents/:name/sessions/:id/open` | 对 OpenClaw agent 会话执行相同的定位/打开操作（`{ "action": "locate" \| "open" }`；OpenClaw 走此路由而非通用路由） |
 | `GET /api/:platform/sessions/:id/export?format=md\|html` | 将脱敏后的会话导出为 Markdown 或自包含 HTML |
 | `GET /api/otlp/:platform/:sessionId` | 将支持的平台会话导出为 OTLP 兼容 JSON |
 | `GET /api/watch` | 通过 Server-Sent Events 实时推送会话更新 |
@@ -261,13 +268,14 @@ npm start
 | 平台 | 格式 | 路径模式 |
 |------|------|----------|
 | OpenClaw | JSONL | `~/.openclaw/agents/{agent}/sessions/{id}.jsonl` |
-| Codex | JSONL | `~/.codex/sessions/YYYY/MM/DD/{id}.jsonl` |
+| Codex | JSONL | `~/.codex/sessions/YYYY/MM/DD/rollout-*.jsonl`（rollout 文件名内嵌会话 id：`rollout-<timestamp>-<sessionId>.jsonl`） |
 | Claude Code | JSONL | `~/.claude/projects/{project-slug}/*.jsonl`（子 Agent 位于 `{sessionId}/subagents/`） |
 | Claude Desktop | 元数据 JSON + JSONL | `~/Library/Application Support/Claude-3p/local-agent-mode-sessions/**/local_*.json` + 关联的 `.claude/projects/**/{cliSessionId}.jsonl` |
 | Hermes | SQLite | `~/.hermes/state.db` |
 | OMP | JSONL | `~/.omp/agent/sessions/*/{timestamp}_{id}.jsonl` |
 | DeepSeek Harness | JSONL / zstd 压缩 JSONL | `~/.dsh/sessions/{project}/{id}/session.jsonl[.zstd]` |
 | Gemini CLI | JSONL | `~/.gemini/tmp/{projectHash}/chats/session-*.jsonl` |
+| Cursor | JSONL | `~/.cursor/projects/{project-slug}/agent-transcripts/{id}/{id}.jsonl`（`{id}/subagents/` 下的子代理转写已排除；人类提问包裹在 `<user_query>` 中，记录无时间戳、以 mtime 为准） |
 | Doubao | Chromium IndexedDB + JSONL trajectory | `~/Library/Application Support/Doubao/Profile 2/IndexedDB/chrome_doubao-chat_0.indexeddb.leveldb` + `.sessions/{id}/agents/*/system/trajectory.jsonl` |
 
 Doubao 使用 IndexedDB 作为实时项目、会话、消息与模型数据源，并用 trajectory 日志补充历史工具调用和 trace。首次刷新需要 `PATH` 中存在 `dfindexeddb` 或 `uv`；使用 `uv` 时，AgentXRay 会在 `~/.agentxray/cache` 下创建隔离的 Python 3.10 解析环境。

@@ -881,12 +881,10 @@ export function SessionInsights() {
       )}
 
       {/* ─── 反思与总结（流程闭环：度量→归因→沉淀→建议） ─── */}
-      <InsightSection title={
-        <span className="flex items-center gap-2">
-          🔄 反思与总结
-          <span className="text-xs font-normal text-muted-foreground">流程闭环 · 浪费归因 · 健康检查 · 资产沉淀</span>
-        </span>
-      }>
+      <InsightSection title="🔄 反思与总结">
+        <div className="mb-3 text-xs text-muted-foreground">
+          按“度量 → 归因 → 沉淀 → 建议”复盘当前会话，定位执行浪费并提取可复用经验
+        </div>
         {/* 执行摘要 */}
         <div className="mb-4 grid grid-cols-2 gap-2 sm:grid-cols-4">
           <div className="rounded-md border border-border bg-secondary/30 p-2.5">
@@ -916,7 +914,14 @@ export function SessionInsights() {
 
         {/* 浪费归因 */}
         <div className="mb-4">
-          <h3 className="mb-2 text-sm font-semibold">浪费归因</h3>
+          <div className="mb-2 flex flex-wrap items-center gap-2 text-xs font-medium text-muted-foreground">
+            <span>浪费归因</span>
+            {reflection.waste.primaryCategory ? (
+              <Badge variant="secondary" className="h-5 px-1.5 text-[0.65rem] font-normal">
+                主要：{WASTE_CATEGORY_LABELS[reflection.waste.primaryCategory]}
+              </Badge>
+            ) : null}
+          </div>
           {reflection.waste.items.length === 0 ? (
             <div className="rounded-md border border-[#3fb950]/30 bg-[#3fb950]/5 p-3 text-xs text-[#3fb950]">
               ✓ 未检测到明显浪费模式，本会话流程健康
@@ -948,12 +953,12 @@ export function SessionInsights() {
 
         {/* 流程健康检查 */}
         <div className="mb-4">
-          <h3 className="mb-2 text-sm font-semibold">
-            流程健康检查
-            <span className="ml-2 text-xs font-normal text-muted-foreground">
+          <div className="mb-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs font-medium text-muted-foreground">
+            <span>流程健康检查</span>
+            <span className="font-normal">
               {reflection.healthCheck.passCount} 通过 · {reflection.healthCheck.failCount} 未通过 · {reflection.healthCheck.manualCount} 需人工判断
             </span>
-          </h3>
+          </div>
           <div className="grid gap-1.5 sm:grid-cols-2">
             {reflection.healthCheck.items.map((item) => (
               <div key={item.id} className="flex items-start gap-2 rounded-md border border-border bg-secondary/20 p-2">
@@ -976,10 +981,10 @@ export function SessionInsights() {
         {/* 可沉淀资产 */}
         {reflection.assets.length > 0 && (
           <div className="mb-4">
-            <h3 className="mb-2 text-sm font-semibold">
-              可沉淀资产
-              <span className="ml-2 text-xs font-normal text-muted-foreground">从本会话中识别，可沉淀为 CONTEXT.md / spec / workflow</span>
-            </h3>
+            <div className="mb-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs font-medium text-muted-foreground">
+              <span>可沉淀资产</span>
+              <span className="font-normal">CONTEXT.md / spec / workflow</span>
+            </div>
             <div className="flex flex-col gap-1.5">
               {reflection.assets.map((a, i) => (
                 <div key={i} className="flex items-start gap-2 rounded-md border border-[#58a6ff]/30 bg-[#58a6ff]/5 p-2">
@@ -1002,7 +1007,7 @@ export function SessionInsights() {
 
         {/* 改进建议 */}
         <div>
-          <h3 className="mb-2 text-sm font-semibold">改进建议</h3>
+          <div className="mb-2 text-xs font-medium text-muted-foreground">改进建议</div>
           <div className="flex flex-col gap-1.5">
             {reflection.suggestions.map((s, i) => (
               <div key={i} className="flex items-start gap-2 rounded-md border border-border bg-secondary/20 p-2">

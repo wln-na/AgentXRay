@@ -26,6 +26,7 @@ const DIR_FIELDS: { key: keyof DirSettings; label: string; placeholder: string }
   { key: 'ompDir', label: 'OMP Directory', placeholder: '~/.omp/agent/sessions' },
   { key: 'dshDir', label: 'DeepSeek Harness Directory', placeholder: '~/.dsh/sessions' },
   { key: 'geminiDir', label: 'Gemini CLI Directory', placeholder: '~/.gemini/tmp' },
+  { key: 'cursorDir', label: 'Cursor Directory', placeholder: '~/.cursor/projects' },
   { key: 'doubaoDir', label: 'Doubao Directory', placeholder: '~/.doubao/agent_mode/workspace/.sessions' },
 ];
 
@@ -173,6 +174,7 @@ export function SettingsDialog({
       ompDir: draft.ompDir.trim(),
       dshDir: draft.dshDir.trim(),
       geminiDir: draft.geminiDir.trim(),
+      cursorDir: draft.cursorDir.trim(),
       doubaoDir: draft.doubaoDir.trim(),
     });
     onOpenChange(false);

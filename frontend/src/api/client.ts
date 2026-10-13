@@ -16,6 +16,7 @@ import type {
   LibraryHistoryData,
   LibraryHistoryEntry,
   LibraryUsageData,
+  OpenSessionResult,
   OtlpExport,
   Platform,
   PromptAnalysis,
@@ -43,6 +44,7 @@ export interface DirSettings {
   ompDir: string;
   dshDir: string;
   geminiDir: string;
+  cursorDir: string;
   doubaoDir: string;
 }
 
@@ -132,6 +134,30 @@ export function getSessionChild(
       `/api/${platform}/sessions/${encodeURIComponent(sessionId)}/children/${encodeURIComponent(childName)}`,
       { dir }
     )
+  );
+}
+
+/**
+ * One-click locate (Finder reveal) or open (resume in terminal / launch app /
+ * open log with the default editor) of a collected session. openclaw is
+ * addressed per agent: /api/agents/:agent/sessions/:id/open.
+ * The server returns { ok, action, detail } or { ok:false, error, fallback }
+ * where fallback offers a copyable path/command on non-macOS or failure.
+ */
+export function openSession(
+  platform: Platform,
+  sessionId: string,
+  action: 'locate' | 'open',
+  opts: { agent?: string; dir?: string } = {}
+): Promise<OpenSessionResult> {
+  const base =
+    platform === 'openclaw'
+      ? `/api/agents/${encodeURIComponent(opts.agent || '')}/sessions`
+      : `/api/${platform}/sessions`;
+  return requestJson(
+    withParams(`${base}/${encodeURIComponent(sessionId)}/open`, { dir: opts.dir }),
+    'POST',
+    { action, agent: opts.agent }
   );
 }
 

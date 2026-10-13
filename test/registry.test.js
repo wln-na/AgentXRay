@@ -12,18 +12,29 @@ const { EXPORT_PLATFORMS } = require(path.join(__dirname, '..', 'lib', 'export')
 const { OTLP_PLATFORMS } = require(path.join(__dirname, '..', 'lib', 'otlp'));
 const { TOOL_AUDIT_PLATFORMS } = require(path.join(__dirname, '..', 'lib', 'tool-audit'));
 
-const FILE_PLATFORMS = ['openclaw', 'codex', 'claude-code', 'claude-desktop', 'omp', 'dsh', 'gemini', 'doubao'];
-const CAPABILITY_KEYS = ['search', 'context', 'backup', 'spawn', 'watch'];
+const FILE_PLATFORMS = [
+  'openclaw',
+  'codex',
+  'claude-code',
+  'claude-desktop',
+  'omp',
+  'dsh',
+  'gemini',
+  'cursor',
+  'doubao',
+];
+const CAPABILITY_KEYS = ['search', 'context', 'backup', 'spawn', 'watch', 'open'];
 const EXPECTED_CAPABILITIES = {
-  openclaw: { search: true, context: false, backup: true, spawn: true, watch: true },
-  codex: { search: true, context: true, backup: true, spawn: true, watch: true },
-  'claude-code': { search: true, context: true, backup: true, spawn: true, watch: true },
-  'claude-desktop': { search: true, context: true, backup: true, spawn: false, watch: true },
-  hermes: { search: true, context: false, backup: false, spawn: false, watch: true },
-  omp: { search: true, context: false, backup: true, spawn: true, watch: true },
-  dsh: { search: true, context: false, backup: true, spawn: false, watch: true },
-  gemini: { search: true, context: false, backup: true, spawn: false, watch: true },
-  doubao: { search: true, context: false, backup: true, spawn: false, watch: true },
+  openclaw: { search: true, context: false, backup: true, spawn: true, watch: true, open: true },
+  codex: { search: true, context: true, backup: true, spawn: true, watch: true, open: true },
+  'claude-code': { search: true, context: true, backup: true, spawn: true, watch: true, open: true },
+  'claude-desktop': { search: true, context: true, backup: true, spawn: false, watch: true, open: true },
+  hermes: { search: true, context: false, backup: false, spawn: false, watch: true, open: false },
+  omp: { search: true, context: false, backup: true, spawn: true, watch: true, open: true },
+  dsh: { search: true, context: false, backup: true, spawn: false, watch: true, open: true },
+  gemini: { search: true, context: false, backup: true, spawn: false, watch: true, open: true },
+  cursor: { search: true, context: false, backup: true, spawn: false, watch: true, open: true },
+  doubao: { search: true, context: false, backup: true, spawn: false, watch: true, open: true },
 };
 
 test('registry contains every platform with id, label and defaultDir', () => {

@@ -4,7 +4,8 @@
 
 import { useMemo, useRef, useState } from 'react';
 import { toast } from 'sonner';
-import type { SessionDetail } from '@/api/types';
+import { openSession } from '@/api/client';
+import type { OpenSessionResult, SessionDetail } from '@/api/types';
 import { DEMO } from '@/demo/flag';
 import { formatCost, formatDurationCompact } from '@/lib/pure';
 import { cn } from '@/lib/utils';
@@ -36,10 +37,10 @@ function FilterBadge({
       title={title}
       onClick={onClick}
       className={cn(
-        'rounded border px-1.5 py-0.5 text-[11px]',
+        'rounded-full px-2.5 py-1 text-[11px] font-medium transition-colors',
         active
-          ? 'border-primary bg-primary/15 text-foreground'
-          : 'border-border text-muted-foreground hover:text-foreground',
+          ? 'bg-primary/10 text-primary ring-1 ring-primary/20'
+          : 'bg-secondary/70 text-muted-foreground hover:text-foreground',
         className
       )}
     >
@@ -49,7 +50,7 @@ function FilterBadge({
 }
 
 const ACTION_BTN =
-  'rounded-md border border-border px-2 py-1 text-xs text-muted-foreground hover:border-primary/50 hover:text-foreground';
+  'rounded-full border border-border/70 bg-card px-3 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:border-primary/40 hover:bg-accent hover:text-foreground shadow-soft-sm';
 
 function ExportMenu({ detail }: { detail: SessionDetail }) {
   const platform = useAppStore((s) => s.platform);
@@ -139,6 +140,113 @@ function ResumeButton({ cwd }: { cwd: string | null | undefined }) {
   );
 }
 
+// Platforms whose sessions resume natively in a terminal CLI (open → new window).
+const RESUME_PLATFORM_TITLES: Record<string, string> = {
+  codex: '打开 ChatGPT 应用（Codex 桌面宿主，无会话级深链；应用缺失时回退终端续跑）',
+  'claude-code': '在终端新窗口中恢复此会话（claude --resume）',
+  omp: '在终端新窗口中恢复此会话（omp --resume）',
+  doubao: '打开 Doubao 应用（无会话级深链，日志可另用「定位」查看）',
+  'claude-desktop': '打开 Claude 应用（无会话级深链；应用缺失时回退默认编辑器）',
+  cursor: '打开 Cursor 应用（无会话级深链；应用缺失时回退默认编辑器）',
+};
+
+// Mirror of lib/platforms/capabilities.json `open` flag: hermes sessions share
+// a single SQLite store, so "open" has no native target (locate still works).
+const NO_OPEN_PLATFORMS = new Set(['hermes']);
+
+// A session whose log was written within this window is considered "live" —
+// the agent is (or just was) actively working on it elsewhere.
+const LIVE_WINDOW_MS = 3 * 60 * 1000;
+function isLive(lastActivity: unknown): boolean {
+  if (typeof lastActivity !== 'string' || !lastActivity) return false;
+  const t = new Date(lastActivity).getTime();
+  return !Number.isNaN(t) && Date.now() - t < LIVE_WINDOW_MS;
+}
+
+function openTitleFor(platform: string): string {
+  return RESUME_PLATFORM_TITLES[platform] || '用默认应用打开会话日志文件';
+}
+
+function OpenButtons() {
+  const platform = useAppStore((s) => s.platform);
+  const selectedSessionId = useAppStore((s) => s.selectedSessionId);
+  const selectedAgent = useAppStore((s) => s.selectedAgent);
+  const settings = useAppStore((s) => s.settings);
+  const [pending, setPending] = useState<'locate' | 'open' | null>(null);
+
+  // Demo mode is read-only (the demo router rejects POSTs); the buttons only
+  // make sense against a real local server.
+  if (DEMO) return null;
+
+  const needsAgent = platform === 'openclaw';
+  const canOpen = !NO_OPEN_PLATFORMS.has(platform);
+  const dir = dirForPlatform(settings, platform) || undefined;
+  const disabled = needsAgent && !selectedAgent;
+
+  const run = async (action: 'locate' | 'open') => {
+    setPending(action);
+    try {
+      const res: OpenSessionResult = await openSession(platform, selectedSessionId, action, {
+        agent: selectedAgent || undefined,
+        dir,
+      });
+      if (res.ok) {
+        // A session being actively written by another process is the "open in
+        // another app" situation: warn that live updates won't land here.
+        if (action === 'open' && res.hint?.process) {
+          toast.warning(
+            `已打开，但该会话正被 ${res.hint.process}（PID ${res.hint.pid}）活跃使用，可能在别的客户端中打开中`
+          );
+          return;
+        }
+        toast.success(res.detail || (action === 'locate' ? '已定位' : '已打开'));
+        return;
+      }
+      const fb = res.fallback;
+      if (fb?.type === 'copy-path' && fb.path) {
+        await navigator.clipboard.writeText(fb.path);
+        toast.error(`${res.error || '操作失败'}（已复制路径）`);
+      } else if (fb?.type === 'copy-command' && fb.command) {
+        await navigator.clipboard.writeText(fb.command);
+        toast.error(`${res.error || '操作失败'}（已复制命令）`);
+      } else {
+        toast.error(res.error || '操作失败');
+      }
+    } catch (error) {
+      toast.error('操作失败: ' + (error as Error).message);
+    } finally {
+      setPending(null);
+    }
+  };
+
+  return (
+    <>
+      <button
+        type="button"
+        className={ACTION_BTN}
+        title={disabled ? '请先选择 OpenClaw agent' : '在 Finder 中定位会话日志文件'}
+        data-testid="locate-btn"
+        disabled={disabled || pending !== null}
+        onClick={() => void run('locate')}
+      >
+        {pending === 'locate' ? '定位中…' : '📍 定位'}
+      </button>
+      {canOpen ? (
+        <button
+          type="button"
+          className={ACTION_BTN}
+          title={disabled ? '请先选择 OpenClaw agent' : openTitleFor(platform)}
+          data-testid="open-btn"
+          disabled={disabled || pending !== null}
+          onClick={() => void run('open')}
+        >
+          {pending === 'open' ? '打开中…' : '🚀 打开'}
+        </button>
+      ) : null}
+    </>
+  );
+}
+
 export function SessionSummary({
   detail,
   timing,
@@ -216,29 +324,35 @@ export function SessionSummary({
   };
 
   return (
-    <div className="rounded-lg border border-border bg-card/60 p-3" data-testid="session-summary">
+    <div className="rounded-2xl border border-border/60 bg-card p-5 shadow-soft-md" data-testid="session-summary">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0 flex-1">
-          <h2 className="truncate text-base font-semibold" title={selectedSummary?.title || detail.session?.id || selectedSessionId}>
+          <h2 className="truncate text-lg font-semibold tracking-tight" title={selectedSummary?.title || detail.session?.id || selectedSessionId}>
             {selectedSummary?.title || detail.session?.id || selectedSessionId}
           </h2>
-          <div className="mt-1.5 flex flex-wrap items-center gap-1.5 text-[11px] text-muted-foreground">
-            <span className="rounded border border-border px-1.5 py-0.5">{formatDate(detail.session?.timestamp)}</span>
+          <div className="mt-2 flex flex-wrap items-center gap-1.5 text-[11px] text-muted-foreground">
+            <span className="rounded-full bg-secondary/80 px-2 py-0.5 font-medium">{formatDate(detail.session?.timestamp)}</span>
+            {isLive(detail.session?.lastActivity) ? (
+              <span className="flex items-center gap-1 rounded-full bg-green-500/10 px-2 py-0.5 font-medium text-green-600 dark:text-green-300">
+                <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-green-500" />
+                活跃中
+              </span>
+            ) : null}
             {selectedSummary?.projectName || detail.session?.projectName || detail.session?.cwd ? (
-              <span className="max-w-[260px] truncate rounded border border-border px-1.5 py-0.5" title={selectedSummary?.projectPath || detail.session?.projectPath || detail.session?.cwd || ''}>
+              <span className="max-w-[260px] truncate rounded-full bg-secondary/80 px-2 py-0.5 font-medium" title={selectedSummary?.projectPath || detail.session?.projectPath || detail.session?.cwd || ''}>
                 {selectedSummary?.projectName || detail.session?.projectName || detail.session?.cwd}
               </span>
             ) : null}
-            {listModel ? <span className="rounded border border-border px-1.5 py-0.5">模型：{listModel}</span> : null}
-            <span className="rounded border border-border px-1.5 py-0.5">消息：{msgs.length}</span>
-            <span className="rounded border border-border px-1.5 py-0.5">{toolCallCount} 次工具调用</span>
+            {listModel ? <span className="rounded-full bg-secondary/80 px-2 py-0.5 font-medium">模型：{listModel}</span> : null}
+            <span className="rounded-full bg-secondary/80 px-2 py-0.5 font-medium">消息：{msgs.length}</span>
+            <span className="rounded-full bg-secondary/80 px-2 py-0.5 font-medium">{toolCallCount} 次工具调用</span>
             {selectedSummary?.archived || detail.session?.archived ? (
-              <span className="rounded border border-amber-500/50 bg-amber-500/10 px-1.5 py-0.5 text-amber-700 dark:text-amber-300">
+              <span className="rounded-full bg-amber-500/10 px-2 py-0.5 font-medium text-amber-700 dark:text-amber-300">
                 已归档
               </span>
             ) : null}
             {detail.session?.contentAvailable === false ? (
-              <span className="rounded border border-[#e3b341]/60 px-1.5 py-0.5 text-[#b7791f]">本地未保留正文</span>
+              <span className="rounded-full bg-amber-500/10 px-2 py-0.5 font-medium text-[#b7791f]">本地未保留正文</span>
             ) : null}
           </div>
         </div>
@@ -261,6 +375,7 @@ export function SessionSummary({
             {collapsed ? '更多信息' : '收起信息'}
           </button>
           <ResumeButton cwd={detail.session?.cwd} />
+          <OpenButtons />
           <ExportMenu detail={detail} />
         </div>
       </div>

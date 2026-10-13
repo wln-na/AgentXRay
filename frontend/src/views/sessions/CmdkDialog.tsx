@@ -6,12 +6,12 @@
 import { useQueryClient } from '@tanstack/react-query';
 import { useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
-import { searchSessions } from '@/api/client';
+import { getSessionChild, searchSessions } from '@/api/client';
 import type { Platform, SearchMatch, SearchResult, SessionMessage } from '@/api/types';
 import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog';
 import { getTextContent, parseTimestampMs } from '@/lib/pure';
 import { cn } from '@/lib/utils';
-import { useAppStore } from '@/store';
+import { dirForPlatform, useAppStore } from '@/store';
 import { sessionDetailOptions, sessionsListOptions } from './queries';
 import { isDisplayableMessage, messageAnchorId } from './lib';
 const PLAT_BADGE: Record<string, [string, string]> = {
@@ -23,6 +23,16 @@ const PLAT_BADGE: Record<string, [string, string]> = {
   omp: ['OMP', '#ffd33d'],
   dsh: ['DeepSeek', '#4d6bfe'],
   gemini: ['Gemini', '#4285f4'],
+  doubao: ['Doubao', '#00a870'],
+};
+
+const SOURCE_LABELS: Record<string, string> = {
+  message: '消息正文',
+  reasoning: '思考过程',
+  tool_arguments: '工具参数',
+  command: '执行命令',
+  tool_result: '工具结果',
+  working_directory: '工作目录',
 };
 
 interface HitRow {
@@ -50,18 +60,46 @@ function Highlighted({ text, q }: { text: string; q: string }) {
   );
 }
 
-// Land on a message: prefer the record with the hit's timestamp, else first
-// displayable message containing the first keyword.
+function messageSearchText(message: SessionMessage): string {
+  const parts = [getTextContent(message.content), message.reasoning || ''];
+  if (message.details) {
+    try {
+      parts.push(JSON.stringify(message.details));
+    } catch {
+      /* ignore unserializable details */
+    }
+  }
+  for (const content of message.content || []) {
+    for (const value of [content.arguments, content.input, content.content, content.summary, content.path]) {
+      if (typeof value === 'string') parts.push(value);
+      else if (value !== null && value !== undefined) {
+        try {
+          parts.push(JSON.stringify(value));
+        } catch {
+          /* ignore unserializable content */
+        }
+      }
+    }
+  }
+  return parts.join('\n').toLowerCase();
+}
+
+// Land on a message: prefer the backend-provided record id, then its timestamp,
+// else the first displayable message containing the first effective search term.
 function locateTargetMessage(messages: SessionMessage[], q: string, match: SearchMatch | null): string | null {
   const visible = messages.filter(isDisplayableMessage);
+  if (match?.messageId) {
+    const byId = visible.find((message) => messageAnchorId(message) === match.messageId || message.id === match.messageId || message.toolCallId === match.messageId);
+    if (byId) return messageAnchorId(byId);
+  }
   const hitTs = match ? parseTimestampMs(match.timestamp) : null;
   if (hitTs !== null) {
     const byTs = visible.find((m) => parseTimestampMs(m.timestamp) === hitTs);
     if (byTs) return messageAnchorId(byTs);
   }
-  const kw = q.trim().toLowerCase().split(/\s+/)[0];
+  const kw = (match?.matchedTerm || q.trim().toLowerCase().split(/\s+/)[0] || '').toLowerCase();
   if (kw) {
-    const byText = visible.find((m) => getTextContent(m.content).toLowerCase().includes(kw));
+    const byText = visible.find((m) => messageSearchText(m).includes(kw));
     if (byText) return messageAnchorId(byText);
   }
   return null;
@@ -156,9 +194,21 @@ export function CmdkDialog({
         return;
       }
       store.setSelectedSessionId(found.id);
-      const detail = await queryClient.fetchQuery(
-        sessionDetailOptions({ platform: plat, sessionId: found.id, agent, settings: store.settings })
-      );
+      let detail;
+      if (row.result.childSessionId && (plat === 'codex' || plat === 'claude-code' || plat === 'omp')) {
+        store.setViewingChildAgent(row.result.childSessionId);
+        detail = await getSessionChild(
+          plat,
+          found.id,
+          row.result.childSessionId,
+          dirForPlatform(store.settings, plat) || undefined
+        );
+      } else {
+        store.setViewingChildAgent(null);
+        detail = await queryClient.fetchQuery(
+          sessionDetailOptions({ platform: plat, sessionId: found.id, agent, settings: store.settings })
+        );
+      }
       const target = locateTargetMessage(detail.messages, query, row.match);
       if (target) store.requestScrollToMessage(target);
     } catch (err) {
@@ -194,7 +244,7 @@ export function CmdkDialog({
               if (row) void openHit(row);
             }
           }}
-          placeholder="搜索所有平台的会话内容… 空格分隔多关键词，全部命中才返回"
+          placeholder="搜索消息、思考、工具参数、执行命令与结果… 支持完整文件路径和空格分隔多关键词"
           className="w-full border-b border-border bg-transparent px-4 py-3 text-sm outline-none placeholder:text-muted-foreground"
         />
         <div ref={listRef} className="max-h-[50vh] overflow-y-auto p-1">
@@ -213,9 +263,9 @@ export function CmdkDialog({
               const [platLabel, platColor] = PLAT_BADGE[result.platform] || [result.platform, 'var(--muted)'];
               const shortId = result.history
                 ? (result.project || '').replace(/^\/Users\/[^/]+/, '~')
-                : result.sessionId.length > 20
+                : result.sessionId && result.sessionId.length > 20
                   ? result.sessionId.slice(0, 8) + '…'
-                  : result.sessionId;
+                  : result.sessionId || '未知会话';
               return (
                 <div
                   key={i}
@@ -236,16 +286,28 @@ export function CmdkDialog({
                       {platLabel}
                     </span>
                     <span>{shortId}</span>
+                    {result.cwd ? <span className="max-w-[280px] truncate font-mono" title={result.cwd}>{result.cwd.replace(/^\/Users\/[^/]+/, '~')}</span> : null}
+                    {result.agentNickname || result.agentRole || result.originator ? (
+                      <span>来源：{result.agentNickname || result.agentRole || result.originator}</span>
+                    ) : null}
                     {result.history ? (
                       <span style={{ color: '#d29922' }}>已清理 · 仅输入记录</span>
                     ) : (
-                      <span>{match.role}</span>
+                      <span>{SOURCE_LABELS[match.source || ''] || match.role}</span>
                     )}
-                    {match.timestamp ? <span>{new Date(match.timestamp).toLocaleDateString()}</span> : null}
+                    {match.toolName ? <span className="font-mono">{match.toolName}</span> : null}
+                    {match.evidenceType === 'mutation' ? <span className="rounded bg-amber-500/15 px-1 text-amber-500">创建/变更证据</span> : null}
+                    {result.childSessionId ? <span className="text-[#f0883e]">子 Agent</span> : null}
+                    {match.timestamp ? <span>{new Date(match.timestamp).toLocaleString()}</span> : null}
                   </div>
                   <div className="mt-0.5 whitespace-pre-wrap break-words text-xs text-foreground/90">
                     <Highlighted text={match.snippet} q={query} />
                   </div>
+                  {match.action ? (
+                    <div className="mt-1 overflow-x-auto rounded border border-border/60 bg-background/70 px-2 py-1 font-mono text-[10px] text-muted-foreground">
+                      {match.action}
+                    </div>
+                  ) : null}
                 </div>
               );
             })}

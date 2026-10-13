@@ -5,6 +5,7 @@
 
 import { useEffect, useState } from 'react';
 import { Markdown } from '@/components/Markdown';
+import { ToolCallViewer } from '@/components/ToolCallViewer';
 import {
   DEFAULT_MODEL_PRICING,
   TOKEN_BUCKET_LABELS,
@@ -170,7 +171,6 @@ export function SpanSidebar({
   let body: React.ReactNode;
   if (isTool) {
     const { args, hasArgs, result, summary, status } = findSpanToolData(span.toolCallId, msgs);
-    const argsJson = hasArgs ? JSON.stringify(args, null, 2) : '';
     const resultText = result ? (result.text || '').trim() : '';
     // Resolve syntax-highlight language for the result: shell tools → bash,
     // file tools → extension-based (ts/py/json/…), search tools → plain.
@@ -208,10 +208,8 @@ export function SpanSidebar({
           </div>
         )}
         <SectionTitle>Arguments</SectionTitle>
-        {argsJson ? (
-          <ClampBlock len={argsJson.length}>
-            <Markdown text={`\`\`\`json\n${argsJson}\n\`\`\``} />
-          </ClampBlock>
+        {hasArgs ? (
+          <ToolCallViewer args={args} />
         ) : (
           <div className={EMPTY_CLS}>
             无参数数据
