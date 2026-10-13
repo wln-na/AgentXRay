@@ -8,6 +8,7 @@ import { openSession } from '@/api/client';
 import type { OpenSessionResult, SessionDetail } from '@/api/types';
 import { DEMO } from '@/demo/flag';
 import { formatCost, formatDurationCompact } from '@/lib/pure';
+import { isLive } from '@/lib/live';
 import { cn } from '@/lib/utils';
 import { dirForPlatform, loadStoredFlag, saveStoredFlag, SUMMARY_COLLAPSED_KEY, useAppStore } from '@/store';
 import { ChildAgentsSection } from '@/views/trace/ChildAgentsSection';
@@ -142,10 +143,10 @@ function ResumeButton({ cwd }: { cwd: string | null | undefined }) {
 
 // Platforms whose sessions resume natively in a terminal CLI (open → new window).
 const RESUME_PLATFORM_TITLES: Record<string, string> = {
-  codex: '打开 ChatGPT 应用（Codex 桌面宿主，无会话级深链；应用缺失时回退终端续跑）',
+  codex: '打开 ChatGPT 应用（codex:// 深链直达会话；应用缺失时回退终端续跑）',
   'claude-code': '在终端新窗口中恢复此会话（claude --resume）',
   omp: '在终端新窗口中恢复此会话（omp --resume）',
-  doubao: '打开 Doubao 应用（无会话级深链，日志可另用「定位」查看）',
+  doubao: '打开 Doubao 2 应用（深链直达会话；应用缺失时回退应用启动）',
   'claude-desktop': '打开 Claude 应用（无会话级深链；应用缺失时回退默认编辑器）',
   cursor: '打开 Cursor 应用（无会话级深链；应用缺失时回退默认编辑器）',
 };
@@ -153,15 +154,6 @@ const RESUME_PLATFORM_TITLES: Record<string, string> = {
 // Mirror of lib/platforms/capabilities.json `open` flag: hermes sessions share
 // a single SQLite store, so "open" has no native target (locate still works).
 const NO_OPEN_PLATFORMS = new Set(['hermes']);
-
-// A session whose log was written within this window is considered "live" —
-// the agent is (or just was) actively working on it elsewhere.
-const LIVE_WINDOW_MS = 3 * 60 * 1000;
-function isLive(lastActivity: unknown): boolean {
-  if (typeof lastActivity !== 'string' || !lastActivity) return false;
-  const t = new Date(lastActivity).getTime();
-  return !Number.isNaN(t) && Date.now() - t < LIVE_WINDOW_MS;
-}
 
 function openTitleFor(platform: string): string {
   return RESUME_PLATFORM_TITLES[platform] || '用默认应用打开会话日志文件';

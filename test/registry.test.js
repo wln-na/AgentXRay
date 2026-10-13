@@ -25,7 +25,7 @@ const FILE_PLATFORMS = [
 ];
 const CAPABILITY_KEYS = ['search', 'context', 'backup', 'spawn', 'watch', 'open'];
 const EXPECTED_CAPABILITIES = {
-  openclaw: { search: true, context: false, backup: true, spawn: true, watch: true, open: true },
+  openclaw: { search: true, context: false, backup: true, spawn: true, watch: true, open: false },
   codex: { search: true, context: true, backup: true, spawn: true, watch: true, open: true },
   'claude-code': { search: true, context: true, backup: true, spawn: true, watch: true, open: true },
   'claude-desktop': { search: true, context: true, backup: true, spawn: false, watch: true, open: true },

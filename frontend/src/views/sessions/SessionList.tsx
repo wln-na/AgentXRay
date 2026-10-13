@@ -14,6 +14,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { parseTimestampMs } from '@/lib/pure';
+import { isLive } from '@/lib/live';
 import { cn } from '@/lib/utils';
 import { useAppStore } from '@/store';
 import { filterSessionList, formatDate } from './lib';
@@ -48,14 +49,8 @@ const CHIP_CLASSES: Record<SessionChip['kind'], string> = {
   model: 'border-border bg-secondary text-muted-foreground',
 };
 
-// A session whose log was written within this window is considered "live" —
-// the agent is (or just was) actively working on it.
-const LIVE_WINDOW_MS = 3 * 60 * 1000;
-function isLive(lastActivity: string | null | undefined): boolean {
-  if (!lastActivity) return false;
-  const t = new Date(lastActivity).getTime();
-  return !Number.isNaN(t) && Date.now() - t < LIVE_WINDOW_MS;
-}
+// Live-session definition (LIVE_WINDOW_MS + isLive) lives in @/lib/live —
+// shared with SessionSummary so both views mark the same "open elsewhere" state.
 
 const LiveChip = memo(function LiveChip() {
   return (
