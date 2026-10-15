@@ -25,6 +25,37 @@
   3. `npx biome check .`（整仓，exit 0 = 通过；有 warning/info 不影响）
   4. `npm test`
 
+## CodeQL / 安全扫描
+
+仓库开启的是 CodeQL **default setup**，它与工作流里的 `analyze` job 是**两个独立检查项**：
+
+- `analyze`（`.github/workflows/codeql.yml` 的 job）成功，不代表 `CodeQL` 这项会绿。
+- `CodeQL` 检查的结论是「**本 PR 改动中新增的告警**」，有新增告警就以 `FAILURE` 结束（`gh pr checks` 里显示几秒即 fail，去 `actions/runs/<id>` 会 404 —— 因为它是 check-run 不是 workflow run）。
+- 查告警详情：`gh api "repos/wln-na/AgentXRay/code-scanning/alerts?state=open&pr=<N>" -q '.[] | {num:.number, rule:.rule.id, sev:.rule.security_severity_level, path:.most_recent_instance.location.path, line:.most_recent_instance.location.start_line, msg:.most_recent_instance.message.text}'`
+
+### ★ `Math.min/Math.max` 不是 CodeQL 认可的消毒器
+
+`js/resource-exhaustion` 会把 `setInterval(fn, Math.min(10000, Math.max(500, req.query.x)))` 判为
+**high 级「定时器时长由用户可控」**，即使运行时确实已被夹紧（纯误报，但会让 PR 变红）。
+
+**修法**：把边界写成**到达 sink 的那个值上的显式比较守卫**，抽成单独可测的函数：
+
+```js
+function clampIntervalMs(raw) {
+  const n = numOr(raw, DEFAULT_INTERVAL_MS);
+  if (n < MIN_INTERVAL_MS) return MIN_INTERVAL_MS;
+  if (n > MAX_INTERVAL_MS) return MAX_INTERVAL_MS;
+  return n;
+}
+```
+
+实测改完 `CodeQL` 立即 `pass`。注意重构时要**逐探针比对新旧表达式**保证零语义变化
+（`Number('')` / `Number(null)` 都等于 `0` 是有限数，会走下限而不是回退默认值）。
+
+- 辅助函数按仓库既有惯例挂到导出函数上供测试用（先例：`lib/routes/watch.js` 的
+  `module.exports.watchSnapshotSession`）。
+- 同类历史修复：PR #23 `fix(open): restrict locate/open to session-log roots (CodeQL path injection)`。
+
 ## 代码约定
 
 - `biome.json` 的 `files.includes` 是**白名单**：新增目录（如 `desktop/`）不追加进去就完全逃过 CI lint。
