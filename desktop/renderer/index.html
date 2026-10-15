@@ -1,0 +1,19 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'none'; img-src 'self' file: data:; style-src 'self'; script-src 'self';"
+    />
+    <title>AgentXRay Pet</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <canvas id="pet-canvas" width="160" height="160"></canvas>
+    <!-- 按序加载：内置像素算法 → 皮肤帧渲染 → 渲染入口。零构建，无 require。 -->
+    <script src="../lib/pixel.js"></script>
+    <script src="sprite-render.js"></script>
+    <script src="pet.js"></script>
+  </body>
+</html>
