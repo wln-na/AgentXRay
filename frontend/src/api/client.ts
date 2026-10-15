@@ -18,6 +18,7 @@ import type {
   LibraryUsageData,
   OpenSessionResult,
   OtlpExport,
+  PetState,
   Platform,
   PromptAnalysis,
   PromptsData,
@@ -431,6 +432,25 @@ export function watchUrl(opts: {
     agent: opts.agent,
     dir: opts.dir,
   });
+}
+
+// ---------- Pet (global status companion, PRD §5.2) ----------
+
+/**
+ * URL for the global pet-state EventSource (GET /api/pet/state, SSE). Consumed
+ * via `new EventSource(petStateUrl())` — the server only emits on change, with
+ * a 15s keep-alive ping. `window`/`interval` mirror the backend query params.
+ */
+export function petStateUrl(opts: { window?: number; interval?: number } = {}): string {
+  return withParams('/api/pet/state', {
+    window: opts.window,
+    interval: opts.interval,
+  });
+}
+
+/** One-shot JSON snapshot (GET /api/pet/state?once=1). Handy as a non-SSE fallback. */
+export function getPetState(opts: { window?: number } = {}): Promise<PetState> {
+  return fetchJson<PetState>(withParams('/api/pet/state', { once: 1, window: opts.window }));
 }
 
 // ---------- Context reconstruction ----------

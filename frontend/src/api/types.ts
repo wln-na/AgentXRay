@@ -677,3 +677,27 @@ export interface ContextSnapshot {
   tools: ContextTools;
   metadata: ContextMetadata;
 }
+
+// ---------- Pet (desktop status companion, PRD §5.2) ----------
+
+/** Canonical pet states, ranked per PRD §4.1 (waiting_input > error > working > thinking > done > idle). */
+export type PetStateName = 'idle' | 'thinking' | 'working' | 'done' | 'waiting_input' | 'error';
+
+/**
+ * Top-1 agent state pushed by GET /api/pet/state (SSE event `state`, or the
+ * `?once=1` JSON snapshot). Mirrors lib/pet-aggregator.js aggregatePetState().
+ */
+export interface PetState {
+  state: PetStateName;
+  /** platform id of the top-priority session, or null when idle */
+  platform: Platform | null;
+  sessionId: string | null;
+  /** openclaw agent name when the session belongs to one, else null */
+  agent: string | null;
+  /** human-readable bubble text (zh) produced by deriveState() */
+  bubble: string;
+  /** epoch ms when this snapshot was computed */
+  updatedAt: number;
+  /** optional server-side platform label; absent on older builds (use PLATFORM_LABELS) */
+  platformLabel?: string | null;
+}
