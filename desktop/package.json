@@ -1,0 +1,24 @@
+{
+  "name": "agent-xray-pet",
+  "version": "0.1.0",
+  "private": true,
+  "description": "AgentXRay 桌面状态宠物壳：透明置顶的像素宠物，实时反映 agent 状态（独立子包，Electron 只进 optionalDependencies）",
+  "main": "main.js",
+  "bin": {
+    "agent-xray-pet": "bin/install-agent.js"
+  },
+  "engines": {
+    "node": ">=18.17"
+  },
+  "scripts": {
+    "start": "electron .",
+    "verify": "node bin/verify.js",
+    "install-agent": "node bin/install-agent.js install-agent",
+    "uninstall-agent": "node bin/install-agent.js uninstall-agent",
+    "agent:install": "node bin/install-agent.js install-agent",
+    "agent:uninstall": "node bin/install-agent.js uninstall-agent"
+  },
+  "optionalDependencies": {
+    "electron": "^44.0.0"
+  }
+}

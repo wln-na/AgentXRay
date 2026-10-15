@@ -1,0 +1,27 @@
+/* 桌面宠物壳渲染层样式：透明底、无滚动条、禁用文本选择与默认拖拽。
+   注意：不用 -webkit-app-region: drag（拖动由 renderer + 主进程自管的「⌘/右键拖拽模式」实现）。 */
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  width: 100%;
+  height: 100%;
+  background: transparent;
+  overflow: hidden;
+}
+
+body {
+  -webkit-user-select: none;
+  user-select: none;
+  cursor: default;
+}
+
+#pet-canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+  background: transparent;
+  /* 像素风：缩放时不要插值。 */
+  image-rendering: pixelated;
+}
