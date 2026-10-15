@@ -20,6 +20,7 @@ const mountExportRoutes = require('./lib/routes/export');
 const mountLibraryRoutes = require('./lib/routes/library');
 const mountBackupRoutes = require('./lib/routes/backup');
 const mountWatchRoutes = require('./lib/routes/watch');
+const mountPetRoutes = require('./lib/routes/pet');
 const mountLlmRoutes = require('./lib/routes/llm');
 const mountContextRoutes = require('./lib/routes/context');
 
@@ -69,6 +70,7 @@ mountSessionRoutes(app);
 mountLibraryRoutes(app);
 mountBackupRoutes(app);
 mountWatchRoutes(app);
+mountPetRoutes(app);
 mountLlmRoutes(app);
 mountContextRoutes(app);
 
