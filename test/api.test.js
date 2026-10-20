@@ -673,11 +673,13 @@ describe('backup', () => {
   it('copies every session log once, then skips everything on the second run', async () => {
     const first = await sendJson(srv.base, 'POST', '/api/backup', undefined);
     // codex 6 + claude-code 4 + omp 3 + dsh 2 + gemini 3 + openclaw 2 +
-    // claude-desktop 2 + cursor 2 + doubao 1. (Cursor fixture has 2 main
-    // transcripts; its subagent transcript is deliberately excluded.)
-    assert.equal(first.copied, 25);
+    // claude-desktop 2 + cursor 2 + doubao 1 + workbuddy 2 + trae 2. (Cursor
+    // fixture has 2 main transcripts; its subagent transcript is deliberately
+    // excluded. WorkBuddy fixture has 2 main transcripts. Trae fixture has 2
+    // rollout transcripts under the YYYY/MM/DD date layout.)
+    assert.equal(first.copied, 29);
     assert.equal(first.skipped, 0);
-    assert.equal(first.total, 25);
+    assert.equal(first.total, 29);
     assert.deepEqual(first.byPlatform.openclaw, {
       copied: 2,
       skipped: 0,
@@ -760,12 +762,12 @@ describe('backup', () => {
 
     const second = await sendJson(srv.base, 'POST', '/api/backup', undefined);
     assert.equal(second.copied, 0);
-    assert.equal(second.skipped, 25);
-    assert.equal(second.total, 25);
+    assert.equal(second.skipped, 29);
+    assert.equal(second.total, 29);
 
     const status = await getJson(srv.base, '/api/backup/status');
     assert.equal(status.archiveDir, first.archiveDir);
-    assert.equal(status.files, 25);
+    assert.equal(status.files, 29);
     assert.ok(status.bytes > 0);
     assert.ok(typeof status.lastBackup === 'string');
   });

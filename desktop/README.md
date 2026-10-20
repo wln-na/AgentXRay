@@ -185,7 +185,7 @@ IPC 通道命名：`ipcMain.handle` = `pet:get-info` / `pet:open-session` / `pet
   ③ 静置满 5s 后再点。
 - **期望 C**：三者都会强制恢复穿透（点回下层应用），不会卡在可交互态。
   Esc 走 **renderer 本地 keydown**（非全局快捷键）——必须窗口已获焦点才生效，因此要先点一下宠物。
-- **步骤 D（拖动）**：按住 `⌘` 或鼠标右键拖动宠物。
+- **步骤 D（拖动）**：按住鼠标**左键**拖动宠物（位移超过 5px 才进入拖拽；原地松开 = 点击跳回会话）。
 - **期望 D**：窗口跟随移动；松手后位置持久化。
 
 ### 3. 全屏自动隐藏
@@ -227,4 +227,18 @@ IPC 通道命名：`ipcMain.handle` = `pet:get-info` / `pet:open-session` / `pet
 - 根仓库 `npm test`：`test/pet-shell-*.test.js` 只在**纯 Node** 下 require `desktop/lib/*`，
   不触碰 `main.js`/`preload.js`/`renderer/`。**透明/穿透/全屏/跳回/看门狗自拉**这些 GUI 行为
   只能在上面的人机清单里验证——沙箱仅能保证纯逻辑与装配契约。
+
+## 默认外观：Codex 矢量吉祥物（`renderer/codex-pet.js`）
+
+内置像素动画（`lib/pixel.js`）已**不再作为默认外观**，只留作兜底。renderer 的绘制优先级：
+
+1. 皮肤帧（`PetSpriteRenderer`，用户皮肤包校验通过时）；
+2. **Codex 矢量吉祥物**（`CodexPet.draw`，默认）——蓝色云朵头 + 深色终端屏（青色 `>_`）+
+   小身体肚皮 `>_`，全部 Canvas 路径绘制，零图片；6 态动画：idle 呼吸 / thinking 三点 +
+   歪头 / working 打字光标小跳 / done 绿勾一蹦 / waiting_input 问号弹跳 + 青色光环 /
+   error 红叉抖动 + 红色光环；
+3. 内置像素动画（兜底，`CodexPet` 缺失或 state 非法时，绝不画空白）。
+
+点击热区由 `CodexPet.hotTest`（椭圆近似吉祥物轮廓）承担；像素兜底路径沿用原
+`PetPixel.hotZone`。气泡锚点跟随实际绘制者提供（`bubblePx`）。
 

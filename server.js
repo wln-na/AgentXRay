@@ -11,6 +11,8 @@ const {
   DSH_DIR,
   GEMINI_DIR,
   DOUBAO_DIR,
+  WORKBUDDY_DIR,
+  TRAE_DIR,
 } = require('./lib/config');
 const mountInsightsRoutes = require('./lib/routes/insights');
 const mountPromptRoutes = require('./lib/routes/prompts');
@@ -93,4 +95,6 @@ app.listen(PORT, HOST, () => {
   console.log(`  DeepSeek Harness: ${DSH_DIR}`);
   console.log(`  Gemini CLI:  ${GEMINI_DIR}`);
   console.log(`  Doubao:      ${DOUBAO_DIR}`);
+  console.log(`  WorkBuddy:   ${WORKBUDDY_DIR}`);
+  console.log(`  Trae CN:     ${TRAE_DIR}`);
 });

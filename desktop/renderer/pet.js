@@ -1,9 +1,11 @@
 // 桌面宠物壳渲染入口（renderer）：requestAnimationFrame 循环 + 消费 window.pet 推送。
 //
-// · 每帧调 PetPixel.buildFrame() 画内置像素动画；若皮肤可用则由 PetSpriteRenderer.draw 优先画帧。
-// · pointer 用 PetPixel.hotZone() 做命中 → window.pet.setInteractive(bool) 请求可交互。
+// · 绘制优先级：皮肤帧（PetSpriteRenderer）→ Codex 矢量吉祥物（CodexPet，默认外观）
+//   → 内置像素动画（PetPixel，兜底，绝不画空白）。
+// · pointer 命中：CodexPet.hotTest()（矢量）或 PetPixel.hotZone()（像素）→ window.pet.setInteractive(bool)。
 // · 点击 → window.pet.openSession()（N1：只跳转，永不回复 agent）。
-// · ⌘ / 右键拖拽 → window.pet.drag({phase})（移动窗口由主进程按屏幕光标增量完成）。
+// · 鼠标左键按住拖拽 → window.pet.drag({phase})（移动窗口由主进程按屏幕光标增量完成；
+//   位移超阈值才算拖拽，原地点击仍是「跳回会话」）。
 //
 // 无 Node、无 electron、无网络、无 require（只经 window.pet 与 DOM/Canvas）。
 
@@ -21,15 +23,21 @@
   let running = true;
   let currentState = 'idle';
   let stateChangedAt = performance.now();
-  let petState = { state: 'idle', bubble: '空闲', platform: null, sessionId: null, agent: null };
+  let petState = {
+    state: 'idle',
+    bubble: '空闲',
+    platform: null,
+    platformLabel: null,
+    sessionId: null,
+    title: null,
+    agent: null,
+  };
   let connected = false;
   let toast = null;
   let wantInteractive = false;
   let dragging = false;
   let suppressClickUntil = 0;
   const pointer = { x: -9999, y: -9999 };
-
-  const CELL_COLORS = () => window.PetPixel?.PALETTE || {};
 
   function applyGeom(geom, grid) {
     if (geom && geom.w > 0 && geom.h > 0 && geom.cell > 0) GEOM = { w: geom.w, h: geom.h, cell: geom.cell };
@@ -76,30 +84,67 @@
     }
   }
 
-  function drawBubble(frameSpec, now) {
+  // 按像素宽度截断文本（超宽补省略号）。调用前 ctx.font 需先设为 font。
+  function fitText(text, font, maxWidth) {
+    ctx.font = font;
+    if (ctx.measureText(text).width <= maxWidth) return text;
+    let t = text;
+    while (t.length > 1 && ctx.measureText(`${t}…`).width > maxWidth) t = t.slice(0, -1);
+    return `${t}…`;
+  }
+
+  function drawBubble(bubbleX, now) {
     const activeToast = toast && toast.until > now ? toast.text : null;
     const text = activeToast || petState.bubble || '';
     if (!text) return;
     if (!activeToast && currentState === 'idle') return; // idle 不打扰，不显示气泡
 
-    const label = text.length > 18 ? `${text.slice(0, 17)}…` : text;
-    ctx.font = '11px -apple-system, "PingFang SC", system-ui, sans-serif';
+    // 首行「[平台] 会话标题」用于区分是哪个会话在提醒；toast 反馈不带头部。
+    const header = activeToast
+      ? null
+      : petState.platformLabel
+        ? `[${petState.platformLabel}] ${petState.title || ''}`.trim()
+        : petState.title || null;
+
+    const bodyFont = '11px -apple-system, "PingFang SC", system-ui, sans-serif';
+    const headFont = '9px -apple-system, "PingFang SC", system-ui, sans-serif';
     const padX = 6;
-    const h = 18;
-    const tw = ctx.measureText(label).width;
-    const w = Math.min(GEOM.w - 6, tw + padX * 2);
-    const x = Math.max(3, Math.min(GEOM.w - w - 3, OFFX + frameSpec.bubbleAnchor.x * CELL - w / 2));
-    const y = 4;
+    const maxW = GEOM.w - 6;
+
+    const bodyText = fitText(text, bodyFont, maxW - padX * 2);
+    ctx.font = bodyFont;
+    const bodyW = ctx.measureText(bodyText).width;
+    let headerText = null;
+    let headW = 0;
+    if (header) {
+      headerText = fitText(header, headFont, maxW - padX * 2);
+      ctx.font = headFont;
+      headW = ctx.measureText(headerText).width;
+    }
+
+    const w = Math.min(maxW, Math.max(bodyW, headW) + padX * 2);
+    const h = headerText ? 30 : 18;
+    const x = Math.max(3, Math.min(GEOM.w - w - 3, bubbleX - w / 2));
+    const y = 2;
 
     ctx.fillStyle = 'rgba(0, 0, 0, 0.78)';
     roundRect(x, y, w, h, 6);
     ctx.fill();
 
-    const palette = CELL_COLORS()[currentState] || {};
-    ctx.fillStyle = palette.accent || '#e5e7eb';
     ctx.textBaseline = 'middle';
     ctx.textAlign = 'left';
-    ctx.fillText(label, x + padX, y + h / 2 + 0.5);
+    if (headerText) {
+      ctx.font = headFont;
+      ctx.fillStyle = '#8ab4f8';
+      ctx.fillText(headerText, x + padX, y + 9);
+      ctx.font = bodyFont;
+      ctx.fillStyle = '#e5e7eb';
+      ctx.fillText(bodyText, x + padX, y + 21);
+    } else {
+      ctx.font = bodyFont;
+      ctx.fillStyle = '#e5e7eb';
+      ctx.fillText(bodyText, x + padX, y + h / 2 + 0.5);
+    }
   }
 
   function drawConnectivityDot() {
@@ -112,22 +157,48 @@
   function frame(now) {
     if (!running) return;
     const elapsedMs = now - stateChangedAt;
-    const frameSpec = window.PetPixel.buildFrame({ state: currentState, elapsedMs, geom: GEOM, grid: GRID });
 
     ctx.clearRect(0, 0, GEOM.w, GEOM.h);
 
-    const drewSprite = window.PetSpriteRenderer?.draw(ctx, currentState, elapsedMs, GEOM);
-    if (!drewSprite) drawBuiltin(frameSpec);
+    // 绘制优先级：皮肤帧 → Codex 矢量吉祥物 → 内置像素（兜底，绝不画空白）。
+    let bubbleX = OFFX + 8 * CELL;
+    let drew = false;
+    let codexHot = null;
 
-    drawBubble(frameSpec, now);
+    const drewSprite = window.PetSpriteRenderer?.draw(ctx, currentState, elapsedMs, GEOM);
+    if (drewSprite) {
+      drew = true;
+    } else if (window.CodexPet) {
+      const info = window.CodexPet.draw(ctx, currentState, elapsedMs, GEOM);
+      if (info) {
+        drew = true;
+        bubbleX = info.bubblePx.x;
+        codexHot = info.hot;
+      }
+    }
+
+    if (!drew) {
+      const frameSpec = window.PetPixel.buildFrame({ state: currentState, elapsedMs, geom: GEOM, grid: GRID });
+      drawBuiltin(frameSpec);
+      bubbleX = OFFX + frameSpec.bubbleAnchor.x * CELL;
+    }
+
+    drawBubble(bubbleX, now);
     drawConnectivityDot();
 
     if (!dragging) {
-      const inZone = window.PetPixel.hotZone(frameSpec, {
-        pointer: { x: pointer.x - OFFX, y: pointer.y - OFFY },
-        cell: CELL,
-        pad: 8,
-      });
+      let inZone;
+      if (codexHot) {
+        inZone = window.CodexPet.hotTest(pointer, codexHot, { pad: 8 });
+      } else {
+        // 皮肤帧 / 像素兜底：沿用像素网格热区（历史行为）。
+        const frameSpec = window.PetPixel.buildFrame({ state: currentState, elapsedMs, geom: GEOM, grid: GRID });
+        inZone = window.PetPixel.hotZone(frameSpec, {
+          pointer: { x: pointer.x - OFFX, y: pointer.y - OFFY },
+          cell: CELL,
+          pad: 8,
+        });
+      }
       if (inZone !== wantInteractive) {
         wantInteractive = inZone;
         window.pet.setInteractive(inZone);
@@ -174,24 +245,39 @@
     pointer.y = -9999;
   });
 
-  // ---------- 拖拽（⌘ / 右键） ----------
+  // ---------- 拖拽（鼠标左键按住拖动；原地点击 = 跳回会话） ----------
+  // 按下时先不进入拖拽：位移超过阈值才真正开始拖（否则松开仍是 click → 打开会话）。
+  const DRAG_THRESHOLD = 5; // px
+  let press = null; // { x, y, dragging }
+
   canvas.addEventListener('mousedown', (event) => {
-    if (event.metaKey || event.button === 2) {
-      event.preventDefault();
+    if (event.button === 1) return; // 中键不参与
+    event.preventDefault();
+    press = { x: event.clientX, y: event.clientY, dragging: false };
+    // 点击宠物即让窗口获得焦点，这样本地 Esc 安全阀才生效。
+    window.focus();
+  });
+
+  window.addEventListener('mousemove', (event) => {
+    if (!press || press.dragging) return;
+    const dx = event.clientX - press.x;
+    const dy = event.clientY - press.y;
+    if (dx * dx + dy * dy > DRAG_THRESHOLD * DRAG_THRESHOLD) {
+      press.dragging = true;
       dragging = true;
       suppressClickUntil = performance.now() + 400;
       window.pet.drag({ phase: 'start' });
-    } else {
-      // 点击宠物即让窗口获得焦点，这样本地 Esc 安全阀才生效。
-      window.focus();
     }
   });
+
   window.addEventListener('mouseup', () => {
-    if (dragging) {
+    if (!press) return;
+    if (press.dragging) {
       dragging = false;
       suppressClickUntil = performance.now() + 400;
       window.pet.drag({ phase: 'end' });
     }
+    press = null;
   });
   window.addEventListener('contextmenu', (event) => event.preventDefault());
 

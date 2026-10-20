@@ -1,0 +1,6 @@
+{"type":"session-meta","id":"m2","sessionId":"wb-fixture-session-0002","timestamp":1792000100000,"meta":{}}
+{"id":"u2","timestamp":1792000101000,"type":"message","role":"user","content":[{"type":"input_text","text":"<system-reminder data-role=\"user-context\">\n<user_info>OS Version: darwin</user_info>\n</system-reminder>\n修复 pet 的看门狗 bug"}],"sessionId":"wb-fixture-session-0002","cwd":"/Users/linda/Projects/fixtures"}
+{"id":"r1","timestamp":1792000102000,"type":"reasoning","content":[{"type":"reasoning_text","text":"用户要求修复 watchdog。先看源码。"}],"providerData":{"model":"hy3"},"sessionId":"wb-fixture-session-0002","cwd":"/Users/linda/Projects/fixtures"}
+{"id":"fc2","timestamp":1792000103000,"type":"function_call","callId":"call-2","name":"Grep","arguments":"{\"pattern\":\"maxRestarts\"}","sessionId":"wb-fixture-session-0002","cwd":"/Users/linda/Projects/fixtures"}
+{"id":"fr2","timestamp":1792000104000,"type":"function_call_result","callId":"call-2","name":"Grep","status":"error","output":{"type":"text","text":"EACCES: permission denied"},"sessionId":"wb-fixture-session-0002","cwd":"/Users/linda/Projects/fixtures"}
+{"id":"t2","timestamp":1792000106000,"type":"ai-title","aiTitle":"修复看门狗权限","sessionId":"wb-fixture-session-0002","cwd":"/Users/linda/Projects/fixtures"}

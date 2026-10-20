@@ -1,0 +1,7 @@
+{"type":"session-meta","id":"m1","sessionId":"wb-fixture-session-0001","timestamp":1792000000000,"meta":{}}
+{"id":"u1","timestamp":1792000001000,"type":"message","role":"user","content":[{"type":"input_text","text":"帮我看看 pet 的状态聚合逻辑"}],"sessionId":"wb-fixture-session-0001","cwd":"/Users/linda/Projects/fixtures"}
+{"id":"a1","timestamp":1792000002000,"type":"message","role":"assistant","status":"completed","content":[{"type":"output_text","text":"好的，我先读一下聚合器源码。"}],"providerData":{"model":"hy3"},"sessionId":"wb-fixture-session-0001","cwd":"/Users/linda/Projects/fixtures"}
+{"id":"fc1","timestamp":1792000003000,"type":"function_call","callId":"call-1","name":"Read","arguments":"{\"path\":\"lib/pet-aggregator.js\"}","sessionId":"wb-fixture-session-0001","cwd":"/Users/linda/Projects/fixtures"}
+{"id":"fr1","timestamp":1792000004000,"type":"function_call_result","callId":"call-1","name":"Read","status":"completed","output":{"type":"text","text":"// aggregator source …"},"sessionId":"wb-fixture-session-0001","cwd":"/Users/linda/Projects/fixtures"}
+{"id":"a2","timestamp":1792000005000,"type":"message","role":"assistant","status":"completed","content":[{"type":"output_text","text":"聚合逻辑是按优先级取 top-1，waiting_input 最高。"}],"providerData":{"model":"hy3"},"sessionId":"wb-fixture-session-0001","cwd":"/Users/linda/Projects/fixtures"}
+{"id":"t1","timestamp":1792000006000,"type":"ai-title","aiTitle":"解读 pet 聚合器","sessionId":"wb-fixture-session-0001","cwd":"/Users/linda/Projects/fixtures"}

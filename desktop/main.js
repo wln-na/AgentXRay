@@ -37,8 +37,9 @@ const IS_MAC = process.platform === 'darwin';
 const TRAY_ICON_PNG_BASE64 =
   'iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAASUlEQVR4nGNgoAX4c9n3BDZMtOav87j/Y8MEDcGlER2TbDNBl5CiGashVDegwpQfjHHxae8C+htAcTRSJSER4xKS8gPZmYlUAADdNJ0UTEgmWAAAAABJRU5ErkJggg==';
 
-// 窗口几何：16×16 逻辑格、每格 6px → 96px 精灵；窗口 160×160 留出顶部气泡区。
-const WINDOW = { w: 160, h: 160 };
+// 窗口几何：16×16 逻辑格、每格 6px → 96px 精灵；窗口 128×128 留出顶部气泡区。
+// 矢量吉祥物按 min(w,h)/160 等比缩放，窗口缩到 128 即整体缩至 80%。
+const WINDOW = { w: 128, h: 128 };
 const GRID = 16;
 const CELL = 6;
 
