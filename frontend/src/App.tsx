@@ -6,6 +6,7 @@ import { PlatformBar } from '@/components/PlatformBar';
 import { Sidebar } from '@/components/Sidebar';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { TooltipProvider } from '@/components/ui/tooltip';
+import { PetWidget } from '@/components/PetWidget';
 import { useVersionPoller } from '@/hooks/useVersionPoller';
 import { DEMO } from '@/demo/flag';
 import { useAppStore } from '@/store';
@@ -227,6 +228,7 @@ export default function App() {
           </main>
         </div>
       </div>
+      <PetWidget />
     </TooltipProvider>
   );
 }

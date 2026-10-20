@@ -40,6 +40,8 @@ function serverEnv(home, port) {
     GEMINI_DIR: path.join(home, '.gemini', 'tmp'),
     CURSOR_DIR: path.join(home, '.cursor', 'projects'),
     DOUBAO_DIR: path.join(home, '.doubao', 'agent_mode', 'workspace', '.sessions'),
+    WORKBUDDY_DIR: path.join(home, '.workbuddy', 'projects'),
+    TRAE_DIR: path.join(home, '.trae', 'cli', 'sessions'),
     AGENTXRAY_LIBRARY_DIR: path.join(home, '.agentxray', 'library'),
     AGENTXRAY_ARCHIVE_DIR: path.join(home, '.agentxray', 'archive'),
   };

@@ -22,6 +22,8 @@ const FILE_PLATFORMS = [
   'gemini',
   'cursor',
   'doubao',
+  'workbuddy',
+  'trae',
 ];
 const CAPABILITY_KEYS = ['search', 'context', 'backup', 'spawn', 'watch', 'open'];
 const EXPECTED_CAPABILITIES = {
@@ -35,6 +37,8 @@ const EXPECTED_CAPABILITIES = {
   gemini: { search: true, context: false, backup: true, spawn: false, watch: true, open: true },
   cursor: { search: true, context: false, backup: true, spawn: false, watch: true, open: true },
   doubao: { search: true, context: false, backup: true, spawn: false, watch: true, open: true },
+  workbuddy: { search: true, context: false, backup: true, spawn: false, watch: true, open: true },
+  trae: { search: true, context: false, backup: true, spawn: false, watch: true, open: true },
 };
 
 test('registry contains every platform with id, label and defaultDir', () => {

@@ -11,6 +11,8 @@ const {
   DSH_DIR,
   GEMINI_DIR,
   DOUBAO_DIR,
+  WORKBUDDY_DIR,
+  TRAE_DIR,
 } = require('./lib/config');
 const mountInsightsRoutes = require('./lib/routes/insights');
 const mountPromptRoutes = require('./lib/routes/prompts');
@@ -20,6 +22,7 @@ const mountExportRoutes = require('./lib/routes/export');
 const mountLibraryRoutes = require('./lib/routes/library');
 const mountBackupRoutes = require('./lib/routes/backup');
 const mountWatchRoutes = require('./lib/routes/watch');
+const mountPetRoutes = require('./lib/routes/pet');
 const mountLlmRoutes = require('./lib/routes/llm');
 const mountContextRoutes = require('./lib/routes/context');
 
@@ -69,6 +72,7 @@ mountSessionRoutes(app);
 mountLibraryRoutes(app);
 mountBackupRoutes(app);
 mountWatchRoutes(app);
+mountPetRoutes(app);
 mountLlmRoutes(app);
 mountContextRoutes(app);
 
@@ -91,4 +95,6 @@ app.listen(PORT, HOST, () => {
   console.log(`  DeepSeek Harness: ${DSH_DIR}`);
   console.log(`  Gemini CLI:  ${GEMINI_DIR}`);
   console.log(`  Doubao:      ${DOUBAO_DIR}`);
+  console.log(`  WorkBuddy:   ${WORKBUDDY_DIR}`);
+  console.log(`  Trae CN:     ${TRAE_DIR}`);
 });

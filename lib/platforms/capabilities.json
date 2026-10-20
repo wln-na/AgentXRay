@@ -8,5 +8,7 @@
   "dsh": { "search": true, "context": false, "backup": true, "spawn": false, "watch": true, "open": true },
   "gemini": { "search": true, "context": false, "backup": true, "spawn": false, "watch": true, "open": true },
   "cursor": { "search": true, "context": false, "backup": true, "spawn": false, "watch": true, "open": true },
-  "doubao": { "search": true, "context": false, "backup": true, "spawn": false, "watch": true, "open": true }
+  "doubao": { "search": true, "context": false, "backup": true, "spawn": false, "watch": true, "open": true },
+  "workbuddy": { "search": true, "context": false, "backup": true, "spawn": false, "watch": true, "open": true },
+  "trae": { "search": true, "context": false, "backup": true, "spawn": false, "watch": true, "open": true }
 }
