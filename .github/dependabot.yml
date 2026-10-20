@@ -1,6 +1,6 @@
-# Monthly version updates. Minor/patch bumps are grouped into one PR per ecosystem;
-# major bumps get their own PR so a red CI points at a single dependency.
-# Security updates are handled separately by GitHub's alert flow.
+# Version-update PRs are DISABLED (open-pull-requests-limit: 0) — no automatic bump PRs.
+# Minor/patch bumps were previously grouped per ecosystem; major bumps got their own PR.
+# Security updates are handled separately by GitHub's alert flow (toggle in repo settings).
 version: 2
 
 updates:
@@ -8,7 +8,7 @@ updates:
     directory: "/"
     schedule:
       interval: monthly
-    open-pull-requests-limit: 10
+    open-pull-requests-limit: 0
     groups:
       npm-all:
         patterns: ["*"]
@@ -19,7 +19,7 @@ updates:
     directory: "/frontend"
     schedule:
       interval: monthly
-    open-pull-requests-limit: 10
+    open-pull-requests-limit: 0
     groups:
       npm-all:
         patterns: ["*"]
@@ -30,7 +30,7 @@ updates:
     directory: "/"
     schedule:
       interval: monthly
-    open-pull-requests-limit: 10
+    open-pull-requests-limit: 0
     groups:
       githubactions-all:
         patterns: ["*"]
