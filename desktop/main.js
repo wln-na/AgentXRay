@@ -18,6 +18,7 @@ const config = require('./lib/config');
 const { createStateClient } = require('./lib/sse');
 const { decideWatchdog } = require('./lib/watchdog');
 const { createFullscreenProbe, decideHidden } = require('./lib/fullscreen');
+const { verticalBounds } = require('./lib/window-geometry');
 const {
   buildPlist,
   resolveProgramArgs,
@@ -27,6 +28,7 @@ const {
 const { createOpenClient } = require('./lib/open-client');
 const { scanPacks, selectPack, listStateFrames } = require('./lib/sprite');
 const { resolveNodeExec } = require('./lib/node-exec');
+const { expandedWindowHeight } = require('./lib/bubble-layout');
 
 // 平台门控：点击穿透（forward:true 的 mousemove 转发）是 macOS 特有语义。
 const IS_MAC = process.platform === 'darwin';
@@ -37,13 +39,17 @@ const IS_MAC = process.platform === 'darwin';
 const TRAY_ICON_PNG_BASE64 =
   'iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAASUlEQVR4nGNgoAX4c9n3BDZMtOav87j/Y8MEDcGlER2TbDNBl5CiGashVDegwpQfjHHxae8C+htAcTRSJSER4xKS8gPZmYlUAADdNJ0UTEgmWAAAAABJRU5ErkJggg==';
 
-// 窗口几何：16×16 逻辑格、每格 6px → 96px 精灵；窗口 128×128 留出顶部气泡区。
-// 矢量吉祥物按 min(w,h)/160 等比缩放，窗口缩到 128 即整体缩至 80%。
-const WINDOW = { w: 128, h: 128 };
+// 窗口几何：16×16 逻辑格、每格 6px → 96px 精灵。窗口比正方形宽（300×128）：
+// 吉祥物按 min(w,h)/160 等比缩放并以 w/2 居中，所以加宽只给顶部气泡让出长度，
+// 宠物本身大小不变；非热区全程鼠标穿透，多出来的透明区域不影响交互。
+const WINDOW = { w: 300, h: 128 };
+// 展开态窗口高度：由气泡布局推导，保证放大后的 5 张卡片不裁切。
+const WINDOW_EXPANDED_H = expandedWindowHeight({ petHeight: WINDOW.h });
 const GRID = 16;
 const CELL = 6;
 
-const GEOM = { w: WINDOW.w, h: WINDOW.h, cell: CELL };
+// petH = 宠物壳基准高度（始终为收起高度，不随展开态变化）——渲染端用它锁定宠物缩放。
+const GEOM = { w: WINDOW.w, h: WINDOW.h, cell: CELL, petH: WINDOW.h };
 
 // 轮询参数（AGENTXRAY_PET_DEBUG=1 时调快全屏轮询便于调试）。
 const FULLSCREEN_POLL_MS = config.DEBUG ? 500 : 1000;
@@ -92,6 +98,8 @@ let serverLogLines = 0;
 let dragTimer = null;
 let dragStartCursor = null;
 let dragStartBounds = null;
+// 当前长高方向：false = 向上生长（默认，宠物贴窗口底部），true = 向下生长（宠物贴屏幕顶时）。
+let tallBelow = false;
 let windowStateSaveTimer = null;
 
 const fullscreenProbe = createFullscreenProbe({});
@@ -109,12 +117,32 @@ function markLiveness() {
 }
 
 // ---------- 窗口位置持久化 ----------
+// 记录 x/y/h：窗口高度会随气泡内容伸缩（底边锚定），还原时按底边对齐换算回收起态 y。
 function loadWindowState() {
   try {
     const raw = require('node:fs').readFileSync(config.WINDOW_STATE, 'utf8');
     const parsed = JSON.parse(raw);
     if (parsed && Number.isFinite(parsed.x) && Number.isFinite(parsed.y)) {
-      return { x: Math.round(parsed.x), y: Math.round(parsed.y) };
+      const savedH = Number.isFinite(parsed.h) ? parsed.h : WINDOW.h;
+      // 底边对齐：还原为收起态高度，保证宠物脚底停在用户上次放置的位置。
+      // 夹紧回显示器物理边界（与拖动夹紧一致，可贴到最顶端）：历史状态可能在展开态
+      // 保存，底边换算后可能整窗落到屏幕外（宠物“隐身”且无法拖回）。
+      const display = screen.getPrimaryDisplay();
+      const vertical = verticalBounds({
+        displayBounds: display.bounds,
+        workArea: display.workArea,
+        windowHeight: WINDOW.h,
+        allowLargerThanScreen: true,
+      });
+      const x = Math.round(parsed.x);
+      const y = Math.round(parsed.y + savedH - WINDOW.h);
+      return {
+        x: Math.min(
+          Math.max(x, display.bounds.x),
+          Math.max(display.bounds.x, display.bounds.x + display.bounds.width - WINDOW.w),
+        ),
+        y: Math.min(Math.max(y, vertical.min), vertical.max),
+      };
     }
   } catch {
     // 无状态文件 → 用默认位置。
@@ -129,11 +157,11 @@ function scheduleWindowStateSave() {
   windowStateSaveTimer = setTimeout(async () => {
     windowStateSaveTimer = null;
     if (!mainWindow || mainWindow.isDestroyed()) return;
-    const { x, y } = mainWindow.getBounds();
+    const { x, y, height } = mainWindow.getBounds();
     try {
       await fsp.mkdir(config.PET_DIR, { recursive: true });
-      await fsp.writeFile(config.WINDOW_STATE, JSON.stringify({ x, y }, null, 2), 'utf8');
-      log('main', '已保存窗口位置', x, y);
+      await fsp.writeFile(config.WINDOW_STATE, JSON.stringify({ x, y, h: height }, null, 2), 'utf8');
+      log('main', '已保存窗口位置', x, y, height);
     } catch (err) {
       log('main', '保存窗口位置失败：', err?.message ? err.message : err);
     }
@@ -188,18 +216,76 @@ function startInteractiveSafety() {
 }
 
 // ---------- 拖拽移动（⌘ / 右键）：用屏幕光标增量移动窗口 ----------
+// 结束拖拽：按光标最终位置落点。macOS 默认按 workArea 约束窗口，
+// enableLargerThanScreen 开启后允许窗口覆盖菜单栏区域，顶边可落到 display.bounds.y。
+function finishDrag() {
+  if (!mainWindow || mainWindow.isDestroyed() || !dragStartBounds || !dragStartCursor) return;
+  const cur = screen.getCursorScreenPoint();
+  const display = screen.getDisplayMatching(dragStartBounds);
+  const disp = display.bounds;
+  const vertical = verticalBounds({
+    displayBounds: disp,
+    workArea: display.workArea,
+    windowHeight: WINDOW.h,
+    allowLargerThanScreen: true,
+  });
+  const clamp = (v, min, max) => Math.min(Math.max(v, min), Math.max(min, max));
+  const x = clamp(dragStartBounds.x + (cur.x - dragStartCursor.x), disp.x, disp.x + disp.width - WINDOW.w);
+  const y = clamp(dragStartBounds.y + (cur.y - dragStartCursor.y), vertical.min, vertical.max);
+  mainWindow.setBounds({ x, y, width: WINDOW.w, height: WINDOW.h });
+}
+
 function handleDrag(payload) {
   const phase = payload ? payload.phase : null;
   if (phase === 'start') {
     if (dragTimer || !mainWindow || mainWindow.isDestroyed()) return;
-    dragStartCursor = screen.getCursorScreenPoint();
     dragStartBounds = mainWindow.getBounds();
+    if (dragStartBounds.height !== WINDOW.h) {
+      // 拖动统一在宠物壳高度（128）进行：按长高方向锚定宠物那一侧收拢，宠物原地不动，
+      // 否则首个拖动 tick 会把窗口顶边压回、宠物从窗口底部跳位 244px，
+      // 光标脱离宠物后 mouseup 收不到，拖拽会卡死。
+      mainWindow.setBounds({
+        x: dragStartBounds.x,
+        y: tallBelow ? dragStartBounds.y : dragStartBounds.y + dragStartBounds.height - WINDOW.h,
+        width: WINDOW.w,
+        height: WINDOW.h,
+      });
+      dragStartBounds = mainWindow.getBounds();
+    }
+    dragStartCursor = screen.getCursorScreenPoint();
     dragTimer = setInterval(() => {
       if (!mainWindow || mainWindow.isDestroyed()) return;
       const cur = screen.getCursorScreenPoint();
+      // 光标离开窗口 = 用户在夹紧边缘外（菜单栏/Dock 区域）松手，mouseup 落在别的
+      // 窗口上、渲染端收不到 mouseup。立即结束拖拽并把宠物留在贴边位置，
+      // 否则拖拽定时器继续跟着光标跑，宠物看起来永远“贴不到上/下边缘”。
+      const nb = mainWindow.getBounds();
+      const cursorInside = cur.x >= nb.x - 2 && cur.x <= nb.x + nb.width + 2
+        && cur.y >= nb.y - 2 && cur.y <= nb.y + nb.height + 2;
+      if (!cursorInside) {
+        clearInterval(dragTimer);
+        dragTimer = null;
+        finishDrag();
+        send('pet:drag-cancel', {});
+        scheduleWindowStateSave();
+        log('main', '结束拖拽（光标离开窗口）');
+        return;
+      }
+      // 夹紧到窗口所在显示器的物理边界：宠物可以贴到屏幕最顶端（覆盖菜单栏区域）、
+      // 底边和左右边缘——桌宠窗口本身是最高层级（screen-saver），盖在菜单栏/Dock 上
+      // 是预期行为；同时保证永远不会被拖出屏幕外“隐身”。
+      const display = screen.getDisplayMatching(dragStartBounds);
+      const wa = display.bounds;
+      const vertical = verticalBounds({
+        displayBounds: wa,
+        workArea: display.workArea,
+        windowHeight: WINDOW.h,
+        allowLargerThanScreen: true,
+      });
+      const clamp = (v, min, max) => Math.min(Math.max(v, min), Math.max(min, max));
       mainWindow.setBounds({
-        x: dragStartBounds.x + (cur.x - dragStartCursor.x),
-        y: dragStartBounds.y + (cur.y - dragStartCursor.y),
+        x: clamp(dragStartBounds.x + (cur.x - dragStartCursor.x), wa.x, wa.x + wa.width - WINDOW.w),
+        y: clamp(dragStartBounds.y + (cur.y - dragStartCursor.y), vertical.min, vertical.max),
         width: WINDOW.w,
         height: WINDOW.h,
       });
@@ -210,6 +296,7 @@ function handleDrag(payload) {
       clearInterval(dragTimer);
       dragTimer = null;
     }
+    finishDrag();
     scheduleWindowStateSave();
     log('main', '结束拖拽');
   }
@@ -601,7 +688,7 @@ function setupIpc() {
   ipcMain.handle('pet:get-info', async () => ({
     host: config.HOST,
     port: config.PORT,
-    geom: GEOM,
+    geom: { ...GEOM, bubbleBelow: tallBelow },
     grid: GRID,
     states: config.PET_STATES,
     skin: await buildSkinPayload(),
@@ -618,6 +705,31 @@ function setupIpc() {
 
   ipcMain.handle('pet:drag', (_event, payload) => {
     handleDrag(payload);
+    return true;
+  });
+
+  // 展开/收起会话卡片列表：底边锚定，向上生长/收回，并把新几何推给渲染层。
+  ipcMain.handle('pet:set-expanded', (_event, value) => {
+    const want = !!value;
+    const b = mainWindow.getBounds();
+    if (want) {
+      if (b.height !== WINDOW_EXPANDED_H) {
+        // 方向仲裁：哪边剩余空间大就往哪边生长。向上 = 底边锚定（宠物贴窗口底）；
+        // 向下 = 顶边锚定（渲染端把宠物画到窗口顶部，宠物屏幕位置不变）。
+        const wa = screen.getDisplayMatching(b).workArea;
+        const spaceAbove = b.y - wa.y;
+        const spaceBelow = wa.y + wa.height - (b.y + WINDOW.h);
+        tallBelow = spaceBelow > spaceAbove;
+        const y = tallBelow ? b.y + b.height - WINDOW.h : b.y + b.height - WINDOW_EXPANDED_H;
+        mainWindow.setBounds({ x: b.x, y, width: b.width, height: WINDOW_EXPANDED_H });
+      }
+    } else if (b.height !== WINDOW.h) {
+      // 收拢时按当前方向锚定宠物侧，保证宠物屏幕位置不变。
+      const y = tallBelow ? b.y : b.y + b.height - WINDOW.h;
+      mainWindow.setBounds({ x: b.x, y, width: b.width, height: WINDOW.h });
+    }
+    const nb = mainWindow.getBounds();
+    send('pet:geom', { w: nb.width, h: nb.height, cell: CELL, petH: WINDOW.h, bubbleBelow: tallBelow });
     return true;
   });
 }
@@ -638,6 +750,7 @@ function createWindow() {
     minimizable: false,
     maximizable: false,
     fullscreenable: false,
+    enableLargerThanScreen: true,
     skipTaskbar: true,
     show: false,
     alwaysOnTop: true,

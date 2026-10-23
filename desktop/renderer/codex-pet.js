@@ -265,7 +265,9 @@
     const t = Number.isFinite(elapsedMs) ? elapsedMs : 0;
     const w = geom?.w || 160;
     const h = geom?.h || 160;
-    const s = Math.min(w, h) / 160; // 设计稿 160 → 实际画布的缩放
+    // 缩放基准 = 宠物壳高度（petH，收起态高度）：展开态窗口向上生长变高，但宠物大小锁定不变。
+    const base = geom?.petH || h;
+    const s = Math.min(w, base) / 160; // 设计稿 160 → 实际画布的缩放
     const { bobY, shakeX, rot, pulse } = pose(state, t);
 
     const cx = w / 2;

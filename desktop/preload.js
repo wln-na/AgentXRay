@@ -15,7 +15,7 @@
 
 const { contextBridge, ipcRenderer } = require('electron');
 
-const ALLOWED_PUSH = new Set(['pet:state', 'pet:status', 'pet:fullscreen', 'pet:open-result']);
+const ALLOWED_PUSH = new Set(['pet:state', 'pet:status', 'pet:fullscreen', 'pet:open-result', 'pet:geom', 'pet:drag-cancel']);
 
 function subscribe(channel, cb) {
   if (!ALLOWED_PUSH.has(channel) || typeof cb !== 'function') return () => {};
@@ -29,7 +29,10 @@ contextBridge.exposeInMainWorld('pet', {
   openSession: (payload) => ipcRenderer.invoke('pet:open-session', payload),
   setInteractive: (value) => ipcRenderer.invoke('pet:set-interactive', !!value),
   drag: (payload) => ipcRenderer.invoke('pet:drag', payload),
+  setExpanded: (value) => ipcRenderer.invoke('pet:set-expanded', !!value),
   onState: (cb) => subscribe('pet:state', cb),
+  onGeom: (cb) => subscribe('pet:geom', cb),
+  onDragCancel: (cb) => subscribe('pet:drag-cancel', cb),
   onStatus: (cb) => subscribe('pet:status', cb),
   onFullscreen: (cb) => subscribe('pet:fullscreen', cb),
   onOpenResult: (cb) => subscribe('pet:open-result', cb),

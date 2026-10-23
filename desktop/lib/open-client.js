@@ -26,7 +26,7 @@ function buildOpenRequest(opts = {}) {
   const path =
     opts.platform === 'openclaw'
       ? `/api/agents/${encodeURIComponent(opts.agent || '')}/sessions/${sessionId}/open`
-      : `/api/${opts.platform}/sessions/${sessionId}/open`;
+      : `/api/${encodeURIComponent(opts.platform)}/sessions/${sessionId}/open`;
   // body 只含 action：绝不携带任何内容回复（N1）。
   return { method: 'POST', path, body: { action } };
 }
