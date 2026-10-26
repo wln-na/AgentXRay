@@ -25,6 +25,8 @@
     badgeButtonGap: 2,
     bubbleAnchorGap: 6,
     bubbleEdgeMargin: 4,
+    dismissButtonRadius: 9,
+    dismissButtonMargin: 8,
   });
 
   /**
@@ -60,6 +62,19 @@
       ),
       y: badge.y,
     };
+  }
+
+  /**
+   * 忽略（dismiss）按钮：卡片右侧边缘垂直居中。返回含中心点的命中矩形。
+   *
+   * @param {{x:number, y:number, w:number, h:number}} card 卡片命中矩形
+   * @returns {{x:number, y:number, w:number, h:number, cx:number, cy:number, r:number}}
+   */
+  function dismissButtonRect(card) {
+    const r = BUBBLE_LAYOUT.dismissButtonRadius;
+    const cx = Math.round(card.x + card.w - r - BUBBLE_LAYOUT.dismissButtonMargin);
+    const cy = Math.round(card.y + card.h / 2);
+    return { x: cx - r, y: cy - r, w: r * 2, h: r * 2, cx, cy, r };
   }
 
   /**
@@ -106,5 +121,5 @@
     return petHeight + 6 + cardsHeight + gapsHeight + 8;
   }
 
-  return { BUBBLE_LAYOUT, expandedWindowHeight, badgeCenter, expandButtonCenter, bubbleStackY };
+  return { BUBBLE_LAYOUT, expandedWindowHeight, badgeCenter, expandButtonCenter, bubbleStackY, dismissButtonRect };
 });

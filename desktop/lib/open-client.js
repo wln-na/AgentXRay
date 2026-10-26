@@ -32,6 +32,30 @@ function buildOpenRequest(opts = {}) {
 }
 
 /**
+ * 构造 pet 忽略（dismiss）请求（纯，不真连）。
+ * set   → POST /api/pet/ignore       {platform, sessionId, agent?, durationMs?}
+ * clear → POST /api/pet/ignore/clear {platform, sessionId, agent?}
+ *
+ * @param {object} opts
+ * @param {string} opts.platform
+ * @param {string} opts.sessionId
+ * @param {string} [opts.agent]
+ * @param {number} [opts.durationMs]  仅 set 生效
+ * @param {'set'|'clear'} [action='set']
+ * @returns {{method: 'POST', path: string, body: object}}
+ */
+function buildIgnoreRequest(opts = {}, action = 'set') {
+  const body = { platform: opts.platform, sessionId: opts.sessionId };
+  if (opts.agent) body.agent = opts.agent;
+  if (action === 'set' && Number.isFinite(opts.durationMs)) body.durationMs = opts.durationMs;
+  return {
+    method: 'POST',
+    path: action === 'clear' ? '/api/pet/ignore/clear' : '/api/pet/ignore',
+    body,
+  };
+}
+
+/**
  * 可注入 transport 的客户端：真正发起请求（默认 Node http.request 到 host:port）。
  *
  * @param {object} [opts]
@@ -49,7 +73,7 @@ function createOpenClient(opts = {}) {
   const onResult = opts.onResult || (() => {});
   const onError = opts.onError || (() => {});
 
-  function request(pathStr, body) {
+  function request(pathStr, body, method = 'POST') {
     return new Promise((resolve) => {
       let settled = false;
       const resolveOnce = (result) => {
@@ -73,7 +97,7 @@ function createOpenClient(opts = {}) {
             host,
             port,
             path: pathStr,
-            method: 'POST',
+            method,
             headers: { 'Content-Type': 'application/json' },
           },
           (res) => {
@@ -120,6 +144,14 @@ function createOpenClient(opts = {}) {
       const { path: reqPath, body } = buildOpenRequest({ ...payload, action: 'locate' });
       return request(reqPath, body);
     },
+    ignoreSession(payload = {}) {
+      const { path: reqPath, body } = buildIgnoreRequest(payload, 'set');
+      return request(reqPath, body);
+    },
+    clearIgnoreSession(payload = {}) {
+      const { path: reqPath, body } = buildIgnoreRequest(payload, 'clear');
+      return request(reqPath, body);
+    },
     /** 返回 fallback.path / fallback.command 供剪贴板；无则 null。 */
     copyFallback(result) {
       const fb = result?.fallback;
@@ -131,5 +163,6 @@ function createOpenClient(opts = {}) {
 
 module.exports = {
   buildOpenRequest,
+  buildIgnoreRequest,
   createOpenClient,
 };

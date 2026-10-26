@@ -348,6 +348,27 @@ async function handleOpenSession(payload) {
   return result;
 }
 
+// ---------- 忽略会话（dismiss，气泡不再提醒） ----------
+async function handleIgnoreSession(payload) {
+  const platform = payload ? payload.platform : null;
+  const sessionId = payload ? payload.sessionId : null;
+  if (!platform || !sessionId) {
+    return { ok: false, error: '缺少 platform/sessionId' };
+  }
+  const result = await openClient.ignoreSession({
+    platform,
+    sessionId,
+    agent: payload.agent || undefined,
+    durationMs: payload.durationMs,
+  });
+  // 复用 open-result 通道给渲染层 toast 反馈（已是同一套气泡提示）。
+  send('pet:open-result', {
+    ok: result.ok,
+    detail: result.ok ? '已忽略该会话' : result.error || '忽略失败',
+  });
+  return result;
+}
+
 // ---------- SSE 状态客户端 ----------
 function startStateClient() {
   stateClient = createStateClient({
@@ -696,6 +717,7 @@ function setupIpc() {
   }));
 
   ipcMain.handle('pet:open-session', (_event, payload) => handleOpenSession(payload));
+  ipcMain.handle('pet:ignore-session', (_event, payload) => handleIgnoreSession(payload));
 
   ipcMain.handle('pet:set-interactive', (_event, value) => {
     lastPointerAt = Date.now();

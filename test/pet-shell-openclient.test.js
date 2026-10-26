@@ -5,7 +5,9 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const path = require('node:path');
 
-const { buildOpenRequest, createOpenClient } = require(path.join(__dirname, '..', 'desktop', 'lib', 'open-client'));
+const { buildOpenRequest, buildIgnoreRequest, createOpenClient } = require(
+  path.join(__dirname, '..', 'desktop', 'lib', 'open-client')
+);
 
 function makeFakeHttpRequest() {
   const reqs = [];
@@ -161,4 +163,55 @@ test('createOpenClient.copyFallback：返回 path / command，无则 null', () =
   );
   assert.equal(client.copyFallback({ ok: true }), null);
   assert.equal(client.copyFallback({ ok: false, fallback: null }), null);
+});
+
+// --- buildIgnoreRequest ---
+
+test('buildIgnoreRequest: set → POST /api/pet/ignore with platform/sessionId/agent', () => {
+  const r = buildIgnoreRequest({ platform: 'codex', sessionId: 'abc', agent: 'a1' }, 'set');
+  assert.equal(r.method, 'POST');
+  assert.equal(r.path, '/api/pet/ignore');
+  assert.deepEqual(r.body, { platform: 'codex', sessionId: 'abc', agent: 'a1' });
+});
+
+test('buildIgnoreRequest: set carries durationMs only when finite', () => {
+  const withDur = buildIgnoreRequest({ platform: 'codex', sessionId: 'abc', durationMs: 60000 }, 'set');
+  assert.equal(withDur.body.durationMs, 60000);
+  const noDur = buildIgnoreRequest({ platform: 'codex', sessionId: 'abc' }, 'set');
+  assert.equal(noDur.body.durationMs, undefined);
+});
+
+test('buildIgnoreRequest: clear → POST /api/pet/ignore/clear, no durationMs', () => {
+  const r = buildIgnoreRequest({ platform: 'codex', sessionId: 'abc', agent: 'a1', durationMs: 5 }, 'clear');
+  assert.equal(r.path, '/api/pet/ignore/clear');
+  assert.deepEqual(r.body, { platform: 'codex', sessionId: 'abc', agent: 'a1' });
+});
+
+test('createOpenClient.ignoreSession: POST to /api/pet/ignore', async () => {
+  const fake = makeFakeHttpRequest();
+  const client = createOpenClient({ host: 'h', port: 1, httpRequest: fake.httpRequest });
+  const p = client.ignoreSession({ platform: 'codex', sessionId: 's1', durationMs: 30000 });
+  const conn = fake.reqs[0];
+  assert.equal(conn.opts.path, '/api/pet/ignore');
+  assert.equal(conn.opts.method, 'POST');
+  assert.equal(conn.req.written, JSON.stringify({ platform: 'codex', sessionId: 's1', durationMs: 30000 }));
+  conn.respond();
+  conn.data('{"ok":true,"ignoredAt":1,"until":2}');
+  conn.end();
+  const r = await p;
+  assert.equal(r.ok, true);
+  assert.equal(r.until, 2);
+});
+
+test('createOpenClient.clearIgnoreSession: POST to /api/pet/ignore/clear', async () => {
+  const fake = makeFakeHttpRequest();
+  const client = createOpenClient({ host: 'h', port: 1, httpRequest: fake.httpRequest });
+  const p = client.clearIgnoreSession({ platform: 'codex', sessionId: 's1' });
+  assert.equal(fake.reqs[0].opts.path, '/api/pet/ignore/clear');
+  assert.equal(fake.reqs[0].req.written, JSON.stringify({ platform: 'codex', sessionId: 's1' }));
+  fake.reqs[0].respond();
+  fake.reqs[0].data('{"ok":true,"removed":true}');
+  fake.reqs[0].end();
+  const r = await p;
+  assert.equal(r.removed, true);
 });

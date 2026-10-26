@@ -44,6 +44,7 @@
   let winTall = false; // 窗口是否处于加高态（有气泡内容时加高，与 expanded 布局开关解耦）
   let lastTallRequestAt = 0; // 上次窗口高度请求时间（长高失败的冷却重试用）
   let cardRects = []; // { x, y, w, h, session }
+  let dismissRects = []; // 展开态每张卡片的「×」忽略按钮命中区 { x, y, w, h, session }
   let expandButtonRect = null; // { x, y, w, h }
   let geomLockUntil = 0; // 收到 pet:geom 后锁定高度自愈的截止时间（避开 setBounds 后的 innerHeight 滞后）
 
@@ -110,27 +111,34 @@
   // 返回命中矩形 {x,y,w,h}。
   const BUBBLE = window.PetBubbleLayout.BUBBLE_LAYOUT;
 
-  function drawCard(card, bubbleX, y) {
+  function drawCard(card, bubbleX, y, opts = {}) {
     const titleFont = `600 ${BUBBLE.titleFontSize}px -apple-system, "PingFang SC", system-ui, sans-serif`;
     const subFont = `${BUBBLE.subtitleFontSize}px -apple-system, "PingFang SC", system-ui, sans-serif`;
     const padX = BUBBLE.paddingX;
     const maxW = GEOM.w - 6;
 
+    // 忽略按钮只出现在展开态的可点卡片上；为它预留右侧空间，文字截断宽度相应收窄，
+    // 保证「×」永远不与标题/副标题重叠。
+    const dismissable = opts.dismissable === true;
+    const btnSpace = dismissable ? BUBBLE.dismissButtonRadius * 2 + BUBBLE.dismissButtonMargin * 2 : 0;
+    const textMaxW = Math.max(40, maxW - padX * 2 - btnSpace);
+
     const titleText = card.title || null;
     const subText = card.platformLabel ? `[${card.platformLabel}] ${card.bubble || ''}` : card.bubble || '';
 
-    const sub = fitText(subText, subFont, maxW - padX * 2);
+    const sub = fitText(subText, subFont, textMaxW);
     ctx.font = subFont;
     const subW = ctx.measureText(sub).width;
     let title = null;
     let titleW = 0;
     if (titleText) {
-      title = fitText(titleText, titleFont, maxW - padX * 2);
+      title = fitText(titleText, titleFont, textMaxW);
       ctx.font = titleFont;
       titleW = ctx.measureText(title).width;
     }
 
-    const w = Math.min(maxW, Math.max(subW, titleW) + padX * 2);
+    const minW = padX * 2 + btnSpace;
+    const w = Math.max(minW, Math.min(maxW, Math.max(subW, titleW) + padX * 2));
     const h = BUBBLE.cardHeight;
     const r = h / 2; // 胶囊形
     const x = Math.max(3, Math.min(GEOM.w - w - 3, bubbleX - w / 2));
@@ -163,7 +171,32 @@
       ctx.fillStyle = '#1f2937';
       ctx.fillText(sub, x + padX, y + h / 2 + 0.5);
     }
-    return { x, y, w, h };
+
+    const rect = { x, y, w, h };
+    if (dismissable) {
+      const b = window.PetBubbleLayout.dismissButtonRect(rect);
+      ctx.save();
+      ctx.beginPath();
+      ctx.arc(b.cx, b.cy, b.r, 0, Math.PI * 2);
+      ctx.fillStyle = 'rgba(255, 255, 255, 0.98)';
+      ctx.fill();
+      ctx.strokeStyle = 'rgba(107, 114, 128, 0.5)';
+      ctx.lineWidth = 1;
+      ctx.stroke();
+      const s = b.r * 0.5;
+      ctx.strokeStyle = '#6b7280';
+      ctx.lineWidth = 1.6;
+      ctx.lineCap = 'round';
+      ctx.beginPath();
+      ctx.moveTo(b.cx - s, b.cy - s);
+      ctx.lineTo(b.cx + s, b.cy + s);
+      ctx.moveTo(b.cx + s, b.cy - s);
+      ctx.lineTo(b.cx - s, b.cy + s);
+      ctx.stroke();
+      ctx.restore();
+      rect.dismiss = b;
+    }
+    return rect;
   }
 
   // 叠层气泡（类 Codex 桌宠）：
@@ -191,6 +224,7 @@
 
   function drawBubbles(bubbleX, anchorY, now) {
     cardRects = [];
+    dismissRects = [];
     const activeToast = toast && toast.until > now ? toast.text : null;
     if (!activeToast && currentState === 'idle') return; // idle 不打扰
 
@@ -223,8 +257,9 @@
         index: i,
         listLength: list.length,
       });
-      const rect = drawCard(card, bubbleX, y);
+      const rect = drawCard(card, bubbleX, y, { dismissable: expanded && !!card.platform });
       cardRects.push({ ...rect, session: card.platform ? card : null });
+      if (rect.dismiss) dismissRects.push({ ...rect.dismiss, session: card.platform ? card : null });
     });
   }
 
@@ -281,6 +316,7 @@
   // 指针是否悬在卡片/按钮上（用于请求鼠标穿透开关）。
   function overBubbleUi() {
     if (cardRects.some((r) => inRect(pointer, r))) return true;
+    if (dismissRects.some((r) => inRect(pointer, r))) return true;
     return inRect(pointer, expandButtonRect);
   }
 
@@ -528,6 +564,25 @@
     });
   }
 
+  // 忽略（dismiss）某会话：让气泡不再提醒它。不做乐观移除——等服务端生效后由
+  // SSE（≤2s）把会话从列表拿走；这里只给 toast 即时反馈。若请求失败，会话原样保留。
+  function ignoreSessionOf(session) {
+    if (!session?.platform || !session.sessionId) return;
+    window.pet
+      .ignoreSession({
+        platform: session.platform,
+        sessionId: session.sessionId,
+        agent: session.agent || undefined,
+      })
+      .then((result) => {
+        const ok = result?.ok;
+        toast = {
+          text: ok ? '已忽略该会话' : (result?.error) || '忽略失败',
+          until: performance.now() + (ok ? 2500 : 3200),
+        };
+      });
+  }
+
   canvas.addEventListener('click', () => {
     if (performance.now() < suppressClickUntil) return;
     // 展开按钮：切换展开/收起布局（窗口高度由 frame 仲裁，有内容时保持高个）。
@@ -536,7 +591,12 @@
       return;
     }
     if (expanded) {
-      // 展开态：点哪张卡跳哪个会话。
+      // 展开态：先看「×」忽略按钮，再点卡片跳会话。
+      const dismiss = dismissRects.find((r) => r.session && inRect(pointer, r));
+      if (dismiss) {
+        ignoreSessionOf(dismiss.session);
+        return;
+      }
       const card = cardRects.find((r) => r.session && inRect(pointer, r));
       if (card) {
         openSessionOf(card.session);

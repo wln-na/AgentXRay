@@ -7,6 +7,7 @@ const {
   badgeCenter,
   expandButtonCenter,
   bubbleStackY,
+  dismissButtonRect,
 } = require('../desktop/lib/bubble-layout');
 
 test('气泡文字使用易读字号，并同步放大卡片布局', () => {
@@ -66,4 +67,18 @@ test('向上气泡模式的卡片底边距宠物头顶固定 6px', () => {
     }),
     264
   );
+});
+
+test('忽略按钮锚定卡片右侧边缘垂直居中，并落在卡片命中区内', () => {
+  const card = { x: 10, y: 20, w: 280, h: 48 };
+  const b = dismissButtonRect(card);
+  assert.equal(b.r, BUBBLE_LAYOUT.dismissButtonRadius);
+  // 水平中心贴近右边缘（留 margin），垂直中心即卡片中心
+  assert.equal(b.cx, card.x + card.w - b.r - BUBBLE_LAYOUT.dismissButtonMargin);
+  assert.equal(b.cy, card.y + card.h / 2);
+  // 命中矩形完整包住按钮且不越出卡片
+  assert.equal(b.x, b.cx - b.r);
+  assert.equal(b.w, b.r * 2);
+  assert.ok(b.x >= card.x && b.x + b.w <= card.x + card.w, 'button stays inside the card');
+  assert.ok(b.y >= card.y && b.y + b.h <= card.y + card.h, 'button stays inside the card vertically');
 });

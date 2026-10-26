@@ -9,7 +9,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 
-const { clampIntervalMs } = require('../lib/routes/pet');
+const { clampIntervalMs, validatePetIgnore } = require('../lib/routes/pet');
 
 test('clampIntervalMs falls back to the default when the value is absent', () => {
   assert.equal(clampIntervalMs(undefined), 2000);
@@ -77,18 +77,42 @@ test('clampIntervalMs is exposed without breaking the mount function export', ()
   assert.equal(typeof mount.clampIntervalMs, 'function');
 });
 
-test('mountPetRoutes registers GET /api/pet/state', () => {
+test('mountPetRoutes registers GET /api/pet/state and the ignore endpoints', () => {
   const mount = require('../lib/routes/pet');
   const routes = [];
   const fakeApp = {
     get(path, handler) {
       routes.push({ path, handler });
     },
+    post(path, handler) {
+      routes.push({ path, handler });
+    },
   };
   mount(fakeApp);
   assert.deepEqual(
     routes.map((r) => r.path),
-    ['/api/pet/state']
+    ['/api/pet/state', '/api/pet/ignore', '/api/pet/ignore/clear']
   );
-  assert.equal(typeof routes[0].handler, 'function');
+  for (const r of routes) assert.equal(typeof r.handler, 'function');
+});
+
+// --- validatePetIgnore ---
+// Pure validation shared by both ignore endpoints; platform must exist in the
+// registry, sessionId must be a printable-safe token, agent optional.
+
+test('validatePetIgnore accepts a known platform + safe sessionId', () => {
+  assert.equal(validatePetIgnore('codex', 'abc-123', null), null);
+  assert.equal(validatePetIgnore('codex', 'rollout-2026-10-20T10:00:00Z-abc', null), null);
+  assert.equal(validatePetIgnore('trae', 's1', 'sub-1'), null);
+});
+
+test('validatePetIgnore rejects unknown platforms', () => {
+  assert.match(validatePetIgnore('nope', 'abc', null), /unknown platform/);
+  assert.match(validatePetIgnore('', 'abc', null), /unknown platform/);
+});
+
+test('validatePetIgnore rejects unsafe sessionId/agent', () => {
+  assert.match(validatePetIgnore('codex', '../etc/passwd', null), /invalid sessionId/);
+  assert.match(validatePetIgnore('codex', 'a b', null), /invalid sessionId/);
+  assert.match(validatePetIgnore('openclaw', 'abc', '../x'), /invalid agent/);
 });
