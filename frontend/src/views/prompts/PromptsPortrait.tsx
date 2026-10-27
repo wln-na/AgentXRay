@@ -28,9 +28,7 @@ export function buildTopicColor(a: PromptAnalysis): (topic: string) => string {
 
 export function Subhead({ children }: { children: React.ReactNode }) {
   return (
-    <div className="mb-1 mt-4 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-      {children}
-    </div>
+    <div className="mb-1 mt-4 text-xs font-semibold uppercase tracking-wide text-muted-foreground">{children}</div>
   );
 }
 
@@ -76,16 +74,11 @@ export function PromptsPortrait({ analysis: a, clusters, topicColor }: PromptsPo
   let flops: PromptCluster[] = [];
   let meanErr = 0;
   if (attributed.length >= 2) {
-    meanErr = attributed.reduce((s, c) => s + (c.attribution!.errorRate ?? 0), 0) / attributed.length;
-    const meanMsgs =
-      attributed.reduce((s, c) => s + (c.attribution!.avgMessages ?? 0), 0) / attributed.length;
+    meanErr = attributed.reduce((s, c) => s + (c.attribution?.errorRate ?? 0), 0) / attributed.length;
+    const meanMsgs = attributed.reduce((s, c) => s + (c.attribution?.avgMessages ?? 0), 0) / attributed.length;
     flops = attributed
-      .filter(
-        (c) =>
-          (c.attribution!.errorRate ?? 0) > meanErr ||
-          (c.attribution!.avgMessages ?? 0) > meanMsgs * 1.5
-      )
-      .sort((x, y) => (y.attribution!.errorRate ?? 0) - (x.attribution!.errorRate ?? 0))
+      .filter((c) => (c.attribution?.errorRate ?? 0) > meanErr || (c.attribution?.avgMessages ?? 0) > meanMsgs * 1.5)
+      .sort((x, y) => (y.attribution?.errorRate ?? 0) - (x.attribution?.errorRate ?? 0))
       .slice(0, 5);
   }
 
@@ -130,7 +123,7 @@ export function PromptsPortrait({ analysis: a, clusters, topicColor }: PromptsPo
                 .filter(([, n]) => n > 0)
                 .sort((x, y) => y[1] - x[1]);
               const tip = `${w.week} 起的一周: ${w.total} prompts${
-                entries.length ? ' · ' + entries.map(([t, n]) => `${t} ${n}`).join(' · ') : ''
+                entries.length ? ` · ${entries.map(([t, n]) => `${t} ${n}`).join(' · ')}` : ''
               }`;
               return (
                 <div key={w.week} className="flex flex-col items-center gap-1" title={tip}>
@@ -158,10 +151,7 @@ export function PromptsPortrait({ analysis: a, clusters, topicColor }: PromptsPo
             <div className="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-[11px] text-muted-foreground">
               {usedTopics.map((t) => (
                 <span key={t} className="inline-flex items-center gap-1">
-                  <span
-                    className="inline-block h-2 w-2 rounded-full"
-                    style={{ background: topicColor(t) }}
-                  />
+                  <span className="inline-block h-2 w-2 rounded-full" style={{ background: topicColor(t) }} />
                   {t}
                 </span>
               ))}
@@ -180,10 +170,8 @@ export function PromptsPortrait({ analysis: a, clusters, topicColor }: PromptsPo
                   <span className="min-w-0 flex-1 truncate font-medium" title={c.pattern}>
                     {c.pattern}
                   </span>
-                  <Metric warn={(c.attribution!.errorRate ?? 0) > meanErr}>
-                    err {c.attribution!.errorRate}%
-                  </Metric>
-                  <Metric>avg {c.attribution!.avgMessages} msgs</Metric>
+                  <Metric warn={(c.attribution?.errorRate ?? 0) > meanErr}>err {c.attribution?.errorRate}%</Metric>
+                  <Metric>avg {c.attribution?.avgMessages} msgs</Metric>
                   <Metric>×{c.count}</Metric>
                 </div>
                 {(c.errorSamples || []).slice(0, 3).map((sm, i) => (

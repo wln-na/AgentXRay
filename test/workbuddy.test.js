@@ -102,7 +102,7 @@ test('parseWorkbuddySessionFile returns session meta + ordered messages', async 
 
 test('listWorkbuddySessions sorts newest-first with ai-title preferred', async () => {
   const sessions = await wb.listWorkbuddySessions(ROOT);
-  const mine = sessions.filter((s) => s.id && s.id.startsWith('wb-fixture-'));
+  const mine = sessions.filter((s) => s.id?.startsWith('wb-fixture-'));
   assert.ok(mine.length >= 2);
   assert.equal(mine[0].id, 'wb-fixture-session-0002'); // 0002 起始时间更晚
   const byTitle = new Map(mine.map((s) => [s.id, s.title]));
@@ -113,9 +113,34 @@ test('listWorkbuddySessions sorts newest-first with ai-title preferred', async (
   }
 });
 
+test('stripWorkbuddySystemReminders drops injected context blocks only', () => {
+  // 带属性开标签（WorkBuddy 真实形态）+ 块后紧跟真实提问
+  assert.equal(
+    wb.stripWorkbuddySystemReminders(
+      '<system-reminder data-role="user-context">\n<user_info>\nOS Version: darwin\n</user_info>\n</system-reminder>\n给会话列表加个过滤框'
+    ),
+    '给会话列表加个过滤框'
+  );
+  // 纯注入块 → 空串（调用方据此跳过，继续找下一条真实提问）
+  assert.equal(wb.stripWorkbuddySystemReminders('<system-reminder>x</system-reminder>'), '');
+  // 没有注入块 → 原样返回
+  assert.equal(wb.stripWorkbuddySystemReminders('  你好  '), '你好');
+  // <user_query> 是纯包装标签，只留正文
+  assert.equal(wb.stripWorkbuddySystemReminders('<user_query>加个过滤框</user_query>'), '加个过滤框');
+  assert.equal(wb.stripWorkbuddySystemReminders(''), '');
+  assert.equal(wb.stripWorkbuddySystemReminders(null), '');
+});
+
+test('list metadata preview skips system-reminder injections', async () => {
+  const sessions = await wb.listWorkbuddySessions(ROOT);
+  const byId = new Map(sessions.map((s) => [s.id, s]));
+  // 0002 首条 user turn 只有注入块（跳过），第二条是「注入块 + 真实提问」→ 预览只留提问
+  assert.equal(byId.get('wb-fixture-session-0002').firstUserMessage, '修复 pet 的看门狗 bug');
+});
+
 test('find + getSession resolve by session id', async () => {
   const filePath = await wb.findWorkbuddySessionFile(ROOT, 'wb-fixture-session-0001');
-  assert.ok(filePath && filePath.endsWith('wb-fixture-session-0001.jsonl'));
+  assert.ok(filePath?.endsWith('wb-fixture-session-0001.jsonl'));
   const got = await wb.getWorkbuddySession(ROOT, 'wb-fixture-session-0001');
   assert.equal(got.session.id, 'wb-fixture-session-0001');
   assert.equal(await wb.findWorkbuddySessionFile(ROOT, 'no-such-session'), null);

@@ -2,8 +2,8 @@
 // reuses these with queryClient.fetchQuery so jump-to-session shares the cache.
 
 import { useQuery } from '@tanstack/react-query';
-import { getSessionDetail, getSessions } from '@/api/client';
 import type { DirSettings } from '@/api/client';
+import { getSessionDetail, getSessions } from '@/api/client';
 import type { Platform, SessionDetail, SessionSummary } from '@/api/types';
 import { dirForPlatform, useAppStore } from '@/store';
 

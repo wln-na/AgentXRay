@@ -3,10 +3,9 @@
 // Extended with post-hoc analysis: MCP/Skill source classification, tool-call
 // chain pattern mining, and per-turn efficiency metrics.
 
-import type { SessionMessage } from '@/api/types';
-import type { MessageContentPart } from '@/api/types';
-import { classifyToolSource, firstInformativeLine, getTextContent, parseTimestampMs } from '@/lib/pure';
+import type { MessageContentPart, SessionMessage } from '@/api/types';
 import type { ToolSource } from '@/lib/pure';
+import { classifyToolSource, firstInformativeLine, getTextContent, parseTimestampMs } from '@/lib/pure';
 
 export interface SessionToolStat {
   name: string;
@@ -108,16 +107,16 @@ export interface SessionInsightsStats {
 // tools/errors/tokens it took to resolve), and compute a quality score.
 
 export type PromptCategory =
-  | 'bugfix'      // Bug 修复
-  | 'feature'     // 需求开发
-  | 'review'      // 代码审查
-  | 'refactor'    // 重构
-  | 'config'      // 配置/环境
-  | 'debug'       // 调试/排查
-  | 'qa'          // 问答
-  | 'docs'        // 文档
-  | 'test'        // 测试
-  | 'other';      // 其他
+  | 'bugfix' // Bug 修复
+  | 'feature' // 需求开发
+  | 'review' // 代码审查
+  | 'refactor' // 重构
+  | 'config' // 配置/环境
+  | 'debug' // 调试/排查
+  | 'qa' // 问答
+  | 'docs' // 文档
+  | 'test' // 测试
+  | 'other'; // 其他
 
 export const PROMPT_CATEGORY_LABELS: Record<PromptCategory, string> = {
   bugfix: '🐛 Bug 修复',
@@ -133,13 +132,72 @@ export const PROMPT_CATEGORY_LABELS: Record<PromptCategory, string> = {
 };
 
 const PROMPT_CATEGORY_KEYWORDS: Record<PromptCategory, string[]> = {
-  bugfix: ['bug', 'fix', 'error', '报错', '修复', '问题', '异常', 'crash', '失败', '不工作', '不行', '404', '500', 'exception', 'stack trace'],
-  feature: ['feature', 'implement', '开发', '实现', '新增', '添加', '功能', '需求', '做一个', '写一个', '创建', 'build', 'add'],
+  bugfix: [
+    'bug',
+    'fix',
+    'error',
+    '报错',
+    '修复',
+    '问题',
+    '异常',
+    'crash',
+    '失败',
+    '不工作',
+    '不行',
+    '404',
+    '500',
+    'exception',
+    'stack trace',
+  ],
+  feature: [
+    'feature',
+    'implement',
+    '开发',
+    '实现',
+    '新增',
+    '添加',
+    '功能',
+    '需求',
+    '做一个',
+    '写一个',
+    '创建',
+    'build',
+    'add',
+  ],
   review: ['review', '审查', '检查代码', 'code review', '看看代码', '评审', 'review this'],
   refactor: ['refactor', '重构', '优化代码', '整理代码', 'clean up', 'rewrite', '重写', '拆分', '合并'],
-  config: ['config', '配置', 'setup', '环境', '安装', 'deploy', '部署', 'ci', 'pipeline', 'docker', '依赖', 'package', 'webpack', 'vite'],
+  config: [
+    'config',
+    '配置',
+    'setup',
+    '环境',
+    '安装',
+    'deploy',
+    '部署',
+    'ci',
+    'pipeline',
+    'docker',
+    '依赖',
+    'package',
+    'webpack',
+    'vite',
+  ],
   debug: ['debug', '调试', 'trace', '排查', '分析', '为什么', '原因', 'root cause', '定位', 'investigate'],
-  qa: ['what', 'how', 'why', '是什么', '怎么', '为什么', '解释', '请问', '意思', '区别', 'compare', 'explain', 'tell me'],
+  qa: [
+    'what',
+    'how',
+    'why',
+    '是什么',
+    '怎么',
+    '为什么',
+    '解释',
+    '请问',
+    '意思',
+    '区别',
+    'compare',
+    'explain',
+    'tell me',
+  ],
   docs: ['doc', '文档', '写文档', '注释', 'readme', '说明', '教程', 'guide', 'comment'],
   test: ['test', '测试', '单测', '单元测试', 'e2e', 'integration', 'mock', 'jest', 'vitest'],
   other: [],
@@ -336,13 +394,17 @@ export interface ErrorKnowledgeItem {
 const DEFAULT_MODEL_PRICING = {
   input: 3.0,
   output: 15.0,
-  cacheRead: 0.30,
+  cacheRead: 0.3,
   cacheWrite: 3.75,
   reasoning: 15.0,
 };
 
 function computeCost(
-  input: number, output: number, cacheRead: number, cacheWrite: number, reasoning: number,
+  input: number,
+  output: number,
+  cacheRead: number,
+  cacheWrite: number,
+  reasoning: number,
   pricing = DEFAULT_MODEL_PRICING
 ): number {
   return (
@@ -350,7 +412,8 @@ function computeCost(
       output * pricing.output +
       cacheRead * pricing.cacheRead +
       cacheWrite * pricing.cacheWrite +
-      reasoning * pricing.reasoning) / 1_000_000
+      reasoning * pricing.reasoning) /
+    1_000_000
   );
 }
 
@@ -362,7 +425,7 @@ function tsToMs(ts: string | number | null | undefined): number | null {
   if (ts == null) return null;
   if (typeof ts === 'number') return ts;
   const d = new Date(ts);
-  return isNaN(d.getTime()) ? null : d.getTime();
+  return Number.isNaN(d.getTime()) ? null : d.getTime();
 }
 
 const SOURCE_LABELS: Record<ToolSource, string> = {
@@ -545,7 +608,8 @@ export function computeSessionInsights(msgs: SessionMessage[]): SessionInsightsS
   // ── Post-hoc analysis: tool chain patterns (bigrams + trigrams) ──
   const bigramCounts = new Map<string, { pattern: string[]; count: number }>();
   const trigramCounts = new Map<string, { pattern: string[]; count: number }>();
-  let totalBigrams = 0, totalTrigrams = 0;
+  let totalBigrams = 0,
+    totalTrigrams = 0;
   for (const turn of turns) {
     const seq = turn.toolSequence;
     for (let j = 0; j < seq.length - 1; j++) {
@@ -586,15 +650,16 @@ export function computeSessionInsights(msgs: SessionMessage[]): SessionInsightsS
     hasFinalReply: t.hasFinalReply,
   }));
   const validTurns = turnEfficiencies.filter((t) => t.durationMs > 0);
-  const avgTurnDurationMs = validTurns.length > 0
-    ? Math.round(validTurns.reduce((s, t) => s + t.durationMs, 0) / validTurns.length)
-    : 0;
-  const avgTurnToolCalls = turnEfficiencies.length > 0
-    ? Math.round((turnEfficiencies.reduce((s, t) => s + t.toolCalls, 0) / turnEfficiencies.length) * 10) / 10
-    : 0;
-  const avgTurnTokens = turnEfficiencies.length > 0
-    ? Math.round(turnEfficiencies.reduce((s, t) => s + t.inputTokens + t.outputTokens, 0) / turnEfficiencies.length)
-    : 0;
+  const avgTurnDurationMs =
+    validTurns.length > 0 ? Math.round(validTurns.reduce((s, t) => s + t.durationMs, 0) / validTurns.length) : 0;
+  const avgTurnToolCalls =
+    turnEfficiencies.length > 0
+      ? Math.round((turnEfficiencies.reduce((s, t) => s + t.toolCalls, 0) / turnEfficiencies.length) * 10) / 10
+      : 0;
+  const avgTurnTokens =
+    turnEfficiencies.length > 0
+      ? Math.round(turnEfficiencies.reduce((s, t) => s + t.inputTokens + t.outputTokens, 0) / turnEfficiencies.length)
+      : 0;
 
   // ── Post-hoc analysis: Prompt depth analysis ──
   // Retry detection per turn: approximate from error count (errors that were
@@ -622,7 +687,10 @@ export function computeSessionInsights(msgs: SessionMessage[]): SessionInsightsS
   });
 
   // Category stats
-  const categoryMap = new Map<PromptCategory, { count: number; toolCalls: number; duration: number; errors: number; quality: number }>();
+  const categoryMap = new Map<
+    PromptCategory,
+    { count: number; toolCalls: number; duration: number; errors: number; quality: number }
+  >();
   for (const item of promptItems) {
     const existing = categoryMap.get(item.category) || { count: 0, toolCalls: 0, duration: 0, errors: 0, quality: 0 };
     existing.count++;
@@ -644,9 +712,8 @@ export function computeSessionInsights(msgs: SessionMessage[]): SessionInsightsS
     }))
     .sort((a, b) => b.count - a.count);
 
-  const avgQuality = promptItems.length > 0
-    ? Math.round(promptItems.reduce((s, p) => s + p.qualityScore, 0) / promptItems.length)
-    : 0;
+  const avgQuality =
+    promptItems.length > 0 ? Math.round(promptItems.reduce((s, p) => s + p.qualityScore, 0) / promptItems.length) : 0;
 
   const sortedByQuality = [...promptItems].sort((a, b) => b.qualityScore - a.qualityScore);
   const bestPrompts = sortedByQuality.slice(0, 3);
@@ -659,14 +726,19 @@ export function computeSessionInsights(msgs: SessionMessage[]): SessionInsightsS
     { range: '100-300字', min: 100, max: 300 },
     { range: '>300字', min: 300, max: Infinity },
   ];
-  const lengthEfficiency = lengthRanges.map((lr) => {
-    const inRange = promptItems.filter((p) => p.length >= lr.min && p.length < lr.max);
-    return {
-      range: lr.range,
-      avgToolCalls: inRange.length > 0 ? Math.round((inRange.reduce((s, p) => s + p.toolCalls, 0) / inRange.length) * 10) / 10 : 0,
-      count: inRange.length,
-    };
-  }).filter((l) => l.count > 0);
+  const lengthEfficiency = lengthRanges
+    .map((lr) => {
+      const inRange = promptItems.filter((p) => p.length >= lr.min && p.length < lr.max);
+      return {
+        range: lr.range,
+        avgToolCalls:
+          inRange.length > 0
+            ? Math.round((inRange.reduce((s, p) => s + p.toolCalls, 0) / inRange.length) * 10) / 10
+            : 0,
+        count: inRange.length,
+      };
+    })
+    .filter((l) => l.count > 0);
 
   const promptAnalysis: PromptDepthAnalysis = {
     items: promptItems,
@@ -695,10 +767,18 @@ export function computeSessionInsights(msgs: SessionMessage[]): SessionInsightsS
       else if (lastToolName) type = 'before-tool';
       thinkingPhases.push({ type, durationMs: duration, toolName: lastToolName || undefined, hasText });
     }
-    if (msg.role === 'toolCall') { lastToolName = msg.toolName || null; lastWasError = false; }
-    if (msg.role === 'toolResult') { lastWasError = !!msg.isError; }
+    if (msg.role === 'toolCall') {
+      lastToolName = msg.toolName || null;
+      lastWasError = false;
+    }
+    if (msg.role === 'toolResult') {
+      lastWasError = !!msg.isError;
+    }
     for (const c of msg.content || []) {
-      if (c.type === 'toolCall' || c.type === 'tool_use') { lastToolName = c.name || null; lastWasError = false; }
+      if (c.type === 'toolCall' || c.type === 'tool_use') {
+        lastToolName = c.name || null;
+        lastWasError = false;
+      }
     }
     if (msgTs) prevEventTs = msgTs;
   }
@@ -707,20 +787,31 @@ export function computeSessionInsights(msgs: SessionMessage[]): SessionInsightsS
   const thinkingByType = new Map<string, { count: number; totalMs: number }>();
   for (const p of thinkingPhases) {
     const existing = thinkingByType.get(p.type) || { count: 0, totalMs: 0 };
-    existing.count++; existing.totalMs += p.durationMs;
+    existing.count++;
+    existing.totalMs += p.durationMs;
     thinkingByType.set(p.type, existing);
   }
   const THINKING_TYPE_LABELS: Record<string, string> = {
-    'before-tool': '🔧 工具调用前', 'before-reply': '💬 最终回复前',
-    'after-error': '❌ 错误后重试', 'other': '📦 其他',
+    'before-tool': '🔧 工具调用前',
+    'before-reply': '💬 最终回复前',
+    'after-error': '❌ 错误后重试',
+    other: '📦 其他',
   };
   const thinkingByTypeArray = Array.from(thinkingByType.entries())
-    .map(([type, s]) => ({ type, label: THINKING_TYPE_LABELS[type] || type, count: s.count, totalMs: s.totalMs, avgMs: s.count > 0 ? Math.round(s.totalMs / s.count) : 0 }))
+    .map(([type, s]) => ({
+      type,
+      label: THINKING_TYPE_LABELS[type] || type,
+      count: s.count,
+      totalMs: s.totalMs,
+      avgMs: s.count > 0 ? Math.round(s.totalMs / s.count) : 0,
+    }))
     .sort((a, b) => b.totalMs - a.totalMs);
 
   const THINKING_BUCKETS = [
-    { range: '<1s', min: 0, max: 1000 }, { range: '1-5s', min: 1000, max: 5000 },
-    { range: '5-10s', min: 5000, max: 10000 }, { range: '10-30s', min: 10000, max: 30000 },
+    { range: '<1s', min: 0, max: 1000 },
+    { range: '1-5s', min: 1000, max: 5000 },
+    { range: '5-10s', min: 5000, max: 10000 },
+    { range: '10-30s', min: 10000, max: 30000 },
     { range: '>30s', min: 30000, max: Infinity },
   ];
   const thinkingDistribution = THINKING_BUCKETS.map((b) => {
@@ -750,7 +841,8 @@ export function computeSessionInsights(msgs: SessionMessage[]): SessionInsightsS
     inputCost: (totalInputTokens * DEFAULT_MODEL_PRICING.input) / 1_000_000,
     outputCost: (totalOutputTokens * DEFAULT_MODEL_PRICING.output) / 1_000_000,
     cacheReadCost: (totalCacheRead * DEFAULT_MODEL_PRICING.cacheRead) / 1_000_000,
-    cacheWriteCost: 0, reasoningCost: 0,
+    cacheWriteCost: 0,
+    reasoningCost: 0,
     currency: 'USD',
     modelPricing: { ...DEFAULT_MODEL_PRICING },
     perTurn: costPerTurn,
@@ -776,29 +868,66 @@ export function computeSessionInsights(msgs: SessionMessage[]): SessionInsightsS
         }
       }
       if (lower.includes('read') || lower.includes('view') || lower.includes('cat')) {
-        const path = typeof args?.file_path === 'string' ? args.file_path : typeof args?.path === 'string' ? args.path : '';
-        if (path) { const existing = fileMap.get(path) || { readCount: 0, writeCount: 0 }; existing.readCount++; fileMap.set(path, existing); }
+        const path =
+          typeof args?.file_path === 'string' ? args.file_path : typeof args?.path === 'string' ? args.path : '';
+        if (path) {
+          const existing = fileMap.get(path) || { readCount: 0, writeCount: 0 };
+          existing.readCount++;
+          fileMap.set(path, existing);
+        }
       }
       if (lower.includes('write') || lower.includes('edit') || lower.includes('patch') || lower.includes('create')) {
-        const path = typeof args?.file_path === 'string' ? args.file_path : typeof args?.path === 'string' ? args.path : '';
-        if (path) { const existing = fileMap.get(path) || { readCount: 0, writeCount: 0 }; existing.writeCount++; fileMap.set(path, existing); }
+        const path =
+          typeof args?.file_path === 'string' ? args.file_path : typeof args?.path === 'string' ? args.path : '';
+        if (path) {
+          const existing = fileMap.get(path) || { readCount: 0, writeCount: 0 };
+          existing.writeCount++;
+          fileMap.set(path, existing);
+        }
       }
     };
     if (msg.role === 'toolCall') extractFromArgs(msg.toolName || '', msg.args as Record<string, unknown> | undefined);
     for (const c of msg.content || []) {
-      if (c.type === 'toolCall' || c.type === 'tool_use') extractFromArgs(c.name || '', c.input as Record<string, unknown> | undefined);
+      if (c.type === 'toolCall' || c.type === 'tool_use')
+        extractFromArgs(c.name || '', c.input as Record<string, unknown> | undefined);
     }
   }
 
   const commonCommands: CommonCommand[] = Array.from(commandMap.entries())
-    .map(([command, s]) => ({ command, count: s.count, avgDurationMs: s.count > 0 ? Math.round(s.totalDurationMs / s.count) : 0, errors: s.errors }))
-    .sort((a, b) => b.count - a.count).slice(0, 15);
+    .map(([command, s]) => ({
+      command,
+      count: s.count,
+      avgDurationMs: s.count > 0 ? Math.round(s.totalDurationMs / s.count) : 0,
+      errors: s.errors,
+    }))
+    .sort((a, b) => b.count - a.count)
+    .slice(0, 15);
   const commonFiles: CommonFile[] = Array.from(fileMap.entries())
-    .map(([path, s]) => ({ path, readCount: s.readCount, writeCount: s.writeCount, totalOps: s.readCount + s.writeCount }))
-    .sort((a, b) => b.totalOps - a.totalOps).slice(0, 15);
+    .map(([path, s]) => ({
+      path,
+      readCount: s.readCount,
+      writeCount: s.writeCount,
+      totalOps: s.readCount + s.writeCount,
+    }))
+    .sort((a, b) => b.totalOps - a.totalOps)
+    .slice(0, 15);
 
   // ── Knowledge asset: decision records from thinking ──
-  const DECISION_KEYWORDS = ['决定', '选择', '方案', '因为', '所以', '因此', 'decide', 'choose', 'because', 'therefore', 'approach', 'strategy', 'plan'];
+  const DECISION_KEYWORDS = [
+    '决定',
+    '选择',
+    '方案',
+    '因为',
+    '所以',
+    '因此',
+    'decide',
+    'choose',
+    'because',
+    'therefore',
+    'approach',
+    'strategy',
+    'plan',
+  ];
   const decisionRecords: DecisionRecord[] = [];
   for (const msg of msgs) {
     if (msg.role !== 'assistant') continue;
@@ -840,7 +969,14 @@ export function computeSessionInsights(msgs: SessionMessage[]): SessionInsightsS
   for (const e of errors) {
     const isResolved = retries.some((r) => r.errorIndex === e.index);
     if (!isResolved) {
-      errorKnowledge.push({ errorSnippet: e.snippet.slice(0, 100), toolName: e.toolName, fixSnippet: '', fixToolName: '', attempts: 1, resolved: false });
+      errorKnowledge.push({
+        errorSnippet: e.snippet.slice(0, 100),
+        toolName: e.toolName,
+        fixSnippet: '',
+        fixToolName: '',
+        attempts: 1,
+        resolved: false,
+      });
     }
   }
 
@@ -989,7 +1125,10 @@ export function computeWasteAttribution(msgs: SessionMessage[]): WasteAttributio
           // Try to extract file path from args
           const args = (c as MessageContentPart).arguments ?? (c as MessageContentPart).input;
           if (args && typeof args === 'object') {
-            const fp = (args as Record<string, unknown>).file_path || (args as Record<string, unknown>).path || (args as Record<string, unknown>).file;
+            const fp =
+              (args as Record<string, unknown>).file_path ||
+              (args as Record<string, unknown>).path ||
+              (args as Record<string, unknown>).file;
             if (typeof fp === 'string') readFiles.add(fp);
           }
         } else {
@@ -1084,7 +1223,9 @@ export function computeProcessHealthCheck(msgs: SessionMessage[]): ProcessHealth
     label: '提问带定位信息',
     description: '首条提问应包含入口文件、关注重点和排除项；给路径不贴整段内容',
     status: hasLocation ? 'pass' : 'fail',
-    evidence: hasLocation ? '首条提问包含文件路径/代码/错误信息' : `首条提问未包含定位信息（${firstUserText.length} 字）`,
+    evidence: hasLocation
+      ? '首条提问包含文件路径/代码/错误信息'
+      : `首条提问未包含定位信息（${firstUserText.length} 字）`,
   });
 
   // 3. Batch related questions
@@ -1095,7 +1236,9 @@ export function computeProcessHealthCheck(msgs: SessionMessage[]): ProcessHealth
     label: '相关问题批量提',
     description: '共享代码背景的问题应一次性列全，避免串行提问导致工具结果反复携带',
     status: batchOk ? 'pass' : 'fail',
-    evidence: batchOk ? `平均每轮 ${avgToolsPerTurn.toFixed(1)} 次工具调用` : `${userMsgs.length} 轮用户提问但平均每轮仅 ${avgToolsPerTurn.toFixed(1)} 次工具调用，可能是串行提问`,
+    evidence: batchOk
+      ? `平均每轮 ${avgToolsPerTurn.toFixed(1)} 次工具调用`
+      : `${userMsgs.length} 轮用户提问但平均每轮仅 ${avgToolsPerTurn.toFixed(1)} 次工具调用，可能是串行提问`,
   });
 
   // 4. Session hygiene — one task per session
@@ -1123,7 +1266,15 @@ export function computeProcessHealthCheck(msgs: SessionMessage[]): ProcessHealth
     for (const c of m.content || []) {
       if ((c.type === 'toolCall' || c.type === 'tool_use') && c.name) {
         const n = c.name.toLowerCase();
-        if (n.includes('build') || n.includes('test') || n.includes('lint') || n.includes('typecheck') || n.includes('npm') || n.includes('make')) return true;
+        if (
+          n.includes('build') ||
+          n.includes('test') ||
+          n.includes('lint') ||
+          n.includes('typecheck') ||
+          n.includes('npm') ||
+          n.includes('make')
+        )
+          return true;
       }
     }
     return m.role === 'toolCall' && m.toolName && /build|test|lint|typecheck|npm|make/i.test(m.toolName);
@@ -1133,7 +1284,9 @@ export function computeProcessHealthCheck(msgs: SessionMessage[]): ProcessHealth
     label: '验证交确定性工具',
     description: '构建/测试/lint 由 CLI 确定性执行，Agent 只负责调用和解读结果，不每次从零拼装',
     status: hasBuildOrTest ? 'pass' : 'fail',
-    evidence: hasBuildOrTest ? '会话中使用了 build/test/lint 等确定性验证工具' : '会话中未检测到 build/test/lint 等验证工具调用',
+    evidence: hasBuildOrTest
+      ? '会话中使用了 build/test/lint 等确定性验证工具'
+      : '会话中未检测到 build/test/lint 等验证工具调用',
   });
 
   // 7. Large search goes to subagent
@@ -1146,14 +1299,22 @@ export function computeProcessHealthCheck(msgs: SessionMessage[]): ProcessHealth
     }
     return false;
   }).length;
-  const hasSubagent = msgs.some((m) => m.role === 'assistant' && m.content?.some((c) => (c.type === 'toolCall' || c.type === 'tool_use') && c.name && /task|spawn|agent|subagent/i.test(c.name)));
+  const hasSubagent = msgs.some(
+    (m) =>
+      m.role === 'assistant' &&
+      m.content?.some(
+        (c) => (c.type === 'toolCall' || c.type === 'tool_use') && c.name && /task|spawn|agent|subagent/i.test(c.name)
+      )
+  );
   const largeSearchOk = !(searchCount > 5 && !hasSubagent);
   items.push({
     id: 'subagent_search',
     label: '大搜索丢给子代理',
     description: '全仓搜索/批量文件扫描的中间产物远大于结论，应交给 subagent，主会话只收结论',
     status: largeSearchOk ? 'pass' : 'fail',
-    evidence: largeSearchOk ? '检索量适中或使用了子代理' : `${searchCount} 次搜索/扫描但未使用子代理，中间产物可能膨胀上下文`,
+    evidence: largeSearchOk
+      ? '检索量适中或使用了子代理'
+      : `${searchCount} 次搜索/扫描但未使用子代理，中间产物可能膨胀上下文`,
   });
 
   // 8. Model selection — manual

@@ -5,6 +5,7 @@
 // sidebar; clicking a purple bar loads that child agent's transcript.
 
 import { useEffect, useMemo, useState } from 'react';
+import type { TraceSpan, TraceTurn } from '@/lib/pure';
 import {
   analyzeHealth,
   buildTraceTurns,
@@ -16,10 +17,9 @@ import {
   parseTimestampMs,
   toolMeta,
 } from '@/lib/pure';
-import type { TraceSpan, TraceTurn } from '@/lib/pure';
 import { useAppStore } from '@/store';
-import { SpanSidebar } from './SpanSidebar';
 import { childAgentLabel, useActiveSessionDetail, useChildrenQuery } from './childAgents';
+import { SpanSidebar } from './SpanSidebar';
 
 const BAR_COLORS: Record<TraceSpan['kind'], string> = {
   chat: '#58a6ff',
@@ -129,16 +129,22 @@ function SpanRow({
         >
           {hasChildren && (
             <button
+              type="button"
               className="mr-1 inline-block w-3.5 text-center text-[0.65rem] text-muted-foreground hover:text-foreground"
-              onClick={(e) => { e.stopPropagation(); setCollapsed(!collapsed); }}
+              onClick={(e) => {
+                e.stopPropagation();
+                setCollapsed(!collapsed);
+              }}
               title={collapsed ? '展开子节点' : '折叠子节点'}
             >
               {collapsed ? '▶' : '▼'}
             </button>
           )}
-          {!hasChildren && depth > 0 && <span className="mr-1 inline-block w-3.5 text-center text-[0.65rem] text-muted-foreground/40">└</span>}
+          {!hasChildren && depth > 0 && (
+            <span className="mr-1 inline-block w-3.5 text-center text-[0.65rem] text-muted-foreground/40">└</span>
+          )}
           {spanIcon(span.kind, span.label)} {displayLabel}
-          {repeat && repeat.isFirst && (
+          {repeat?.isFirst && (
             <span
               className="ml-1 inline-block rounded-full border border-amber-500/40 bg-amber-500/15 px-1.5 py-0.5 text-[0.6rem] font-medium text-amber-400"
               title={`连续重复调用 ${repeat.count} 次，可能存在循环`}
@@ -170,8 +176,10 @@ function SpanRow({
           ) : null}
         </span>
         <div className="relative col-span-2 h-3.5 sm:col-span-1 sm:col-start-2 sm:row-start-1">
-          <div
-            className={`absolute top-0 h-3.5 min-w-1 cursor-pointer rounded-sm opacity-90 hover:opacity-100 hover:outline hover:outline-1 hover:outline-foreground ${
+          <button
+            type="button"
+            aria-label={title}
+            className={`absolute top-0 h-3.5 min-w-1 cursor-pointer rounded-sm border-0 p-0 opacity-90 hover:opacity-100 hover:outline hover:outline-1 hover:outline-foreground ${
               isAnomalous ? 'outline outline-1 outline-amber-500/60' : ''
             }`}
             style={{
@@ -187,28 +195,41 @@ function SpanRow({
                 onSpanClick(span);
               }
             }}
-          >
-          </div>
+            onKeyDown={(event) => {
+              if (event.key !== 'Enter') return;
+              if (isAgent) {
+                if (span.agentName) onAgentClick(span.agentName);
+              } else {
+                onSpanClick(span);
+              }
+            }}
+          ></button>
         </div>
       </div>
       {/* Recursively render children unless collapsed */}
       {hasChildren && !collapsed && (
         <div>
-          {span.children!.map((child, ci) => {
+          {span.children?.map((child, ci) => {
             // Compute repeat info within this sibling group
-            const prevChild = ci > 0 ? span.children![ci - 1] : null;
+            const prevChild = ci > 0 ? span.children?.[ci - 1] : null;
             const isTool = child.kind === 'tool' || child.kind === 'tool-error';
             let childRepeat: { count: number; isFirst: boolean } | undefined;
-            if (isTool && prevChild && (prevChild.kind === 'tool' || prevChild.kind === 'tool-error') && prevChild.label === child.label) {
+            if (
+              isTool &&
+              prevChild &&
+              (prevChild.kind === 'tool' || prevChild.kind === 'tool-error') &&
+              prevChild.label === child.label
+            ) {
               // Count run length
               let runLen = 1;
               for (let j = ci - 1; j >= 0; j--) {
-                const p = span.children![j];
-                if ((p.kind === 'tool' || p.kind === 'tool-error') && p.label === child.label) runLen++;
-                else break;
+                const p = span.children?.[j];
+                if (!p || !((p.kind === 'tool' || p.kind === 'tool-error') && p.label === child.label)) break;
+                runLen++;
               }
               // Check if this is the first in the run
-              const isFirst = ci - runLen + 1 === ci ? false : ci === 0 || span.children![ci - 1].label !== child.label;
+              const isFirst =
+                ci - runLen + 1 === ci ? false : ci === 0 || span.children?.[ci - 1].label !== child.label;
               childRepeat = { count: runLen, isFirst: isFirst || runLen === 1 };
             }
             return (
@@ -264,22 +285,34 @@ function TurnCard({
         </span>
         <span className="flex shrink-0 items-center gap-1.5">
           {stats.thinking > 0 && (
-            <span className="rounded-full border border-[#58a6ff]/30 bg-[#58a6ff]/10 px-1.5 py-0.5 font-mono text-[0.65rem] text-[#58a6ff]" title="模型推理阶段">
+            <span
+              className="rounded-full border border-[#58a6ff]/30 bg-[#58a6ff]/10 px-1.5 py-0.5 font-mono text-[0.65rem] text-[#58a6ff]"
+              title="模型推理阶段"
+            >
               🤔 {stats.thinking}
             </span>
           )}
           {stats.tools > 0 && (
-            <span className="rounded-full border border-[#3fb950]/30 bg-[#3fb950]/10 px-1.5 py-0.5 font-mono text-[0.65rem] text-[#3fb950]" title="工具调用次数">
+            <span
+              className="rounded-full border border-[#3fb950]/30 bg-[#3fb950]/10 px-1.5 py-0.5 font-mono text-[0.65rem] text-[#3fb950]"
+              title="工具调用次数"
+            >
               🔧 {stats.tools}
             </span>
           )}
           {stats.errors > 0 && (
-            <span className="rounded-full border border-[#f85149]/30 bg-[#f85149]/10 px-1.5 py-0.5 font-mono text-[0.65rem] text-[#f85149]" title="工具报错次数">
+            <span
+              className="rounded-full border border-[#f85149]/30 bg-[#f85149]/10 px-1.5 py-0.5 font-mono text-[0.65rem] text-[#f85149]"
+              title="工具报错次数"
+            >
               ❌ {stats.errors}
             </span>
           )}
           {stats.agents > 0 && (
-            <span className="rounded-full border border-[#d2a8ff]/30 bg-[#d2a8ff]/10 px-1.5 py-0.5 font-mono text-[0.65rem] text-[#d2a8ff]" title="子 Agent 调用">
+            <span
+              className="rounded-full border border-[#d2a8ff]/30 bg-[#d2a8ff]/10 px-1.5 py-0.5 font-mono text-[0.65rem] text-[#d2a8ff]"
+              title="子 Agent 调用"
+            >
               🌳 {stats.agents}
             </span>
           )}
@@ -377,11 +410,7 @@ export function TraceView() {
           <span key={l.label}>
             <span
               className="mr-1 inline-block h-2.5 w-2.5 rounded-sm align-middle"
-              style={
-                l.dashed
-                  ? { border: '1px dashed #58a6ff', background: 'transparent' }
-                  : { background: l.color }
-              }
+              style={l.dashed ? { border: '1px dashed #58a6ff', background: 'transparent' } : { background: l.color }}
             />
             {l.label}
           </span>
@@ -406,9 +435,7 @@ export function TraceView() {
             {health.overall}
           </span>
           <div className="flex-1">
-            <div className="text-sm font-medium text-foreground">
-              会话健康度 · {healthLabel(health.overall)}
-            </div>
+            <div className="text-sm font-medium text-foreground">会话健康度 · {healthLabel(health.overall)}</div>
             <div className="mt-0.5 flex gap-3 text-xs text-muted-foreground">
               <span>完成 {health.dimensions.completion}</span>
               <span>效率 {health.dimensions.efficiency}</span>
@@ -419,11 +446,22 @@ export function TraceView() {
           {health.flags.length > 0 && (
             <div className="max-w-xs text-right text-xs">
               {health.flags.slice(0, 2).map((f, i) => (
-                <div key={i} className={f.type === 'error' ? 'text-red-500' : f.type === 'warning' ? 'text-amber-500' : 'text-muted-foreground'}>
+                <div
+                  key={i}
+                  className={
+                    f.type === 'error'
+                      ? 'text-red-500'
+                      : f.type === 'warning'
+                        ? 'text-amber-500'
+                        : 'text-muted-foreground'
+                  }
+                >
                   {f.type === 'error' ? '❌' : f.type === 'warning' ? '⚠️' : 'ℹ️'} {f.message}
                 </div>
               ))}
-              {health.flags.length > 2 && <div className="text-muted-foreground">+{health.flags.length - 2} 更多标记</div>}
+              {health.flags.length > 2 && (
+                <div className="text-muted-foreground">+{health.flags.length - 2} 更多标记</div>
+              )}
             </div>
           )}
         </div>
@@ -457,9 +495,7 @@ export function TraceView() {
           onAgentClick={setViewingChildAgent}
         />
       ))}
-      {activeSpan && (
-        <SpanSidebar span={activeSpan} msgs={msgs ?? []} onClose={() => setActiveSpan(null)} />
-      )}
+      {activeSpan && <SpanSidebar span={activeSpan} msgs={msgs ?? []} onClose={() => setActiveSpan(null)} />}
     </div>
   );
 }

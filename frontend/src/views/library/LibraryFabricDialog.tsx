@@ -47,14 +47,14 @@ function FabricInner({ onClose }: { onClose: () => void }) {
       const skipped = result.skipped || [];
       const failed = result.failed || [];
       setResultLine(
-        `成功 ${imported.length} · 跳过 ${skipped.length} · 失败 ${failed.length}${failed.length ? '：' + failed.join(', ') : ''}`
+        `成功 ${imported.length} · 跳过 ${skipped.length} · 失败 ${failed.length}${failed.length ? `：${failed.join(', ')}` : ''}`
       );
       if (imported.length) toast.success(`已导入 ${imported.length} 个 Fabric pattern`);
       setDoneNames((prev) => new Set([...prev, ...imported, ...skipped]));
       setSelected(new Set());
       queryClient.invalidateQueries({ queryKey: ['library'] });
     },
-    onError: (err: Error) => setError('导入失败: ' + err.message),
+    onError: (err: Error) => setError(`导入失败: ${err.message}`),
   });
 
   const runImport = () => {
@@ -108,9 +108,7 @@ function FabricInner({ onClose }: { onClose: () => void }) {
             清空
           </Button>
           <span className="text-xs text-muted-foreground">
-            {patterns.length
-              ? `已选 ${selected.size} / 共 ${patterns.length}（已导入 ${importedCount}）`
-              : ''}
+            {patterns.length ? `已选 ${selected.size} / 共 ${patterns.length}（已导入 ${importedCount}）` : ''}
           </span>
         </div>
         <div className="max-h-72 overflow-y-auto rounded-md border border-border p-1">
@@ -125,23 +123,28 @@ function FabricInner({ onClose }: { onClose: () => void }) {
               {patterns.length ? 'No matches.' : '没有可导入的 pattern。'}
             </div>
           ) : (
-            visible.map((p) => (
-              <label
-                key={p.name}
-                className={cn(
-                  'flex cursor-pointer items-center gap-2 rounded px-2 py-1 text-sm hover:bg-muted/50',
-                  p.imported && 'cursor-default opacity-60'
-                )}
-              >
-                <Checkbox
-                  disabled={p.imported}
-                  checked={selected.has(p.name)}
-                  onCheckedChange={(checked) => toggle(p.name, checked === true)}
-                />
-                <span className="truncate">{p.name}</span>
-                {p.imported && <span className="ml-auto shrink-0 text-xs text-primary">✓ 已导入</span>}
-              </label>
-            ))
+            visible.map((p) => {
+              const checkboxId = `fabric-pattern-${p.name}`;
+              return (
+                <label
+                  key={p.name}
+                  htmlFor={checkboxId}
+                  className={cn(
+                    'flex cursor-pointer items-center gap-2 rounded px-2 py-1 text-sm hover:bg-muted/50',
+                    p.imported && 'cursor-default opacity-60'
+                  )}
+                >
+                  <Checkbox
+                    id={checkboxId}
+                    disabled={p.imported}
+                    checked={selected.has(p.name)}
+                    onCheckedChange={(checked) => toggle(p.name, checked === true)}
+                  />
+                  <span className="truncate">{p.name}</span>
+                  {p.imported && <span className="ml-auto shrink-0 text-xs text-primary">✓ 已导入</span>}
+                </label>
+              );
+            })
           )}
         </div>
         {error && <div className="text-sm text-destructive">{error}</div>}

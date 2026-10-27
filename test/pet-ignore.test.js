@@ -60,6 +60,19 @@ test('set/get/remove roundtrip persists to disk', async () => {
   assert.equal(await store.get(key), null);
 });
 
+test('concurrent first writes share one initial load and retain every entry', async () => {
+  const file = tmpFile();
+  const store = createPetIgnoreStore({ file, now: () => 1_000_000 });
+  const keyA = sessionKey('codex', 'a', null);
+  const keyB = sessionKey('codex', 'b', null);
+
+  await Promise.all([store.set(keyA, { durationMs: 60_000 }), store.set(keyB, { durationMs: 90_000 })]);
+
+  assert.ok((await store.get(keyA)) !== null, 'first concurrent write must survive');
+  assert.ok((await store.get(keyB)) !== null, 'second concurrent write must survive');
+  assert.deepEqual(Object.keys(await store.snapshot()).sort(), [keyA, keyB].sort());
+});
+
 test('a fresh store on the same file sees the persisted entries', async () => {
   const file = tmpFile();
   const a = createPetIgnoreStore({ file, now: () => 1_000_000 });

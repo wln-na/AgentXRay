@@ -5,8 +5,8 @@
 
 import { useMemo, useState } from 'react';
 import { Markdown } from '@/components/Markdown';
-import { cn } from '@/lib/utils';
 import { detectPatch, diffLineSegments, extractEmbeddedPatch, parseToolArguments } from '@/lib/pure';
+import { cn } from '@/lib/utils';
 
 type View =
   | { kind: 'diff'; text: string; note: string; rawCode?: string }
@@ -40,7 +40,9 @@ function Clamp({ len, children }: { len: number; children: React.ReactNode }) {
     <>
       <div
         className={
-          clamped ? 'max-h-[16em] overflow-hidden [mask-image:linear-gradient(to_bottom,black_70%,transparent)]' : undefined
+          clamped
+            ? 'max-h-[16em] overflow-hidden [mask-image:linear-gradient(to_bottom,black_70%,transparent)]'
+            : undefined
         }
       >
         {children}

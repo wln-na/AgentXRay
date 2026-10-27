@@ -123,20 +123,18 @@
   }
   body {
     @apply text-foreground font-sans antialiased overflow-hidden;
-    font-feature-settings: 'cv02', 'cv03', 'cv04', 'cv11', 'ss01';
+    font-feature-settings: "cv02", "cv03", "cv04", "cv11", "ss01";
     -webkit-font-smoothing: antialiased;
     text-rendering: optimizeLegibility;
     /* Light: barely-there cool gradient to lift the flat background */
     background:
       radial-gradient(1200px 600px at 0% -10%, hsl(234 89% 97%) 0%, transparent 60%),
-      radial-gradient(1000px 500px at 100% 0%, hsl(152 56% 96%) 0%, transparent 55%),
-      hsl(var(--background));
+      radial-gradient(1000px 500px at 100% 0%, hsl(152 56% 96%) 0%, transparent 55%), hsl(var(--background));
   }
   .dark body {
     background:
       radial-gradient(900px 500px at 10% -10%, hsl(234 89% 60% / 0.14), transparent 55%),
-      radial-gradient(800px 500px at 100% 110%, hsl(152 56% 36% / 0.10), transparent 55%),
-      hsl(var(--background));
+      radial-gradient(800px 500px at 100% 110%, hsl(152 56% 36% / 0.1), transparent 55%), hsl(var(--background));
   }
   /* Refined scrollbars */
   * {

@@ -42,7 +42,10 @@ function RetryAnnotation({ info }: { info: RetryInfo }) {
 
 function Chip({ className, title, children }: { className?: string; title?: string; children: React.ReactNode }) {
   return (
-    <span title={title} className={cn('rounded bg-secondary px-1.5 py-px text-[10px] text-muted-foreground', className)}>
+    <span
+      title={title}
+      className={cn('rounded bg-secondary px-1.5 py-px text-[10px] text-muted-foreground', className)}
+    >
       {children}
     </span>
   );
@@ -73,8 +76,7 @@ function TurnGroup({
   // Unique tool names for chips
   const toolNameCounts: Record<string, number> = {};
   for (const t of unit.tools) {
-    const n = (t as { name?: string | null; toolName?: string | null }).name ??
-      (t as SessionMessage).toolName ?? '?';
+    const n = (t as { name?: string | null; toolName?: string | null }).name ?? (t as SessionMessage).toolName ?? '?';
     toolNameCounts[n || '?'] = (toolNameCounts[n || '?'] || 0) + 1;
   }
   const chips = Object.entries(toolNameCounts)
@@ -98,7 +100,8 @@ function TurnGroup({
       if (ts !== null && (lastResultTs === null || ts > lastResultTs)) lastResultTs = ts;
     }
   }
-  const batchDur = firstCallTs !== null && lastResultTs !== null && lastResultTs > firstCallTs ? lastResultTs - firstCallTs : null;
+  const batchDur =
+    firstCallTs !== null && lastResultTs !== null && lastResultTs > firstCallTs ? lastResultTs - firstCallTs : null;
 
   const assistantText = getTextContent(unit.assistant.content);
 
@@ -157,13 +160,15 @@ function TurnGroup({
             </span>
           </summary>
           <div className="space-y-2 border-t border-border/60 p-2">
-            {unit.tools.map((tool, i) =>
-              'role' in tool ? null : <ToolCallPart key={tool.id || i} part={tool} />
-            )}
+            {unit.tools.map((tool, i) => ('role' in tool ? null : <ToolCallPart key={tool.id || i} part={tool} />))}
             {unit.steps.map((step, i) => {
               const retryInfo = retryMap.get(step);
               return (
-                <div key={step.id || step.toolCallId || i} className="flex gap-2" id={`row-${messageAnchorId(step) || ''}`}>
+                <div
+                  key={step.id || step.toolCallId || i}
+                  className="flex gap-2"
+                  id={`row-${messageAnchorId(step) || ''}`}
+                >
                   <GraphLane message={step} />
                   <div className="min-w-0 flex-1">
                     {retryInfo && retryInfo.totalAttempts > 1 ? <RetryAnnotation info={retryInfo} /> : null}

@@ -9,9 +9,8 @@ import type { PromptEntry, RewriteResult } from '@/api/types';
 import { Markdown } from '@/components/Markdown';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
-
-import { TriCheckbox } from './TriCheckbox';
 import { errorMessage } from './promptsLib';
+import { TriCheckbox } from './TriCheckbox';
 
 /** Copy-to-clipboard button with the legacy 1.2s "Copied!" flash. */
 export function CopyButton({ text, className }: { text: string; className?: string }) {
@@ -67,7 +66,7 @@ export function PromptItemRow({
     onSuccess: (data) => setRewrite(data),
     onError: (error) => {
       const msg = errorMessage(error);
-      setRewriteError('改写失败: ' + msg);
+      setRewriteError(`改写失败: ${msg}`);
       // NO_LLM_BACKEND guidance (设置 → LLM 接口) stays until dismissed;
       // transient failures clear themselves after 5s.
       if (!msg.includes('未配置 LLM 后端')) {
@@ -78,6 +77,9 @@ export function PromptItemRow({
 
   return (
     <div
+      role="option"
+      aria-selected={selected}
+      tabIndex={selectMode ? 0 : -1}
       className={cn(
         'group relative rounded-md border border-border bg-background/40 p-3',
         selectMode && 'cursor-pointer',
@@ -89,22 +91,25 @@ export function PromptItemRow({
         if ((e.target as HTMLElement).closest('button, input, a')) return;
         onToggleSelected(!selected);
       }}
+      onKeyDown={(e) => {
+        if (!selectMode || (e.key !== 'Enter' && e.key !== ' ')) return;
+        if ((e.target as HTMLElement).closest('button, input, a')) return;
+        e.preventDefault();
+        onToggleSelected(!selected);
+      }}
     >
       <div className="flex items-start gap-2">
-        {selectMode && (
-          <TriCheckbox checked={selected} onCheckedChange={onToggleSelected} className="mt-0.5" />
-        )}
+        {selectMode && <TriCheckbox checked={selected} onCheckedChange={onToggleSelected} className="mt-0.5" />}
         <div className="min-w-0 flex-1">
           {prompt.timestamp && (
-            <div className="mb-1 text-[11px] text-muted-foreground">
-              {new Date(prompt.timestamp).toLocaleString()}
-            </div>
+            <div className="mb-1 text-[11px] text-muted-foreground">{new Date(prompt.timestamp).toLocaleString()}</div>
           )}
           <div className={cn('text-sm', long && clamped && 'max-h-48 overflow-hidden')}>
             <Markdown text={prompt.text} />
           </div>
           {long && (
             <button
+              type="button"
               className="mt-1 text-xs text-primary hover:underline"
               onClick={(e) => {
                 e.stopPropagation();
@@ -119,13 +124,7 @@ export function PromptItemRow({
 
       {!selectMode && (
         <div className="absolute right-2 top-2 flex gap-1 opacity-0 transition-opacity group-hover:opacity-100">
-          <Button
-            variant="outline"
-            size="sm"
-            className="h-6 px-2 text-xs"
-            title="收藏到资产库"
-            onClick={onStar}
-          >
+          <Button variant="outline" size="sm" className="h-6 px-2 text-xs" title="收藏到资产库" onClick={onStar}>
             ⭐ 收藏
           </Button>
           <Button
@@ -167,9 +166,7 @@ export function PromptItemRow({
           <div className="mt-1 flex items-center gap-2">
             <CopyButton text={rewrite.rewrite} />
           </div>
-          {rewrite.rationale && (
-            <div className="mt-1 text-xs text-muted-foreground">{rewrite.rationale}</div>
-          )}
+          {rewrite.rationale && <div className="mt-1 text-xs text-muted-foreground">{rewrite.rationale}</div>}
         </div>
       )}
       {rewriteError && <div className="mt-2 text-xs text-destructive">{rewriteError}</div>}

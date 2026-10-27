@@ -4,21 +4,21 @@
 // show the assistant markdown with model/token badges.
 
 import { useEffect, useState } from 'react';
+import type { MessageContentPart, SessionMessage } from '@/api/types';
 import { Markdown } from '@/components/Markdown';
 import { ToolCallViewer } from '@/components/ToolCallViewer';
+import type { TraceSpan } from '@/lib/pure';
 import {
   DEFAULT_MODEL_PRICING,
-  TOKEN_BUCKET_LABELS,
   estimateSpanCost,
   formatDurationCompact,
   formatTokensCompact,
   getTextContent,
   resultLanguage,
+  TOKEN_BUCKET_LABELS,
   toolMeta,
 } from '@/lib/pure';
-import type { TraceSpan } from '@/lib/pure';
 import { useAppStore } from '@/store';
-import type { MessageContentPart, SessionMessage } from '@/api/types';
 
 function formatNumber(value: unknown): string {
   return typeof value === 'number' ? value.toLocaleString() : '0';
@@ -96,15 +96,16 @@ function ClampBlock({ len, children }: { len: number; children: React.ReactNode 
     <>
       <div
         className={
-        clamped
-          ? 'max-h-[8em] overflow-hidden [mask-image:linear-gradient(to_bottom,black_70%,transparent)]'
-          : undefined
+          clamped
+            ? 'max-h-[8em] overflow-hidden [mask-image:linear-gradient(to_bottom,black_70%,transparent)]'
+            : undefined
         }
       >
         {children}
       </div>
       {len > 600 && (
         <button
+          type="button"
           className="mt-1 text-xs text-[#58a6ff] hover:underline"
           onClick={() => setClamped((v) => !v)}
         >
@@ -116,11 +117,7 @@ function ClampBlock({ len, children }: { len: number; children: React.ReactNode 
 }
 
 function SectionTitle({ children }: { children: React.ReactNode }) {
-  return (
-    <div className="mb-1.5 mt-4 text-xs uppercase tracking-wide text-muted-foreground">
-      {children}
-    </div>
-  );
+  return <div className="mb-1.5 mt-4 text-xs uppercase tracking-wide text-muted-foreground">{children}</div>;
 }
 
 function Pre({ text }: { text: string }) {
@@ -140,15 +137,7 @@ function spanDurationText(span: TraceSpan): string {
   return duration;
 }
 
-export function SpanSidebar({
-  span,
-  msgs,
-  onClose,
-}: {
-  span: TraceSpan;
-  msgs: SessionMessage[];
-  onClose: () => void;
-}) {
+export function SpanSidebar({ span, msgs, onClose }: { span: TraceSpan; msgs: SessionMessage[]; onClose: () => void }) {
   const requestScrollToMessage = useAppStore((s) => s.requestScrollToMessage);
 
   useEffect(() => {
@@ -202,7 +191,7 @@ export function SpanSidebar({
             )}
             {summary && (
               <span className="rounded-md bg-secondary px-2 py-0.5 text-xs text-foreground" title={summary}>
-                {summary.length > 80 ? summary.slice(0, 80) + '…' : summary}
+                {summary.length > 80 ? `${summary.slice(0, 80)}…` : summary}
               </span>
             )}
           </div>
@@ -253,13 +242,14 @@ export function SpanSidebar({
       .filter((p) => (p.type === 'thinking' || p.type === 'reasoning') && typeof p.text === 'string')
       .map((p) => p.text || '')
       .join('\n\n');
-    const reasoningLabel = hasThinking && hasToolUse
-      ? '推理 + 工具调用（无文本回复）'
-      : hasThinking
-        ? '模型思考（无文本回复）'
-        : hasToolUse
-          ? '工具调用前推理（无文本回复）'
-          : '无文本内容';
+    const reasoningLabel =
+      hasThinking && hasToolUse
+        ? '推理 + 工具调用（无文本回复）'
+        : hasThinking
+          ? '模型思考（无文本回复）'
+          : hasToolUse
+            ? '工具调用前推理（无文本回复）'
+            : '无文本内容';
     body = (
       <>
         {msg?.model && (
@@ -321,7 +311,8 @@ export function SpanSidebar({
           </div>
         ) : (
           <div className={EMPTY_CLS}>
-            此阶段无独立 token 统计 — Claude Code 通常把 token 用量汇总在最终文本回复的那条消息中，中间推理/工具调用阶段不单独计数。
+            此阶段无独立 token 统计 — Claude Code 通常把 token
+            用量汇总在最终文本回复的那条消息中，中间推理/工具调用阶段不单独计数。
           </div>
         )}
         <SectionTitle>{text ? '回复内容' : '阶段说明'}</SectionTitle>
@@ -363,6 +354,7 @@ export function SpanSidebar({
           {durText} · {new Date(span.start).toLocaleTimeString()}
         </span>
         <button
+          type="button"
           className="rounded-md border border-border px-1.5 text-muted-foreground hover:border-muted-foreground hover:text-foreground"
           title="关闭 (Esc)"
           onClick={onClose}
@@ -374,6 +366,7 @@ export function SpanSidebar({
       <div className="border-t border-border px-4 py-3">
         {span.msgId != null && (
           <button
+            type="button"
             className="rounded-md border border-border bg-secondary px-3 py-1.5 text-sm hover:bg-accent"
             onClick={() => {
               const msgId = span.msgId;

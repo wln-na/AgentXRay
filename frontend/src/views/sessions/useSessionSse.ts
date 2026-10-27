@@ -37,9 +37,7 @@ export function useSessionSse(onNewMessages: (count: number) => void): SseStatus
       return;
     }
     setStatus('connecting');
-    const es = new EventSource(
-      watchUrl({ platform, sessionId, agent: agent || undefined, dir: dir || undefined })
-    );
+    const es = new EventSource(watchUrl({ platform, sessionId, agent: agent || undefined, dir: dir || undefined }));
     es.addEventListener('connected', () => setStatus('live'));
     es.addEventListener('newMessages', (e) => {
       const payload = JSON.parse((e as MessageEvent).data || '{}') as {

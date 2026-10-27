@@ -2,7 +2,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const path = require('node:path');
 const fs = require('node:fs');
-const fsp = require('node:fs/promises');
+const _fsp = require('node:fs/promises');
 const os = require('node:os');
 const { createRequire } = require('node:module');
 
@@ -191,8 +191,8 @@ test('getTextContent joins text parts only', () => {
 
 test('clusterPrefillContent uses LCP with $ARGUMENTS for real templates', () => {
   const prefix = 'Please review the following pull request carefully: ';
-  const c = { samples: [prefix + 'auth changes', prefix + 'billing refactor'] };
-  assert.equal(pure.clusterPrefillContent(c), prefix.trimEnd() + ' $ARGUMENTS');
+  const c = { samples: [`${prefix}auth changes`, `${prefix}billing refactor`] };
+  assert.equal(pure.clusterPrefillContent(c), `${prefix.trimEnd()} $ARGUMENTS`);
   // Short common prefix → first example verbatim
   assert.equal(pure.clusterPrefillContent({ samples: ['ab one', 'ab two'] }), 'ab one');
   // No examples → pattern fallback

@@ -541,7 +541,7 @@ test('parseDoubaoSessionFile caches parsed result by mtime+size', async (t) => {
     },
     { role: 'tool', content: 'ok', tool_call_id: 'tc1', name: 'Bash' },
   ];
-  fs.writeFileSync(trajPath, records.map((r) => JSON.stringify(r)).join('\n') + '\n', 'utf8');
+  fs.writeFileSync(trajPath, `${records.map((r) => JSON.stringify(r)).join('\n')}\n`, 'utf8');
 
   assert.equal(doubao.doubaoSessionCache.size, 0);
 
@@ -561,7 +561,7 @@ test('parseDoubaoSessionFile caches parsed result by mtime+size', async (t) => {
 
   // Modify file → cache invalidated, fresh parse.
   await new Promise((resolve) => setTimeout(resolve, 10));
-  fs.writeFileSync(trajPath, JSON.stringify({ role: 'user', content: 'changed' }) + '\n', 'utf8');
+  fs.writeFileSync(trajPath, `${JSON.stringify({ role: 'user', content: 'changed' })}\n`, 'utf8');
   const third = await doubao.parseDoubaoSessionFile(trajPath);
   assert.notStrictEqual(third, first, 'modified file should produce a new parse result');
   assert.equal(third.messages.length, 1);

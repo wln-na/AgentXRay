@@ -5,8 +5,8 @@
 // libraryFormSave (lines ~2287-2406).
 
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { useEffect, useRef, useState } from 'react';
-import type { ReactNode } from 'react';
+import type { ReactElement, ReactNode } from 'react';
+import { cloneElement, useEffect, useId, useRef, useState } from 'react';
 import { toast } from 'sonner';
 import { createLibraryPrompt, suggestLibraryName, updateLibraryPrompt } from '@/api/client';
 import { Button } from '@/components/ui/button';
@@ -29,7 +29,7 @@ export function heuristicLibraryName(text: string): string {
     .replace(/[^a-z0-9]+/g, '-')
     .replace(/^-+|-+$/g, '');
   name = name.split('-').slice(0, 6).join('-').slice(0, 64).replace(/-+$/, '');
-  return LIBRARY_NAME_RE.test(name) ? name : 'prompt-' + Date.now();
+  return LIBRARY_NAME_RE.test(name) ? name : `prompt-${Date.now()}`;
 }
 
 export function LibraryFormDialog() {
@@ -38,12 +38,7 @@ export function LibraryFormDialog() {
   if (!form.open) return null;
   // Keyed remount per open: field state + suggest-name lifecycle reset naturally.
   return (
-    <FormInner
-      key={form.openSeq}
-      editingName={form.editingName}
-      prefill={form.prefill}
-      onClose={closeLibraryForm}
-    />
+    <FormInner key={form.openSeq} editingName={form.editingName} prefill={form.prefill} onClose={closeLibraryForm} />
   );
 }
 
@@ -61,8 +56,7 @@ function FormInner({
   const source = prefill?.source || 'manual';
   const prefillName = prefill?.name || '';
   // ⭐ prefill whose heuristic name is the timestamp fallback (or empty): try smart naming.
-  const shouldSuggest =
-    !isEdit && !!prefill?.content && (!prefillName || /^prompt-\d+$/.test(prefillName));
+  const shouldSuggest = !isEdit && !!prefill?.content && (!prefillName || /^prompt-\d+$/.test(prefillName));
 
   const [name, setName] = useState(shouldSuggest ? '' : prefillName);
   const [description, setDescription] = useState(prefill?.description || '');
@@ -75,9 +69,10 @@ function FormInner({
   nameRef.current = name;
 
   useEffect(() => {
-    if (!shouldSuggest) return;
+    const suggestContent = prefill?.content || '';
+    if (!shouldSuggest || !suggestContent) return;
     let cancelled = false;
-    suggestLibraryName(prefill!.content!)
+    suggestLibraryName(suggestContent)
       .catch(() => ({ name: null }))
       .then((data) => {
         if (cancelled) return;
@@ -194,10 +189,14 @@ function FormInner({
 }
 
 function FormField({ label, children }: { label: string; children: ReactNode }) {
+  const fieldId = useId();
+  const control = children as ReactElement<{ id?: string }>;
   return (
-    <label className="block space-y-1">
-      <span className="text-xs text-muted-foreground">{label}</span>
-      {children}
-    </label>
+    <div className="block space-y-1">
+      <label htmlFor={fieldId} className="text-xs text-muted-foreground">
+        {label}
+      </label>
+      {cloneElement(control, { id: fieldId })}
+    </div>
   );
 }

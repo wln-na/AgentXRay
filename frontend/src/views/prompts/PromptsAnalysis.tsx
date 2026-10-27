@@ -9,7 +9,7 @@ import { Markdown } from '@/components/Markdown';
 import { Button } from '@/components/ui/button';
 
 import { CopyButton } from './PromptItemRow';
-import { Metric, PromptsPortrait, buildTopicColor } from './PromptsPortrait';
+import { buildTopicColor, Metric, PromptsPortrait } from './PromptsPortrait';
 
 interface PromptsAnalysisProps {
   analysis: PromptAnalysis | null;
@@ -44,8 +44,8 @@ export function PromptsAnalysis({
       <section className="rounded-lg border border-border bg-card p-3">
         <h3 className="mb-2 text-sm font-semibold">📊 Prompt 画像</h3>
         <div className="text-sm text-muted-foreground">
-          Claude 分析中… 已耗时 <span className="text-foreground">{elapsed}s</span> · 约 1-2
-          分钟(聚类 → 归因 → 主题标注 → LLM 建议)
+          Claude 分析中… 已耗时 <span className="text-foreground">{elapsed}s</span> · 约 1-2 分钟(聚类 → 归因 → 主题标注
+          → LLM 建议)
           <br />
           <span className="text-xs">结果会自动保存，可离开此页稍后回来看</span>
         </div>
@@ -63,8 +63,7 @@ export function PromptsAnalysis({
       <h3 className="mb-2 text-sm font-semibold">
         📊 Prompt 画像{' '}
         <span className="font-normal text-muted-foreground">
-          — {a.totalClusters} 个模板簇 /{' '}
-          {a.generatedAt ? new Date(a.generatedAt).toLocaleString() : '—'}
+          — {a.totalClusters} 个模板簇 / {a.generatedAt ? new Date(a.generatedAt).toLocaleString() : '—'}
           {a.persisted ? ' · 已保存的上次结果 · 点击重新分析可更新' : ''}
         </span>
       </h3>
@@ -101,8 +100,16 @@ export function PromptsAnalysis({
             return (
               <div key={ci} className="rounded border border-border/70">
                 <div
+                  role="treeitem"
+                  tabIndex={0}
+                  aria-expanded={open}
                   className="flex cursor-pointer select-none flex-wrap items-center gap-2 px-2 py-1.5 text-xs hover:bg-accent/40"
                   onClick={() => setExpanded((prev) => ({ ...prev, [ci]: !open }))}
+                  onKeyDown={(event) => {
+                    if (event.key !== 'Enter' && event.key !== ' ') return;
+                    event.preventDefault();
+                    setExpanded((prev) => ({ ...prev, [ci]: !open }));
+                  }}
                 >
                   <span className="text-muted-foreground">{open ? '▼' : '▶'}</span>
                   <span className="min-w-0 flex-1 truncate" title={c.pattern}>
@@ -141,7 +148,7 @@ export function PromptsAnalysis({
                         {s.assessment && <div className="text-foreground/90">{s.assessment}</div>}
                         {(s.issues || []).length > 0 && (
                           <ul className="mt-1 list-disc space-y-0.5 pl-5 text-xs text-muted-foreground">
-                            {s.issues!.map((issue, i) => (
+                            {s.issues?.map((issue, i) => (
                               <li key={i}>{issue}</li>
                             ))}
                           </ul>
@@ -153,16 +160,12 @@ export function PromptsAnalysis({
                             <div className="mt-1">
                               <CopyButton text={s.rewrite} />
                             </div>
-                            {s.rationale && (
-                              <div className="mt-1 text-xs text-muted-foreground">{s.rationale}</div>
-                            )}
+                            {s.rationale && <div className="mt-1 text-xs text-muted-foreground">{s.rationale}</div>}
                           </div>
                         )}
                       </>
                     ) : (
-                      <div className="text-xs text-muted-foreground">
-                        此模板未参与 LLM 分析(仅 top 8 高频簇)
-                      </div>
+                      <div className="text-xs text-muted-foreground">此模板未参与 LLM 分析(仅 top 8 高频簇)</div>
                     )}
                   </div>
                 )}

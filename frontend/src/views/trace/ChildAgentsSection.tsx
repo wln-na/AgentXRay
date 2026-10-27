@@ -27,7 +27,8 @@ export function ChildAgentsSection() {
           const label = childAgentLabel(c, platform);
           const tip = [c.title || label, c.agentType].filter(Boolean).join(' · ');
           return (
-            <span
+            <button
+              type="button"
               key={c.name}
               className="mb-0.5 mr-1.5 inline-block cursor-pointer rounded-full border border-border bg-secondary px-2.5 py-0.5 text-xs hover:bg-accent"
               title={`${tip} — ${c.messageCount} 条消息，${c.toolCallCount} 次工具调用`}
@@ -37,7 +38,7 @@ export function ChildAgentsSection() {
               <span className="text-muted-foreground">
                 · {c.messageCount} msg · 🔧 {c.toolCallCount}
               </span>
-            </span>
+            </button>
           );
         })}
       </div>
@@ -58,16 +59,13 @@ export function ChildAgentBanner() {
   return (
     <div className="mb-2 rounded-lg border border-border px-3 py-2 text-sm">
       🌳 正在查看子 Agent <b>{label}</b> 的执行记录 —{' '}
-      <a
-        href="#"
-        className="text-[#58a6ff] hover:underline"
-        onClick={(e) => {
-          e.preventDefault();
-          setViewingChildAgent(null);
-        }}
+      <button
+        type="button"
+        className="bg-transparent p-0 text-[#58a6ff] hover:underline"
+        onClick={() => setViewingChildAgent(null)}
       >
         返回主会话
-      </a>
+      </button>
     </div>
   );
 }

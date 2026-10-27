@@ -176,7 +176,7 @@ test('cursor routes list and read sessions', async () => {
     assert.equal(detail.messages[0].role, 'user');
     assert.equal(detail.messages[0].content[0].text, '修复登录页的刷新链接');
 
-    const missing = await fetch(srv.base + '/api/cursor/sessions/no-such-session');
+    const missing = await fetch(`${srv.base}/api/cursor/sessions/no-such-session`);
     assert.equal(missing.status, 404);
   } finally {
     await srv.stop();
@@ -203,7 +203,7 @@ test('cursor open route launches the Cursor app (recorded, no desktop effects)',
 test('cursor watch SSE tail delivers new transcript records', async () => {
   const srv = await startServer();
   try {
-    const res = await fetch(srv.base + `/api/cursor/sessions/${SESSION_A}/watch`, {
+    const res = await fetch(`${srv.base}/api/watch?platform=cursor&sessionId=${SESSION_A}`, {
       headers: { Accept: 'text/event-stream' },
     });
     assert.equal(res.status, 200);

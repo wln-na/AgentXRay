@@ -47,7 +47,7 @@ export function formatDurationCompact(durationMs: number): string {
 }
 
 export function formatCost(dollars: number): string {
-  return '$' + (dollars >= 0.01 ? dollars.toFixed(2) : dollars.toFixed(4));
+  return `$${dollars >= 0.01 ? dollars.toFixed(2) : dollars.toFixed(4)}`;
 }
 
 // First-launch auto-pick (#13): the first platform, in display order, that
@@ -102,7 +102,7 @@ export function clusterPrefillContent(c: ClusterLike): string {
     prefix = prefix.slice(0, i);
   }
   if (examples.length > 1 && prefix.trim().length >= 30 && prefix.length < examples[0].length) {
-    return prefix.replace(/\s+$/, '') + ' $ARGUMENTS';
+    return `${prefix.replace(/\s+$/, '')} $ARGUMENTS`;
   }
   return examples[0];
 }
@@ -180,53 +180,87 @@ export function toolMeta(name: string): ToolMeta {
   // Shell / command execution (Claude Bash, Codex local_shell_call,
   // Gemini run_terminal, MCP execute_command, Doubao run_shell)
   if (
-    n.includes('bash') || n.includes('shell') || n.includes('command') ||
-    n.includes('exec') || n.includes('terminal') || n.includes('run_command') ||
-    n.includes('execute') || n.includes('subprocess')
+    n.includes('bash') ||
+    n.includes('shell') ||
+    n.includes('command') ||
+    n.includes('exec') ||
+    n.includes('terminal') ||
+    n.includes('run_command') ||
+    n.includes('execute') ||
+    n.includes('subprocess')
   )
     return { icon: '⌨️', label: '执行命令' };
   // File write / edit / create (Claude Write/Edit, Codex file_write,
   // Gemini edit_file, MCP write_file)
   if (
-    n.includes('write') || n.includes('edit') || n.includes('patch') ||
-    n.includes('create') || n.includes('save') || n.includes('apply') ||
-    n.includes('modify') || n.includes('replace')
+    n.includes('write') ||
+    n.includes('edit') ||
+    n.includes('patch') ||
+    n.includes('create') ||
+    n.includes('save') ||
+    n.includes('apply') ||
+    n.includes('modify') ||
+    n.includes('replace')
   )
     return { icon: '✏️', label: '编辑文件' };
   // File read / view (Claude Read, Codex file_read, Gemini view_file,
   // MCP read_file, notebook_view)
   if (
-    n.includes('read') || n.includes('notebook') || n.includes('view') ||
-    n.includes('cat') || n.includes('open') || n.includes('inspect') ||
+    n.includes('read') ||
+    n.includes('notebook') ||
+    n.includes('view') ||
+    n.includes('cat') ||
+    n.includes('open') ||
+    n.includes('inspect') ||
     n.includes('load')
   )
     return { icon: '📖', label: '读取文件' };
   // Search / grep / find (Claude Grep/Glob, MCP search, code_search)
   if (
-    n.includes('grep') || n.includes('glob') || n.includes('search') ||
-    n.includes('fetch') || n.includes('find') || n.includes('lookup') ||
-    n.includes('query') || n.includes('scan')
+    n.includes('grep') ||
+    n.includes('glob') ||
+    n.includes('search') ||
+    n.includes('fetch') ||
+    n.includes('find') ||
+    n.includes('lookup') ||
+    n.includes('query') ||
+    n.includes('scan')
   )
     return { icon: '🔍', label: '搜索' };
   // Task / todo / plan management
   if (
-    n.includes('task') || n.includes('todo') || n.includes('plan') ||
-    n.includes('list') || n.includes('checklist') || n.includes('reminder')
+    n.includes('task') ||
+    n.includes('todo') ||
+    n.includes('plan') ||
+    n.includes('list') ||
+    n.includes('checklist') ||
+    n.includes('reminder')
   )
     return { icon: '📋', label: '任务管理' };
   // Browser / desktop / GUI automation (Claude Computer, browser_use,
   // MCP browser, screenshot, click)
   if (
-    n.includes('browser') || n.includes('computer') || n.includes('click') ||
-    n.includes('screenshot') || n.includes('gui') || n.includes('desktop') ||
-    n.includes('navigate') || n.includes('scroll') || n.includes('type')
+    n.includes('browser') ||
+    n.includes('computer') ||
+    n.includes('click') ||
+    n.includes('screenshot') ||
+    n.includes('gui') ||
+    n.includes('desktop') ||
+    n.includes('navigate') ||
+    n.includes('scroll') ||
+    n.includes('type')
   )
     return { icon: '🖥️', label: '浏览器/桌面' };
   // Web / HTTP / network requests (web_fetch, http_request, curl)
   if (
-    n.includes('web') || n.includes('http') || n.includes('request') ||
-    n.includes('curl') || n.includes('api') || n.includes('url') ||
-    n.includes('download') || n.includes('scrape')
+    n.includes('web') ||
+    n.includes('http') ||
+    n.includes('request') ||
+    n.includes('curl') ||
+    n.includes('api') ||
+    n.includes('url') ||
+    n.includes('download') ||
+    n.includes('scrape')
   )
     return { icon: '🌐', label: '网络请求' };
   // Version control (git_commit, git_diff, git_log)
@@ -237,9 +271,14 @@ export function toolMeta(name: string): ToolMeta {
     return { icon: '🗄️', label: '数据库' };
   // File system ops (ls, mkdir, rm, mv, cp, file_system)
   if (
-    n.includes('mkdir') || n.includes('remove') || n.includes('delete_file') ||
-    n.includes('move') || n.includes('rename') || n.includes('copy') ||
-    n.includes('file_system') || n.includes('fs_')
+    n.includes('mkdir') ||
+    n.includes('remove') ||
+    n.includes('delete_file') ||
+    n.includes('move') ||
+    n.includes('rename') ||
+    n.includes('copy') ||
+    n.includes('file_system') ||
+    n.includes('fs_')
   )
     return { icon: '📁', label: '文件操作' };
   // Test / run / build (run_tests, build, npm_test)
@@ -275,7 +314,7 @@ export interface ToolSourceInfo {
 export function classifyToolSource(name: string): ToolSourceInfo {
   const n = (name || '').toLowerCase();
   // MCP: explicit prefix patterns
-  const mcpMatch = n.match(/^mcp[_\-]+([a-z0-9]+)[_\-]+/);
+  const mcpMatch = n.match(/^mcp[_-]+([a-z0-9]+)[_-]+/);
   if (mcpMatch) return { source: 'mcp', mcpServer: mcpMatch[1] };
   // MCP: some CLIs use `<server>__<tool>` without mcp prefix but with double underscore
   const serverMatch = n.match(/^([a-z0-9]+)__/);
@@ -290,17 +329,49 @@ export function classifyToolSource(name: string): ToolSourceInfo {
     return { source: 'subagent' };
   // Builtin: common CLI tool names (no prefix = builtin)
   const BUILTIN_TOOLS = new Set([
-    'bash', 'read', 'write', 'edit', 'grep', 'glob', 'todo', 'view', 'cat',
-    'ls', 'mkdir', 'rm', 'mv', 'cp', 'touch', 'cd', 'pwd', 'find', 'xargs',
-    'notebook_view', 'notebook_edit', 'computer', 'browser', 'web_search',
-    'web_fetch', 'local_shell_call', 'file_read', 'file_write', 'file_edit',
-    'run_terminal', 'view_file', 'edit_file', 'execute_command', 'run_command',
-    'search_files', 'search_code', 'list_directory', 'read_file', 'write_file',
+    'bash',
+    'read',
+    'write',
+    'edit',
+    'grep',
+    'glob',
+    'todo',
+    'view',
+    'cat',
+    'ls',
+    'mkdir',
+    'rm',
+    'mv',
+    'cp',
+    'touch',
+    'cd',
+    'pwd',
+    'find',
+    'xargs',
+    'notebook_view',
+    'notebook_edit',
+    'computer',
+    'browser',
+    'web_search',
+    'web_fetch',
+    'local_shell_call',
+    'file_read',
+    'file_write',
+    'file_edit',
+    'run_terminal',
+    'view_file',
+    'edit_file',
+    'execute_command',
+    'run_command',
+    'search_files',
+    'search_code',
+    'list_directory',
+    'read_file',
+    'write_file',
   ]);
   if (BUILTIN_TOOLS.has(n)) return { source: 'builtin' };
   // Builtin: tools that look like builtin (single word, no separator)
-  if (!n.includes('_') && !n.includes('-') && !n.includes('.') && n.length > 2)
-    return { source: 'builtin' };
+  if (!n.includes('_') && !n.includes('-') && !n.includes('.') && n.length > 2) return { source: 'builtin' };
   return { source: 'other' };
 }
 
@@ -311,19 +382,52 @@ export function classifyToolSource(name: string): ToolSourceInfo {
  *  and generic tool arg names. */
 const TOOL_SUBJECT_FIELDS = [
   // Shell / command
-  'command', 'cmd', 'code', 'script', 'shell', 'bash',
+  'command',
+  'cmd',
+  'code',
+  'script',
+  'shell',
+  'bash',
   // File paths
-  'file_path', 'path', 'file', 'filename', 'file_name', 'source', 'target', 'destination',
+  'file_path',
+  'path',
+  'file',
+  'filename',
+  'file_name',
+  'source',
+  'target',
+  'destination',
   // Search / query
-  'pattern', 'query', 'search', 'keyword', 'keywords', 'regex',
+  'pattern',
+  'query',
+  'search',
+  'keyword',
+  'keywords',
+  'regex',
   // URL / web
-  'url', 'uri', 'endpoint', 'link',
+  'url',
+  'uri',
+  'endpoint',
+  'link',
   // Generic
-  'skill', 'subject', 'description', 'prompt', 'name', 'title', 'input', 'content', 'text',
+  'skill',
+  'subject',
+  'description',
+  'prompt',
+  'name',
+  'title',
+  'input',
+  'content',
+  'text',
   // Database
-  'sql', 'database', 'db', 'table',
+  'sql',
+  'database',
+  'db',
+  'table',
   // Git
-  'branch', 'commit', 'message',
+  'branch',
+  'commit',
+  'message',
 ] as const;
 
 const TOOL_SUBJECT_MAX_CHARS = 80;
@@ -340,15 +444,13 @@ export function extractToolSubject(args: unknown): string {
     raw = args;
   } else if (typeof args === 'object') {
     const o = args as Record<string, unknown>;
-    const pick = TOOL_SUBJECT_FIELDS
-      .map((k) => o[k])
-      .find((v) => (typeof v === 'string' && v.trim().length > 0) || Array.isArray(v));
+    const pick = TOOL_SUBJECT_FIELDS.map((k) => o[k]).find(
+      (v) => (typeof v === 'string' && v.trim().length > 0) || Array.isArray(v)
+    );
     if (pick === undefined) return '';
     // local_shell_call renders `command` as ["bash","-lc","…"] — last element
     // is the script; joining argv would bury it in boilerplate.
-    raw = Array.isArray(pick)
-      ? String(pick[pick.length - 1] ?? '').trim()
-      : String(pick).trim();
+    raw = Array.isArray(pick) ? String(pick[pick.length - 1] ?? '').trim() : String(pick).trim();
   }
   if (!raw) return '';
   // Truncated JSON: try to recover the first priority field via regex before
@@ -369,9 +471,7 @@ export function extractToolSubject(args: unknown): string {
   }
   const collapsed = raw.replace(/\s+/g, ' ').trim();
   if (!collapsed) return '';
-  return collapsed.length > TOOL_SUBJECT_MAX_CHARS
-    ? `${collapsed.slice(0, TOOL_SUBJECT_MAX_CHARS)}…`
-    : collapsed;
+  return collapsed.length > TOOL_SUBJECT_MAX_CHARS ? `${collapsed.slice(0, TOOL_SUBJECT_MAX_CHARS)}…` : collapsed;
 }
 
 // ─── Tool result syntax highlighting (borrowed from botmux's CoT renderer) ─
@@ -381,13 +481,42 @@ export function extractToolSubject(args: unknown): string {
 // lets the highlighter colour shell output / JSON / TypeScript / etc.
 
 const EXT_LANGUAGES: Record<string, string> = {
-  ts: 'typescript', tsx: 'typescript', mts: 'typescript', cts: 'typescript',
-  js: 'javascript', jsx: 'javascript', mjs: 'javascript', cjs: 'javascript',
-  py: 'python', rb: 'ruby', go: 'go', rs: 'rust', java: 'java', kt: 'kotlin',
-  c: 'c', h: 'c', cc: 'cpp', cpp: 'cpp', hpp: 'cpp', cs: 'csharp', swift: 'swift',
-  php: 'php', sh: 'bash', bash: 'bash', zsh: 'bash', fish: 'bash',
-  json: 'json', yaml: 'yaml', yml: 'yaml', toml: 'toml', xml: 'xml',
-  html: 'html', css: 'css', scss: 'scss', sql: 'sql', md: 'markdown',
+  ts: 'typescript',
+  tsx: 'typescript',
+  mts: 'typescript',
+  cts: 'typescript',
+  js: 'javascript',
+  jsx: 'javascript',
+  mjs: 'javascript',
+  cjs: 'javascript',
+  py: 'python',
+  rb: 'ruby',
+  go: 'go',
+  rs: 'rust',
+  java: 'java',
+  kt: 'kotlin',
+  c: 'c',
+  h: 'c',
+  cc: 'cpp',
+  cpp: 'cpp',
+  hpp: 'cpp',
+  cs: 'csharp',
+  swift: 'swift',
+  php: 'php',
+  sh: 'bash',
+  bash: 'bash',
+  zsh: 'bash',
+  fish: 'bash',
+  json: 'json',
+  yaml: 'yaml',
+  yml: 'yaml',
+  toml: 'toml',
+  xml: 'xml',
+  html: 'html',
+  css: 'css',
+  scss: 'scss',
+  sql: 'sql',
+  md: 'markdown',
 };
 
 /** Resolve a syntax-highlight language for a tool's output.
@@ -402,8 +531,7 @@ export function resultLanguage(toolName: string | undefined, subject: string | u
   const n = toolName.toLowerCase();
   if (n.includes('bash') || n.includes('shell') || n.includes('command') || /(^|[^a-z])exec([^a-z]|$)/.test(n))
     return 'bash';
-  if (n.includes('fetch') || n.includes('search') || n.includes('grep') || n.includes('glob'))
-    return undefined;
+  if (n.includes('fetch') || n.includes('search') || n.includes('grep') || n.includes('glob')) return undefined;
   const ext = subject?.match(/\.([A-Za-z0-9]+)\s*$/)?.[1]?.toLowerCase();
   return ext ? EXT_LANGUAGES[ext] : undefined;
 }
@@ -518,7 +646,7 @@ export function buildTraceTurns(msgs: SessionMessage[], agentSpans: AgentSpan[] 
     }
     if (!owner) continue;
     owner.spans.push({
-      kind: r && r.isError ? 'tool-error' : 'tool',
+      kind: r?.isError ? 'tool-error' : 'tool',
       label: c.name,
       start: c.ts,
       end,
@@ -607,7 +735,7 @@ function treeifySpans(spans: TraceSpan[]): TraceSpan[] {
     const parent = (s.msgId && chatByMsgId.get(s.msgId)) || lastChat;
     if (parent) {
       s.depth = 1;
-      parent.children!.push(s);
+      parent.children?.push(s);
     } else {
       s.depth = 0;
       roots.push(s);
@@ -629,7 +757,7 @@ function treeifySpans(spans: TraceSpan[]): TraceSpan[] {
 export const DEFAULT_MODEL_PRICING = {
   input: 3.0,
   output: 15.0,
-  cacheRead: 0.30,
+  cacheRead: 0.3,
   cacheWrite: 3.75,
   reasoning: 15.0,
 };
@@ -637,7 +765,7 @@ export const DEFAULT_MODEL_PRICING = {
 /** Estimate USD cost from token counts using the given pricing table. */
 export function estimateSpanCost(
   span: Pick<TraceSpan, 'inputTokens' | 'outputTokens' | 'cacheReadTokens' | 'cacheWriteTokens' | 'reasoningTokens'>,
-  pricing = DEFAULT_MODEL_PRICING,
+  pricing = DEFAULT_MODEL_PRICING
 ): number {
   return (
     (num(span.inputTokens) * pricing.input +
@@ -652,13 +780,20 @@ export function estimateSpanCost(
 /** Format a token count compactly: 1234 → "1.2K", 1500000 → "1.5M". */
 export function formatTokensCompact(n: number | undefined | null): string {
   const v = num(n);
-  if (v >= 1_000_000) return (v / 1_000_000).toFixed(1).replace(/\.0$/, '') + 'M';
-  if (v >= 1_000) return (v / 1_000).toFixed(1).replace(/\.0$/, '') + 'K';
+  if (v >= 1_000_000) return `${(v / 1_000_000).toFixed(1).replace(/\.0$/, '')}M`;
+  if (v >= 1_000) return `${(v / 1_000).toFixed(1).replace(/\.0$/, '')}K`;
   return String(v);
 }
 
 /** Human-readable labels for each token bucket, in display order. */
-export const TOKEN_BUCKET_LABELS: { key: keyof Pick<TraceSpan, 'inputTokens' | 'outputTokens' | 'cacheReadTokens' | 'cacheWriteTokens' | 'reasoningTokens'>; label: string; hint: string }[] = [
+export const TOKEN_BUCKET_LABELS: {
+  key: keyof Pick<
+    TraceSpan,
+    'inputTokens' | 'outputTokens' | 'cacheReadTokens' | 'cacheWriteTokens' | 'reasoningTokens'
+  >;
+  label: string;
+  hint: string;
+}[] = [
   { key: 'inputTokens', label: '输入', hint: 'Input tokens — prompt + context sent to the model' },
   { key: 'outputTokens', label: '输出', hint: 'Output tokens — generated text + tool calls' },
   { key: 'cacheReadTokens', label: '缓存读取', hint: 'Cache read tokens — prompt cache hits (cheaper)' },
@@ -827,7 +962,10 @@ export function scoreHealth(metrics: AgentHealthMetrics): AgentHealthScore {
   let efficiency = 20;
   if (metrics.tokensPerToolCall > 50000) {
     efficiency -= 10;
-    flags.push({ type: 'warning', message: `每次工具调用平均 ${formatTokensCompact(metrics.tokensPerToolCall)} tokens，效率偏低` });
+    flags.push({
+      type: 'warning',
+      message: `每次工具调用平均 ${formatTokensCompact(metrics.tokensPerToolCall)} tokens，效率偏低`,
+    });
   }
   if (metrics.avgTurnDurationMs > 120000) {
     efficiency -= 5;
@@ -838,7 +976,10 @@ export function scoreHealth(metrics: AgentHealthMetrics): AgentHealthScore {
   let toolQuality = 20;
   if (metrics.toolRedundancyRate > 0.5) {
     toolQuality -= 8;
-    flags.push({ type: 'warning', message: `工具重复率 ${(metrics.toolRedundancyRate * 100).toFixed(0)}%，可能存在循环调用` });
+    flags.push({
+      type: 'warning',
+      message: `工具重复率 ${(metrics.toolRedundancyRate * 100).toFixed(0)}%，可能存在循环调用`,
+    });
   }
   if (metrics.maxConsecutiveSameTool >= 5) {
     toolQuality -= 7;
@@ -963,7 +1104,11 @@ export function parseToolArguments(args: unknown): ParsedToolArgs {
       try {
         const parsed = JSON.parse(trimmed);
         if (parsed !== null && typeof parsed === 'object') {
-          return { object: parsed as Record<string, unknown>, text: JSON.stringify(parsed, null, 2), wasJsonString: true };
+          return {
+            object: parsed as Record<string, unknown>,
+            text: JSON.stringify(parsed, null, 2),
+            wasJsonString: true,
+          };
         }
         return { object: null, text: String(parsed), wasJsonString: true };
       } catch {
