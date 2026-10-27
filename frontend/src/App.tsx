@@ -1,20 +1,22 @@
-import { lazy, Suspense, useEffect, useState } from 'react';
+import { BarChart3, Copy } from 'lucide-react';
 import type { CSSProperties, KeyboardEvent as ReactKeyboardEvent, PointerEvent as ReactPointerEvent } from 'react';
-import { Copy } from 'lucide-react';
+import { lazy, Suspense, useEffect, useState } from 'react';
 import { toast } from 'sonner';
+import { PetWidget } from '@/components/PetWidget';
 import { PlatformBar } from '@/components/PlatformBar';
 import { Sidebar } from '@/components/Sidebar';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Tabs, TabsContent } from '@/components/ui/tabs';
 import { TooltipProvider } from '@/components/ui/tooltip';
-import { PetWidget } from '@/components/PetWidget';
-import { useVersionPoller } from '@/hooks/useVersionPoller';
 import { DEMO } from '@/demo/flag';
-import { useAppStore } from '@/store';
+import { useVersionPoller } from '@/hooks/useVersionPoller';
+import { cn } from '@/lib/utils';
 import type { MainView } from '@/store';
+import { useAppStore } from '@/store';
 
 const InsightsView = lazy(() =>
   import('@/views/insights/InsightsView').then((module) => ({ default: module.InsightsView }))
 );
+const UsageView = lazy(() => import('@/views/usage/UsageView').then((module) => ({ default: module.UsageView })));
 const LibraryView = lazy(() =>
   import('@/views/library/LibraryView').then((module) => ({ default: module.LibraryView }))
 );
@@ -24,9 +26,7 @@ const PromptsView = lazy(() =>
 const SessionsView = lazy(() =>
   import('@/views/sessions/SessionsView').then((module) => ({ default: module.SessionsView }))
 );
-const HelpView = lazy(() =>
-  import('@/views/help/HelpView').then((module) => ({ default: module.HelpView }))
-);
+const HelpView = lazy(() => import('@/views/help/HelpView').then((module) => ({ default: module.HelpView })));
 
 const SIDEBAR_WIDTH_KEY = 'agent-xray-sidebar-width';
 const SIDEBAR_DEFAULT_WIDTH = 280;
@@ -70,6 +70,7 @@ export default function App() {
   useVersionPoller();
   const view = useAppStore((s) => s.view);
   const setView = useAppStore((s) => s.setView);
+  const isUsage = view === 'usage';
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
   const [sidebarWidth, setSidebarWidth] = useState(loadSidebarWidth);
   const [isResizingSidebar, setIsResizingSidebar] = useState(false);
@@ -80,7 +81,7 @@ export default function App() {
     saveSidebarWidth(next);
   };
 
-  const handleResizeStart = (event: ReactPointerEvent<HTMLDivElement>) => {
+  const handleResizeStart = (event: ReactPointerEvent<HTMLHRElement>) => {
     event.preventDefault();
     const startX = event.clientX;
     const startWidth = sidebarWidth;
@@ -157,74 +158,105 @@ export default function App() {
         ) : null}
         <PlatformBar onOpenSessions={() => setMobileSidebarOpen(true)} />
         <div
-          className="grid min-h-0 flex-1 grid-cols-1 lg:grid-cols-[var(--sidebar-width)_minmax(0,1fr)]"
+          className={cn(
+            'grid min-h-0 flex-1 grid-cols-1 lg:grid-cols-[var(--sidebar-width)_minmax(0,1fr)]',
+            isUsage && 'lg:grid-cols-1'
+          )}
           style={{ '--sidebar-width': `${sidebarWidth}px` } as CSSProperties}
         >
-          <div className="contents lg:relative lg:block lg:h-full lg:min-h-0">
-            <Sidebar mobileOpen={mobileSidebarOpen} onMobileOpenChange={setMobileSidebarOpen} />
-            <div
-              role="separator"
-              aria-label="调整会话侧栏宽度"
-              aria-orientation="vertical"
-              aria-valuemin={SIDEBAR_MIN_WIDTH}
-              aria-valuemax={SIDEBAR_MAX_WIDTH}
-              aria-valuenow={sidebarWidth}
-              tabIndex={0}
-              title={`拖动调整侧栏宽度（当前 ${sidebarWidth}px）；方向键微调，双击恢复默认`}
-              onPointerDown={handleResizeStart}
-              onDoubleClick={() => resizeSidebarTo(SIDEBAR_DEFAULT_WIDTH)}
-              onKeyDown={handleResizeKeyDown}
-              className={`absolute inset-y-0 -right-1 z-20 hidden w-2 cursor-col-resize touch-none outline-none transition-colors after:absolute after:inset-y-0 after:left-1/2 after:w-px after:-translate-x-1/2 after:bg-transparent hover:after:bg-primary/70 focus-visible:after:bg-primary lg:block ${isResizingSidebar ? 'after:bg-primary' : ''}`}
-            />
-          </div>
+          {!isUsage && (
+            <div className="contents lg:relative lg:block lg:h-full lg:min-h-0">
+              <Sidebar mobileOpen={mobileSidebarOpen} onMobileOpenChange={setMobileSidebarOpen} />
+              <hr
+                aria-label="调整会话侧栏宽度"
+                aria-orientation="vertical"
+                aria-valuemin={SIDEBAR_MIN_WIDTH}
+                aria-valuemax={SIDEBAR_MAX_WIDTH}
+                aria-valuenow={sidebarWidth}
+                tabIndex={0}
+                title={`拖动调整侧栏宽度（当前 ${sidebarWidth}px）；方向键微调，双击恢复默认`}
+                onPointerDown={handleResizeStart}
+                onDoubleClick={() => resizeSidebarTo(SIDEBAR_DEFAULT_WIDTH)}
+                onKeyDown={handleResizeKeyDown}
+                className={`absolute inset-y-0 -right-1 z-20 hidden w-2 cursor-col-resize touch-none border-0 bg-transparent outline-none transition-colors after:absolute after:inset-y-0 after:left-1/2 after:w-px after:-translate-x-1/2 after:bg-transparent hover:after:bg-primary/70 focus-visible:after:bg-primary lg:block ${isResizingSidebar ? 'after:bg-primary' : ''}`}
+              />
+            </div>
+          )}
           <main className="flex min-h-0 min-w-0 flex-col overflow-hidden">
-            <Tabs
-              value={view}
-              onValueChange={(v) => setView(v as MainView)}
-              className="flex min-h-0 flex-1 flex-col"
-            >
-              <div className="flex items-center gap-2 px-3 pt-3 sm:px-5">
-                <TabsList className="inline-flex h-9 min-w-max items-center gap-0.5 rounded-full bg-secondary/70 p-1">
-                  {TABS.map((tab) => (
-                    <TabsTrigger
-                      key={tab.view}
-                      value={tab.view}
-                      title={tab.title}
-                      className="rounded-full px-3.5 text-[13px] font-medium text-muted-foreground shadow-none transition-all data-[state=active]:bg-card data-[state=active]:text-foreground data-[state=active]:shadow-soft-sm"
-                    >
-                      {tab.label}
-                    </TabsTrigger>
-                  ))}
-                </TabsList>
+            {/* 导航：会话浏览类主标签（会话/分析/Prompts/资产库/帮助）+ 独立「用量」仪表盘入口 */}
+            <div className="flex items-center gap-2 px-3 pt-3 sm:px-5">
+              <nav className="inline-flex h-9 min-w-max items-center gap-0.5 rounded-full bg-secondary/70 p-1">
+                {TABS.map((tab) => (
+                  <button
+                    key={tab.view}
+                    type="button"
+                    title={tab.title}
+                    onClick={() => setView(tab.view)}
+                    className={cn(
+                      'rounded-full px-3.5 text-[13px] font-medium transition-all',
+                      view === tab.view
+                        ? 'bg-card text-foreground shadow-soft-sm'
+                        : 'text-muted-foreground hover:text-foreground'
+                    )}
+                  >
+                    {tab.label}
+                  </button>
+                ))}
+              </nav>
+              <div className="mx-0.5 h-5 w-px bg-border" />
+              <button
+                type="button"
+                title="用量统计：每日 token 消耗总量与分应用明细（独立仪表盘）"
+                onClick={() => setView('usage')}
+                className={cn(
+                  'inline-flex h-9 items-center gap-1.5 rounded-full px-3.5 text-[13px] font-medium transition-all',
+                  isUsage
+                    ? 'bg-card text-foreground shadow-soft-sm'
+                    : 'text-muted-foreground hover:bg-secondary hover:text-foreground'
+                )}
+              >
+                <BarChart3 className="h-4 w-4" />
+                用量
+              </button>
+            </div>
+
+            {isUsage ? (
+              <div className="min-h-0 flex-1 overflow-auto p-4">
+                <Suspense fallback={<ViewFallback />}>
+                  <UsageView />
+                </Suspense>
               </div>
-              <Suspense fallback={<ViewFallback />}>
-                {view === 'sessions' ? (
-                  <TabsContent value="sessions" forceMount className="mt-0 min-h-0 flex-1 overflow-auto p-2 sm:p-4">
-                    <SessionsView />
-                  </TabsContent>
-                ) : null}
-                {view === 'insights' ? (
-                  <TabsContent value="insights" forceMount className="mt-0 min-h-0 flex-1 overflow-auto p-4">
-                    <InsightsView />
-                  </TabsContent>
-                ) : null}
-                {view === 'prompts' ? (
-                  <TabsContent value="prompts" forceMount className="mt-0 min-h-0 flex-1 overflow-auto p-4">
-                    <PromptsView />
-                  </TabsContent>
-                ) : null}
-                {view === 'library' ? (
-                  <TabsContent value="library" forceMount className="mt-0 min-h-0 flex-1 overflow-auto p-4">
-                    <LibraryView />
-                  </TabsContent>
-                ) : null}
-                {view === 'help' ? (
-                  <TabsContent value="help" forceMount className="mt-0 min-h-0 flex-1 overflow-auto p-3 sm:p-4">
-                    <HelpView />
-                  </TabsContent>
-                ) : null}
-              </Suspense>
-            </Tabs>
+            ) : (
+              <Tabs value={view} onValueChange={(v) => setView(v as MainView)} className="flex min-h-0 flex-1 flex-col">
+                <Suspense fallback={<ViewFallback />}>
+                  {view === 'sessions' ? (
+                    <TabsContent value="sessions" forceMount className="mt-0 min-h-0 flex-1 overflow-auto p-2 sm:p-4">
+                      <SessionsView />
+                    </TabsContent>
+                  ) : null}
+                  {view === 'insights' ? (
+                    <TabsContent value="insights" forceMount className="mt-0 min-h-0 flex-1 overflow-auto p-4">
+                      <InsightsView />
+                    </TabsContent>
+                  ) : null}
+                  {view === 'prompts' ? (
+                    <TabsContent value="prompts" forceMount className="mt-0 min-h-0 flex-1 overflow-auto p-4">
+                      <PromptsView />
+                    </TabsContent>
+                  ) : null}
+                  {view === 'library' ? (
+                    <TabsContent value="library" forceMount className="mt-0 min-h-0 flex-1 overflow-auto p-4">
+                      <LibraryView />
+                    </TabsContent>
+                  ) : null}
+                  {view === 'help' ? (
+                    <TabsContent value="help" forceMount className="mt-0 min-h-0 flex-1 overflow-auto p-3 sm:p-4">
+                      <HelpView />
+                    </TabsContent>
+                  ) : null}
+                </Suspense>
+              </Tabs>
+            )}
           </main>
         </div>
       </div>

@@ -42,6 +42,8 @@ export const EMPTY_SETTINGS: DirSettings = {
   geminiDir: '',
   cursorDir: '',
   doubaoDir: '',
+  workbuddyDir: '',
+  traeDir: '',
 };
 
 export function dirForPlatform(settings: DirSettings, platform: Platform): string {
@@ -66,6 +68,10 @@ export function dirForPlatform(settings: DirSettings, platform: Platform): strin
       return settings.cursorDir;
     case 'doubao':
       return settings.doubaoDir;
+    case 'workbuddy':
+      return settings.workbuddyDir;
+    case 'trae':
+      return settings.traeDir;
   }
 }
 
@@ -91,6 +97,8 @@ function loadPersisted(): { settings: DirSettings; platform: Platform; hasStored
       result.settings.geminiDir = typeof parsed.geminiDir === 'string' ? parsed.geminiDir : '';
       result.settings.cursorDir = typeof parsed.cursorDir === 'string' ? parsed.cursorDir : '';
       result.settings.doubaoDir = typeof parsed.doubaoDir === 'string' ? parsed.doubaoDir : '';
+      result.settings.workbuddyDir = typeof parsed.workbuddyDir === 'string' ? parsed.workbuddyDir : '';
+      result.settings.traeDir = typeof parsed.traeDir === 'string' ? parsed.traeDir : '';
       if (PLATFORMS.includes(parsed.platform as Platform)) {
         result.platform = parsed.platform as Platform;
         result.hasStoredPlatform = true;
@@ -110,7 +118,7 @@ function persist(settings: DirSettings, platform: Platform): void {
   }
 }
 
-export type MainView = 'sessions' | 'insights' | 'prompts' | 'library' | 'help';
+export type MainView = 'sessions' | 'insights' | 'usage' | 'prompts' | 'library' | 'help';
 export type InsightsScope = 'global' | 'session';
 export type SessionView = 'messages' | 'trace';
 export type Theme = 'light' | 'dark';
@@ -263,8 +271,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       },
     })),
   closeLibraryForm: () => set((s) => ({ libraryForm: { ...s.libraryForm, open: false } })),
-  requestScrollToMessage: (id) =>
-    set({ view: 'sessions', sessionView: 'messages', pendingScrollMsgId: id }),
+  requestScrollToMessage: (id) => set({ view: 'sessions', sessionView: 'messages', pendingScrollMsgId: id }),
   clearPendingScrollMsgId: () => set({ pendingScrollMsgId: null }),
   setAutoRefresh: (value) => set({ autoRefresh: value }),
   setAutoScroll: (value) => set({ autoScroll: value }),

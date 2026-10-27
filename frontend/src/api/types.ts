@@ -14,7 +14,9 @@ export type Platform =
   | 'dsh'
   | 'gemini'
   | 'cursor'
-  | 'doubao';
+  | 'doubao'
+  | 'workbuddy'
+  | 'trae';
 
 export type PlatformCapability = 'search' | 'context' | 'backup' | 'spawn' | 'watch';
 
@@ -33,6 +35,8 @@ export const PLATFORMS: Platform[] = [
   'gemini',
   'cursor',
   'doubao',
+  'workbuddy',
+  'trae',
 ];
 
 export const PLATFORM_LABELS: Record<Platform, string> = {
@@ -46,6 +50,8 @@ export const PLATFORM_LABELS: Record<Platform, string> = {
   gemini: 'Gemini CLI',
   cursor: 'Cursor',
   doubao: 'Doubao',
+  workbuddy: 'WorkBuddy',
+  trae: 'Trae CN',
 };
 
 // ---------- Sessions ----------
@@ -700,4 +706,32 @@ export interface PetState {
   updatedAt: number;
   /** optional server-side platform label; absent on older builds (use PLATFORM_LABELS) */
   platformLabel?: string | null;
+}
+
+// ---------- Daily token usage ----------
+
+export interface DailyUsageTotals {
+  input: number;
+  output: number;
+  cacheRead: number;
+  cacheWrite: number;
+  reasoning: number;
+  cost: number;
+  sessions: number;
+}
+
+export interface DailyUsageDay {
+  date: string;
+  total: DailyUsageTotals;
+  byPlatform: Record<string, DailyUsageTotals>;
+}
+
+/** GET /api/usage/daily — per-day total + per-application breakdown. */
+export interface DailyUsage {
+  generatedAt: number;
+  days: number;
+  /** Distinct transcripts in the selected window, including subagent transcripts. */
+  totalSessions: number;
+  platforms: string[];
+  series: DailyUsageDay[];
 }

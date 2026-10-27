@@ -10,6 +10,7 @@
 
 import type {
   ChildAgentSummary,
+  DailyUsage,
   Insights,
   LibraryData,
   PromptsData,
@@ -49,6 +50,45 @@ function emptyInsights(): Insights {
 
 function emptyPrompts(platform: string): PromptsData {
   return { platform, totalPrompts: 0, totalSessions: 0, groups: [] };
+}
+
+// Synthetic daily usage for the demo: spread each platform's bundled insight
+// token totals across the trailing days (most recent heaviest) so the 用量 tab
+// has something to show. Same response shape as GET /api/usage/daily.
+function demoDailyUsage(rawDays: string | null): DailyUsage {
+  const days = Math.min(90, Math.max(1, Number(rawDays) || 14));
+  const now = new Date();
+  now.setHours(0, 0, 0, 0);
+  const platformIds = Object.keys(data.insights);
+  const zero = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, reasoning: 0, cost: 0, sessions: 0 };
+  const series = [];
+  for (let i = days - 1; i >= 0; i--) {
+    const d = new Date(now.getTime() - i * 86400000);
+    const date = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    const total = { ...zero };
+    const byPlatform: DailyUsage['series'][number]['byPlatform'] = {};
+    for (const id of platformIds) {
+      const tu = data.insights[id]?.tokenUsage || {};
+      const base = tu.input || tu.output ? (tu.input || 0) + (tu.output || 0) : 0;
+      if (!base) continue;
+      const share = (days - i) / days; // 越靠近今天占比越高
+      const input = Math.max(0, Math.round((tu.input || 0) * share * 0.8));
+      const output = Math.max(0, Math.round((tu.output || 0) * share * 0.8));
+      if (input + output === 0) continue;
+      byPlatform[id] = { ...zero, input, output, sessions: Math.max(1, Math.round(share * 3)) };
+      total.input += input;
+      total.output += output;
+      total.sessions += byPlatform[id].sessions;
+    }
+    series.push({ date, total, byPlatform });
+  }
+  return {
+    generatedAt: Date.now(),
+    days,
+    totalSessions: series.reduce((sum, d) => sum + d.total.sessions, 0),
+    platforms: platformIds,
+    series,
+  };
 }
 
 // --- Demo search: same semantics as lib/search.js (multi-keyword AND,
@@ -118,6 +158,9 @@ export function demoJson<T>(url: string, init?: RequestInit): Promise<T> {
     return ok(parts.length === 2 ? [] : []);
   }
 
+  if (parsed.pathname === '/api/usage/daily') {
+    return ok(demoDailyUsage(parsed.searchParams.get('days')));
+  }
   if (parsed.pathname === '/api/insights') {
     const platform = parsed.searchParams.get('platform') || 'openclaw';
     return ok(data.insights[platform] ?? emptyInsights());

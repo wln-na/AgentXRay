@@ -1,11 +1,14 @@
 // Typed fetchers for every AgentXRay backend endpoint.
 // Mirrors public/js/app.js fetch behavior: non-2xx → throw Error(body.error || statusText).
 
+import { DEMO } from '@/demo/flag';
+import { demoJson } from '@/demo/router';
 import type {
   BackupResult,
   BackupStatus,
   ChildAgentSummary,
   ContextSnapshot,
+  DailyUsage,
   FabricPatternsData,
   HiddenPromptsData,
   HidePromptsResult,
@@ -32,8 +35,6 @@ import type {
   ToolsAudit,
   VersionInfo,
 } from './types';
-import { DEMO } from '@/demo/flag';
-import { demoJson } from '@/demo/router';
 
 /** Per-platform log-directory overrides (settings dialog). Empty string = default. */
 export interface DirSettings {
@@ -47,6 +48,8 @@ export interface DirSettings {
   geminiDir: string;
   cursorDir: string;
   doubaoDir: string;
+  workbuddyDir: string;
+  traeDir: string;
 }
 
 type ParamValue = string | number | boolean | undefined | null;
@@ -119,9 +122,7 @@ export function getSessionChildren(
   sessionId: string,
   dir?: string
 ): Promise<ChildAgentSummary[]> {
-  return fetchJson(
-    withParams(`/api/${platform}/sessions/${encodeURIComponent(sessionId)}/children`, { dir })
-  );
+  return fetchJson(withParams(`/api/${platform}/sessions/${encodeURIComponent(sessionId)}/children`, { dir }));
 }
 
 export function getSessionChild(
@@ -131,10 +132,9 @@ export function getSessionChild(
   dir?: string
 ): Promise<SessionDetail> {
   return fetchJson(
-    withParams(
-      `/api/${platform}/sessions/${encodeURIComponent(sessionId)}/children/${encodeURIComponent(childName)}`,
-      { dir }
-    )
+    withParams(`/api/${platform}/sessions/${encodeURIComponent(sessionId)}/children/${encodeURIComponent(childName)}`, {
+      dir,
+    })
   );
 }
 
@@ -155,11 +155,10 @@ export function openSession(
     platform === 'openclaw'
       ? `/api/agents/${encodeURIComponent(opts.agent || '')}/sessions`
       : `/api/${platform}/sessions`;
-  return requestJson(
-    withParams(`${base}/${encodeURIComponent(sessionId)}/open`, { dir: opts.dir }),
-    'POST',
-    { action, agent: opts.agent }
-  );
+  return requestJson(withParams(`${base}/${encodeURIComponent(sessionId)}/open`, { dir: opts.dir }), 'POST', {
+    action,
+    agent: opts.agent,
+  });
 }
 
 // ---------- Spawn map / tree ----------
@@ -177,17 +176,23 @@ export function getSpawnTree(sessionId: string, dir?: string): Promise<SpawnTree
 export function getInsights(opts: { platform: Platform; agent?: string; dir?: string }): Promise<Insights> {
   // Note: legacy app.js passes dirParam() ("?dir=…") as the dir value here — a bug.
   // We pass the raw directory.
-  return fetchJson(
-    withParams('/api/insights', { platform: opts.platform, agent: opts.agent, dir: opts.dir })
+  return fetchJson(withParams('/api/insights', { platform: opts.platform, agent: opts.agent, dir: opts.dir }));
+}
+
+// ---------- Daily usage ----------
+
+export function getDailyUsage(
+  opts: { days?: number; platform?: string; dirs?: Partial<DirSettings> } = {}
+): Promise<DailyUsage> {
+  return fetchJson<DailyUsage>(
+    withParams('/api/usage/daily', { days: opts.days, platform: opts.platform, ...(opts.dirs || {}) })
   );
 }
 
 // ---------- Prompts ----------
 
 export function getPrompts(opts: { platform: Platform; agent?: string; dir?: string }): Promise<PromptsData> {
-  return fetchJson(
-    withParams('/api/prompts', { platform: opts.platform, agent: opts.agent, dir: opts.dir })
-  );
+  return fetchJson(withParams('/api/prompts', { platform: opts.platform, agent: opts.agent, dir: opts.dir }));
 }
 
 /**
@@ -268,11 +273,7 @@ export async function getToolsAudit(opts: {
 // ---------- Search ----------
 
 /** Full-text search across every platform (multi-keyword AND), with per-platform dir overrides. */
-export function searchSessions(
-  q: string,
-  dirs?: Partial<DirSettings>,
-  platform?: string
-): Promise<SearchResult[]> {
+export function searchSessions(q: string, dirs?: Partial<DirSettings>, platform?: string): Promise<SearchResult[]> {
   return fetchJson(
     withParams('/api/search', {
       q,
@@ -320,17 +321,11 @@ export function deleteLibraryPrompt(name: string): Promise<Record<string, unknow
   return requestJson(`/api/library/${encodeURIComponent(name)}`, 'DELETE');
 }
 
-export function installLibraryPrompt(
-  name: string,
-  targets: InstallTarget[]
-): Promise<Record<string, unknown>> {
+export function installLibraryPrompt(name: string, targets: InstallTarget[]): Promise<Record<string, unknown>> {
   return requestJson(`/api/library/${encodeURIComponent(name)}/install`, 'POST', { targets });
 }
 
-export function uninstallLibraryPrompt(
-  name: string,
-  targets: InstallTarget[]
-): Promise<Record<string, unknown>> {
+export function uninstallLibraryPrompt(name: string, targets: InstallTarget[]): Promise<Record<string, unknown>> {
   return requestJson(`/api/library/${encodeURIComponent(name)}/uninstall`, 'POST', { targets });
 }
 
@@ -352,9 +347,7 @@ export function getLibraryHistory(name: string): Promise<LibraryHistoryData> {
 }
 
 export function getLibraryHistoryEntry(name: string, hash: string): Promise<LibraryHistoryEntry> {
-  return fetchJson(
-    `/api/library/${encodeURIComponent(name)}/history/${encodeURIComponent(hash)}`
-  );
+  return fetchJson(`/api/library/${encodeURIComponent(name)}/history/${encodeURIComponent(hash)}`);
 }
 
 // ---------- Backup / misc ----------
@@ -368,12 +361,7 @@ export function getBackupStatus(): Promise<BackupStatus> {
 }
 
 export function getOtlp(platform: Platform, sessionId: string, dir?: string): Promise<OtlpExport> {
-  return fetchJson(
-    withParams(
-      `/api/otlp/${encodeURIComponent(platform)}/${encodeURIComponent(sessionId)}`,
-      { dir }
-    )
-  );
+  return fetchJson(withParams(`/api/otlp/${encodeURIComponent(platform)}/${encodeURIComponent(sessionId)}`, { dir }));
 }
 
 export function getVersion(): Promise<VersionInfo> {
@@ -397,11 +385,7 @@ export function getLlmSettings(): Promise<LlmSettings> {
 }
 
 /** apiKey semantics: undefined = keep the stored key, '' = clear it, else replace. */
-export function saveLlmSettings(body: {
-  baseUrl: string;
-  model: string;
-  apiKey?: string;
-}): Promise<LlmSettings> {
+export function saveLlmSettings(body: { baseUrl: string; model: string; apiKey?: string }): Promise<LlmSettings> {
   return requestJson('/api/settings/llm', 'PUT', body);
 }
 
@@ -420,12 +404,7 @@ export function exportUrl(
 }
 
 /** URL for the real-time tail EventSource (GET /api/watch, SSE — consumed via new EventSource()). */
-export function watchUrl(opts: {
-  platform: Platform;
-  sessionId: string;
-  agent?: string;
-  dir?: string;
-}): string {
+export function watchUrl(opts: { platform: Platform; sessionId: string; agent?: string; dir?: string }): string {
   return withParams('/api/watch', {
     platform: opts.platform,
     sessionId: opts.sessionId,

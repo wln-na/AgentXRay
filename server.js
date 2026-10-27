@@ -1,6 +1,6 @@
 const express = require('express');
-const fs = require('fs');
-const path = require('path');
+const fs = require('node:fs');
+const path = require('node:path');
 const {
   DATA_DIR,
   CODEX_DIR,
@@ -23,6 +23,7 @@ const mountLibraryRoutes = require('./lib/routes/library');
 const mountBackupRoutes = require('./lib/routes/backup');
 const mountWatchRoutes = require('./lib/routes/watch');
 const mountPetRoutes = require('./lib/routes/pet');
+const mountUsageRoutes = require('./lib/routes/usage');
 const mountLlmRoutes = require('./lib/routes/llm');
 const mountContextRoutes = require('./lib/routes/context');
 
@@ -39,7 +40,7 @@ const HAS_DIST = fs.existsSync(path.join(DIST_DIR, 'index.html'));
 // Frontend staleness detection: the SPA polls this and prompts a reload
 // when the serving process (and thus possibly the code) has changed.
 const SERVER_BOOT_ID = `${Date.now().toString(36)}-${process.pid}`;
-app.get('/api/version', (req, res) => {
+app.get('/api/version', (_req, res) => {
   res.json({ bootId: SERVER_BOOT_ID });
 });
 
@@ -52,7 +53,7 @@ if (HAS_DIST) {
 app.use(express.json({ limit: '256kb' }));
 
 // Disable all caching
-app.use((req, res, next) => {
+app.use((_req, res, next) => {
   res.set('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
   res.set('Pragma', 'no-cache');
   res.set('Expires', '0');
@@ -73,8 +74,15 @@ mountLibraryRoutes(app);
 mountBackupRoutes(app);
 mountWatchRoutes(app);
 mountPetRoutes(app);
+mountUsageRoutes(app);
 mountLlmRoutes(app);
 mountContextRoutes(app);
+
+// API 404s must stay JSON. Without this branch the SPA fallback would return
+// index.html with status 200, and callers would fail while parsing HTML as JSON.
+app.use('/api', (_req, res) => {
+  res.status(404).json({ error: 'Not Found' });
+});
 
 // SPA fallback: unknown paths render the appropriate UI shell
 app.get('*', (req, res) => {
