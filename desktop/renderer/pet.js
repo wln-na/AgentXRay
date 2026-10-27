@@ -366,8 +366,17 @@
     // （曾出现 canvas 停在展开态 372 高而窗口已收起 128，宠物被裁剪到窗口外“隐身”）。
     // 但收到 pet:geom 后 200ms 内锁定高度自愈：setBounds 改高后 window.innerHeight 会滞后数帧，
     // 旧值若覆盖了新高度，长高态被拉回收起态、气泡永久不画。宽度自愈不受锁定影响。
-    if (window.innerWidth > 0 && (window.innerWidth !== GEOM.w || (window.innerHeight !== GEOM.h && performance.now() > geomLockUntil))) {
-      applyGeom({ w: window.innerWidth, h: window.innerHeight, cell: GEOM.cell, petH: GEOM.petH, bubbleBelow: GEOM.bubbleBelow });
+    if (
+      window.innerWidth > 0 &&
+      (window.innerWidth !== GEOM.w || (window.innerHeight !== GEOM.h && performance.now() > geomLockUntil))
+    ) {
+      applyGeom({
+        w: window.innerWidth,
+        h: window.innerHeight,
+        cell: GEOM.cell,
+        petH: GEOM.petH,
+        bubbleBelow: GEOM.bubbleBelow,
+      });
     }
 
     // 窗口高度仲裁：只要有内容要显示（卡片/toast），窗口就保持高个，给宠物头顶留出气泡空间；
@@ -577,7 +586,7 @@
       .then((result) => {
         const ok = result?.ok;
         toast = {
-          text: ok ? '已忽略该会话' : (result?.error) || '忽略失败',
+          text: ok ? '已忽略该会话' : result?.error || '忽略失败',
           until: performance.now() + (ok ? 2500 : 3200),
         };
       });

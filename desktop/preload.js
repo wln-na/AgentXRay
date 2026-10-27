@@ -16,7 +16,14 @@
 
 const { contextBridge, ipcRenderer } = require('electron');
 
-const ALLOWED_PUSH = new Set(['pet:state', 'pet:status', 'pet:fullscreen', 'pet:open-result', 'pet:geom', 'pet:drag-cancel']);
+const ALLOWED_PUSH = new Set([
+  'pet:state',
+  'pet:status',
+  'pet:fullscreen',
+  'pet:open-result',
+  'pet:geom',
+  'pet:drag-cancel',
+]);
 
 function subscribe(channel, cb) {
   if (!ALLOWED_PUSH.has(channel) || typeof cb !== 'function') return () => {};

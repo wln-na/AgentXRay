@@ -8,6 +8,7 @@ const assert = require('node:assert/strict');
 const fsp = require('node:fs/promises');
 const path = require('node:path');
 const { startServer, getJson, sendJson } = require('./helpers.js');
+const { createUsageIndex } = require('../lib/usage-index');
 
 const CODEX1 = '01900000-0000-7000-8000-000000000001';
 const CODEX2 = '01900000-0000-7000-8000-000000000002';
@@ -36,6 +37,13 @@ describe('AgentXRay API', () => {
   });
   after(async () => {
     await srv.stop();
+  });
+
+  it('GET /api/definitely-missing returns JSON 404', async () => {
+    const res = await fetch(`${srv.base}/api/definitely-missing`);
+    assert.equal(res.status, 404);
+    assert.equal(res.headers.get('content-type'), 'application/json; charset=utf-8');
+    assert.deepEqual(await res.json(), { error: 'Not Found' });
   });
 
   it('GET /api/version returns a boot id', async () => {
@@ -649,6 +657,9 @@ describe('backup', () => {
   let srv;
   before(async () => {
     srv = await startServer();
+    // The usage index is derived state. It must stay out of session backups.
+    const usageIndex = createUsageIndex(path.join(srv.home, '.agentxray', 'usage-index.sqlite'));
+    usageIndex.close();
     // Clear any archive created by the 10s auto-backup timer so the test
     // starts from a clean slate regardless of test ordering.
     await fsp.rm(path.join(srv.home, '.agentxray', 'archive'), { recursive: true, force: true });
@@ -764,6 +775,8 @@ describe('backup', () => {
     assert.equal(second.copied, 0);
     assert.equal(second.skipped, 29);
     assert.equal(second.total, 29);
+
+    assert.equal(await exists(path.join(first.archiveDir, 'usage-index.sqlite')), false);
 
     const status = await getJson(srv.base, '/api/backup/status');
     assert.equal(status.archiveDir, first.archiveDir);

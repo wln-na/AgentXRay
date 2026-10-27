@@ -25,7 +25,7 @@
 
 ---
 
-X-ray vision into your AI agent sessions. Supports **OpenClaw**, **Codex**, **Claude Code**, **Claude Desktop**, **Hermes**, **OMP**, **DeepSeek Harness**, **Gemini CLI**, **Cursor**, and **Doubao** — all in one interface.
+X-ray vision into your AI agent sessions. Supports **OpenClaw**, **Codex**, **Claude Code**, **Claude Desktop**, **Hermes**, **OMP**, **DeepSeek Harness**, **Gemini CLI**, **Cursor**, **Doubao**, **WorkBuddy**, and **Trae CN** — all in one interface.
 
 ## Why AgentXRay
 
@@ -33,7 +33,7 @@ AgentXRay is a **local-first viewer for the agent sessions you already have**.
 
 Observability platforms like LangSmith and Langfuse are built for agents *you* write: you add their SDK, instrument your code, and traces stream to a hosted backend. Great for building your own agent — but CLI coding agents (Claude Code, Codex, Gemini CLI, …) aren't your code to instrument. They already write complete session logs to your disk; AgentXRay just reads them. Zero integration, zero config, nothing leaves your machine.
 
-Compared to grepping the raw logs yourself, AgentXRay normalizes nine platform data sources into one interface: tool calls paired with their results, token usage summed per session, full-text search across every platform at once, prompt extraction, and trace timelines — things that are tedious to reconstruct by hand from a 50MB session log.
+Compared to grepping the raw logs yourself, AgentXRay normalizes 12 platform data sources into one interface: tool calls paired with their results, token usage summed per session, full-text search across every platform at once, prompt extraction, and trace timelines — things that are tedious to reconstruct by hand from a 50MB session log.
 
 If you build and operate your own agent in production, use a tracing platform. If you want to see what your coding agents actually did, use AgentXRay.
 
@@ -41,7 +41,7 @@ If you build and operate your own agent in production, use a tracing platform. I
 
 ## Features
 
-- **Multi-platform** — Unified view across OpenClaw, Codex, Claude Code, Claude Desktop Agent/Cowork, Hermes, OMP, DeepSeek Harness, Gemini CLI, Cursor, and Doubao sessions (dsh's multi-frame zstd session logs are decompressed transparently; Gemini CLI's `/rewind` checkpoints are folded so rewound history never renders twice; Cursor agent transcripts are read from `~/.cursor/projects` — subagent transcripts are excluded, and timestamps come from file mtime since Cursor records carry none)
+- **Multi-platform** — Unified view across OpenClaw, Codex, Claude Code, Claude Desktop Agent/Cowork, Hermes, OMP, DeepSeek Harness, Gemini CLI, Cursor, Doubao, WorkBuddy, and Trae CN sessions (dsh's multi-frame zstd session logs are decompressed transparently; Gemini CLI's `/rewind` checkpoints are folded so rewound history never renders twice; Cursor agent transcripts are read from `~/.cursor/projects` — subagent transcripts are excluded, and timestamps come from file mtime since Cursor records carry none)
 - **Session browser** — Browse agents, filter/search sessions, view message history
 - **Tool call inspection** — Expandable tool calls with arguments and results
 - **Trace view** — Per-turn waterfall of where the time went: model inference (blue) vs tool execution (green, red on error); click any bar to jump to that message
@@ -50,6 +50,7 @@ If you build and operate your own agent in production, use a tracing platform. I
 - **Prompt library** — Curate the prompts worth keeping into `~/.agentxray/library`, tag / edit / search them, then install any of them as a native slash command for Claude Code, Codex or OMP with one click — `$ARGUMENTS` is passed through, so `/name some args` works in the target CLI
 - **Global search** — One search box across all supported platforms at once, multi-keyword AND matching, colored platform badges per hit — including prompts recovered from sessions that Claude Code's cleanup already deleted
 - **Session insights** — Aggregate analytics dashboard with tool stats, error clustering and daily trends
+- **Usage dashboard** — Local-calendar daily token usage across platforms: input, output, cache, reasoning, estimated tokens, cost, and the deduplicated transcript count including sub-agents; follows the selected platform by default, supports an all-platform mode, and honors custom directories from Settings
 - **Spawn tracking** — Detect and navigate parent/child agent relationships
 - **OMP sub-agents** — Sub-agents spawned by an OMP session show up as chips in the summary; click one to read the child agent's full transcript
 - **Message timeline** — Visual graph showing conversation flow with role indicators
@@ -186,6 +187,8 @@ Click the **Prompts** tab (next to Sessions / Insights) to see every real human 
 | Gemini CLI  | `~/.gemini/tmp`               |
 | Cursor      | `~/.cursor/projects`          |
 | Doubao      | `~/Library/Application Support/Doubao/Profile 2/.doubao/agent_mode/workspace/.sessions` |
+| WorkBuddy   | `~/.workbuddy/projects`       |
+| Trae CN     | `~/.trae/cli/sessions`       |
 
 ### Custom directories
 
@@ -204,6 +207,8 @@ DSH_DIR=/custom/path/dsh/sessions \
 GEMINI_DIR=/custom/path/gemini/tmp \
 CURSOR_DIR=/custom/path/cursor/projects \
 DOUBAO_DIR=/custom/path/doubao/.sessions \
+WORKBUDDY_DIR=/custom/path/workbuddy/projects \
+TRAE_DIR=/custom/path/trae/cli/sessions \
 npm start
 ```
 
@@ -240,6 +245,7 @@ npm start
 | `GET /api/spawn-tree` | Build the complete hierarchical spawn tree |
 | `GET /api/spawn-tree/:sessionId` | Get the spawn subtree rooted at a session plus its parent node |
 | `GET /api/insights` | Aggregate analytics (tool stats, error clusters, trends) |
+| `GET /api/usage/daily` | Daily token usage: input/output/cache/reasoning/estimated tokens, cost, and deduplicated transcript count including sub-agents (`days=1-90`, `platform=all` or a platform id; per-platform directory overrides are supported) |
 | `GET /api/tools/audit` | Aggregate tool usage and health audit |
 | `GET /api/prompts` | Real human prompts per session, grouped by directory |
 | `GET /api/prompts/analyze` | Template clustering + attribution + Claude suggestions (`?refresh=1` to recompute, `?skipLlm=1` for clustering only) |
@@ -276,7 +282,7 @@ npm start
 | `POST /api/backup` | Run an incremental backup into `~/.agentxray/archive` |
 | `GET /api/backup/status` | Archive stats: file count, total bytes, last backup time |
 
-All list/detail endpoints accept an optional `?dir=` parameter to override the default directory.
+All list/detail endpoints accept an optional `?dir=` parameter to override the default directory. The usage endpoint accepts per-platform directory overrides such as `?codexDir=/custom/path`.
 
 ---
 
@@ -285,7 +291,7 @@ All list/detail endpoints accept an optional `?dir=` parameter to override the d
 - **Backend:** Node.js + Express
 - **Frontend:** React + Vite + TypeScript under `frontend/` (default UI, served from `frontend/dist`)
 - **Legacy UI:** the original vanilla HTML/CSS/JS app under `public/`, served at `/legacy` — **frozen: security fixes only**. New features land in the React app exclusively; a feature change to the React renderer requires zero edits under `public/js/`. Shared logic (formatters, trace builder, markdown/escape pipeline) is authored once in `frontend/src/lib/pure.ts` and `frontend/src/lib/markdown.ts`, and `public/js/pure.js` is generated from them (`npm run build:legacy-pure`, also part of `build:ui`).
-- **Data:** Reads JSONL/SQLite session stores directly and maintains a privacy-minimized derived SQLite cache for Doubao IndexedDB
+- **Data:** Reads JSONL/SQLite session stores directly, maintains a privacy-minimized derived SQLite cache for Doubao IndexedDB, and stores daily usage rollups in `~/.agentxray/usage-index.sqlite` — no prompts, and excluded from the default session backup
 - **Zero external CDN** — Everything is self-contained, works offline
 
 ---
@@ -304,10 +310,12 @@ All list/detail endpoints accept an optional `?dir=` parameter to override the d
 | Gemini CLI | JSONL | `~/.gemini/tmp/{projectHash}/chats/session-*.jsonl` |
 | Cursor | JSONL | `~/.cursor/projects/{project-slug}/agent-transcripts/{id}/{id}.jsonl` (subagent transcripts under `{id}/subagents/` are excluded; the human query is wrapped in `<user_query>`, records carry no timestamps so mtime is used) |
 | Doubao | Chromium IndexedDB + JSONL trajectory | `~/Library/Application Support/Doubao/Profile 2/IndexedDB/chrome_doubao-chat_0.indexeddb.leveldb` + `.sessions/{id}/agents/*/system/trajectory.jsonl` |
+| WorkBuddy | JSONL | `~/.workbuddy/projects/{project}/{sessionId}.jsonl` |
+| Trae CN CLI | JSONL (Codex-compatible rollout format) | `~/.trae/cli/sessions/YYYY/MM/DD/rollout-*.jsonl` |
 
 Doubao uses IndexedDB as the live project/session/message/model source and trajectory logs as the historical tool/trace supplement. The first refresh requires either `dfindexeddb` on `PATH` or `uv`; with `uv`, AgentXRay creates an isolated Python 3.10 parser runtime under `~/.agentxray/cache`. Only project/session IDs and titles, message text/tool summaries, timestamps, section IDs, and model names are copied into `~/.agentxray/cache/doubao.sqlite`. Older message bodies can be unavailable when Chromium has already removed their blob files and no trajectory exists.
 
-dsh's `.jsonl.zstd` logs are a concatenation of independent Zstandard frames (one per append batch); AgentXRay scans the frame boundaries and decompresses every frame, tolerating a torn trailing frame after a crash. Reading compressed dsh logs requires Node.js ≥ 22.15 (built-in zstd); plain `session.jsonl` logs work on any supported Node.
+WorkBuddy logs carry no native token usage fields, so WorkBuddy does not participate in estimated token usage. Trae CN support covers CLI rollout logs and reads their real `token_count` events; it does not read the encrypted Trae IDE AI chat database. dsh's `.jsonl.zstd` logs are a concatenation of independent Zstandard frames (one per append batch); AgentXRay scans the frame boundaries and decompresses every frame, tolerating a torn trailing frame after a crash. Reading compressed dsh logs requires Node.js ≥ 22.15 (built-in zstd); plain `session.jsonl` logs work on any supported Node.
 
 Archived sessions (`.jsonl.reset.*`, `.jsonl.deleted.*`) are also supported when "Include archived" is enabled.
 

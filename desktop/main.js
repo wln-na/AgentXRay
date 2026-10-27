@@ -139,7 +139,7 @@ function loadWindowState() {
       return {
         x: Math.min(
           Math.max(x, display.bounds.x),
-          Math.max(display.bounds.x, display.bounds.x + display.bounds.width - WINDOW.w),
+          Math.max(display.bounds.x, display.bounds.x + display.bounds.width - WINDOW.w)
         ),
         y: Math.min(Math.max(y, vertical.min), vertical.max),
       };
@@ -260,8 +260,8 @@ function handleDrag(payload) {
       // 窗口上、渲染端收不到 mouseup。立即结束拖拽并把宠物留在贴边位置，
       // 否则拖拽定时器继续跟着光标跑，宠物看起来永远“贴不到上/下边缘”。
       const nb = mainWindow.getBounds();
-      const cursorInside = cur.x >= nb.x - 2 && cur.x <= nb.x + nb.width + 2
-        && cur.y >= nb.y - 2 && cur.y <= nb.y + nb.height + 2;
+      const cursorInside =
+        cur.x >= nb.x - 2 && cur.x <= nb.x + nb.width + 2 && cur.y >= nb.y - 2 && cur.y <= nb.y + nb.height + 2;
       if (!cursorInside) {
         clearInterval(dragTimer);
         dragTimer = null;
