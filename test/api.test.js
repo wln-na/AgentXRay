@@ -262,6 +262,28 @@ describe('AgentXRay API', () => {
       assert.equal(detail.messages[1].content[0].text, 'hello');
     });
 
+    it('sanitizes crafted subagent names in the children list (CodeQL path-injection)', async () => {
+      // A readdir entry named `agent-../../evil.jsonl` must never escape the
+      // spawn dir through the meta.json path or leak traversal in the payload.
+      const spawnDir = path.join(srv.home, '.claude', 'projects', '-fixtures-project-beta', CLAUDE_A, 'subagents');
+      const crafted = 'agent-../../evil.jsonl';
+      const craftedPath = path.join(spawnDir, crafted);
+      await fsp.writeFile(
+        craftedPath,
+        `${JSON.stringify({ type: 'session', sessionId: 'evil', timestamp: '2026-10-27T00:00:00Z' })}\n`
+      );
+      try {
+        const children = await getJson(srv.base, `/api/claude-code/sessions/${CLAUDE_A}/children`);
+        assert.ok(Array.isArray(children));
+        for (const c of children) {
+          assert.ok(!c.name.includes('/') && !c.name.includes('..'), `name must not leak traversal: ${c.name}`);
+          assert.ok(!c.file.includes('/') && !c.file.includes('..'), `file must not leak traversal: ${c.file}`);
+        }
+      } finally {
+        await fsp.rm(craftedPath, { force: true });
+      }
+    });
+
     it('a Task-free session has no children', async () => {
       const children = await getJson(srv.base, `/api/claude-code/sessions/${CLAUDE_B}/children`);
       assert.deepEqual(children, []);
