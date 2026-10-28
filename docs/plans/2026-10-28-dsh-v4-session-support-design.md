@@ -1,7 +1,7 @@
 # DeepSeek Harness v4 会话支持：需求与方案设计
 
 - 日期：2026-10-28
-- 状态：P0 与 P1 已实现，待发布
+- 状态：P0/P1/P2 已实现，待发布
 - 范围：`lib/platforms/dsh.js`、`lib/platforms/index.js` 及其下游读取链
 - 结论：这是 dsh 平台的格式升级适配，不是新增一个 DeepSeek 应用平台
 
@@ -17,13 +17,13 @@
 |---|---|
 | 未知版本 v5 | 列表保留该会话并带可读错误；详情返回 422 |
 | v1 到 v3 | 不支持，不尽力解析；列表保留错误提示，详情 422，提示在 DSH 中打开以迁移到 v4 |
-| 本期范围 | P0 与 P1 已实现；P2 留到后续版本 |
+| 本期范围 | P0/P1/P2 已实现 |
 | API 契约 | 接受 422 作为“版本不支持/版本不一致”的状态码 |
 | 性能上限 | 压缩日志超过 64 MB 时详情返回 413，并提示用导出或分段查看 |
 | 发布方式 | 跟随下一个 patch release，功能提交不改版本号 |
 | 子代理展示 | P0 保留全部会话并加 `subagent` badge；P1 已改为主列表只显示根会话，父会话带 `childCount` 与 chip，`?include_subagents=1` 返回全部 |
 | 注入消息展示 | P0 默认过滤；P1 已改为详情 `contextMessages` + 前端默认折叠、按 kind 分组的系统上下文区块 |
-| 实现边界 | P0 修格式；P1 做根会话列表、子代理 chip、注入折叠、上下文卡、turn/end 错误摘要；完整 context 重建和更深层父子树留到 P2 |
+| 实现边界 | P0 修格式；P1 做根会话列表、子代理 chip、注入折叠、上下文卡、turn/end 错误摘要；P2 做上下文重建、任务时间线、diff 视图、启动 DSH 应用 |
 
 ## 现象与复现
 
@@ -126,15 +126,15 @@ dsh 平台在 2026-08-19 就已接入（提交 `6f26216`），registry、`/api/d
 1. 子代理改成父子分组：主列表默认只显示根会话，父会话带 `childCount` 和 🌳 chip，通过 children API 查看直接子代理。
 2. 注入消息从“默认过滤”升级为详情里的 `contextMessages`，前端渲染成默认折叠、按 sourceKind 分组的系统上下文区块。
 3. `turn/end` 的 `reason.error.message` 已拼进错误摘要。
-4. `spawn` 能力已打开，做直接子代理的 chip 和详情；`contextUsage` 卡已做。完整 `context` 重建和更深层父子树留到 P2。
+4. `spawn` 能力已打开，做直接子代理的 chip 和详情；`contextUsage` 卡已做。context 重建和任务时间线已在 P2 实现；更深层父子树（孙代理逐层返回）仍是后续工作。
 5. 聚合缓存说明已写入测试计划：升级后重启或等 TTL（insights/prompts 60 秒，tool-audit/usage 5 分钟）。
 
-### P2：可以另开 issue
+### P2：已实现
 
-- 用 `subagent/catalog` 补全子代理目录与跳转信息，在 P1 父子树上叠加任务时间线；列表 badge 已在 P0 提供。
-- 用 `request/context.contextWindow` 给 P1 的上下文卡补上窗口占用明细。
-- `job/*`、`approval/*`、`llm/retry*` 进入 trace 时间线。
-- 工具 `data.meta.diffs` 做 diff 视图。
+- `subagent/descriptor` 标签已解析进元数据 `agentLabel`/`agentType`，children API 的 `description` 优先用 descriptor 标签而非 prompt；任务/审批/重试时间线已在详情 `activityEvents` 中提供。
+- 上下文重建 `buildDshContext` 已实现（system/message、request/header 工具定义、request/context、developer 工具变更 + 主消息链）；dsh 的 `context` 能力已打开，ContextPanel 可用。
+- `job/*`、`approval/*`、`llm/retry*` 已通过 `activityEvents` 进入前端 `DshActivityPanel`（messages 和 trace 视图均渲染，默认折叠）。
+- 工具 `data.meta.diffs` 已通过 `details.diffs` 暴露，前端 `DshDiffView` 在工具结果下方渲染行级对比。
 - “打开”从默认编辑器改成启动 DeepSeek Harness 应用。
 
 ### 明确不做
@@ -357,7 +357,7 @@ AgentXRay 现有做法是把每条助手消息的 input、output、cacheRead 分
 | insights | `lib/insights-scanner.js:279-320` | 修 `message.isError` 判定；用户消息计数只算展示的用户消息 |
 | 工具审计 | `lib/tool-audit.js:132-160` | 修 `message.isError` 判定 |
 | 备份 | `lib/backup.js:178-196` | 已兼容；可把后缀匹配收窄成 `DSH_LOG_RE`，防止未来误拷 |
-| 定位/打开 | `lib/open-session.js:47-60`、`:465-505` | 不用改；dsh 仍走“默认应用打开日志”。是否改成启动 DSH 应用是 P2 |
+| 定位/打开 | `lib/open-session.js:47-60`、`:465-505` | P2 已改为启动 DeepSeek Harness 应用，应用不可用回退默认编辑器 |
 | 前端 | `PlatformBar.tsx`、`SettingsDialog.tsx`、`types.ts` | 不用改；列表有数据后页签自动出现 |
 
 ### 子代理
@@ -448,7 +448,7 @@ v4 用 header 表达父子关系：子会话 `origin:"subagent"`、`parentSessio
 | 子代理默认显示吗 | 全显示 / 默认隐藏加开关 / 建树 | **已确认**：P0 保留全部并加 `subagent` badge，P1 再做分组 |
 | v5 怎么处理 | 静默跳过 / 列表报错 / 当 v4 硬解 | **已确认**：列表保留并报错，详情 422；不硬解 |
 | v1 到 v3 支持吗 | 完全不支持 / 尽力解析 / 等 DSH 迁移 | **已确认**：不支持，列表报错，详情 422，提示在 DSH 中迁移 |
-| 打开 .zstd 怎么做 | 默认编辑器 / 启动 DSH 应用 / 解压到临时文件 | 本期不改，仍走默认编辑器；启动 DSH 应用列为 P2 |
+| 打开 .zstd 怎么做 | 默认编辑器 / 启动 DSH 应用 / 解压到临时文件 | 已改为启动 DSH 应用（P2），应用不可用回退默认编辑器 |
 | 空会话列不列 | 列 / 隐藏 | 列，`messageCount: 0`，与 v0 行为一致 |
 | 注入消息要不要给开关 | 永不显示 / 默认隐藏可展开 / 全显示 | **已确认**：P0 默认过滤，P1 再做折叠区 |
 

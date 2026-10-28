@@ -214,7 +214,8 @@ export function MessageList({
   const msgOrder = useAppStore((s) => s.msgOrder);
   // Context reconstruction is supported for Codex and both Claude adapters.
   const contextEnabled =
-    (platform === 'codex' || platform === 'claude-code' || platform === 'claude-desktop') && Boolean(sessionId);
+    (platform === 'codex' || platform === 'claude-code' || platform === 'claude-desktop' || platform === 'dsh') &&
+    Boolean(sessionId);
 
   const units = useMemo<MessageUnit[]>(() => {
     const filtered = applyMsgFilter(timing.visibleMessages, msgFilter);

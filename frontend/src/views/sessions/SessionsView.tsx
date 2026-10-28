@@ -9,6 +9,7 @@ import { useAppStore } from '@/store';
 import { ChildAgentBanner } from '@/views/trace/ChildAgentsSection';
 import { useActiveSessionDetail } from '@/views/trace/childAgents';
 import { TraceView } from '@/views/trace/TraceView';
+import { DshActivityPanel } from './DshActivityPanel';
 import type { MsgFilter } from './lib';
 import { buildTimingAnalysis } from './lib';
 import { MessageActionsContext } from './MessageItem';
@@ -271,6 +272,7 @@ export function SessionsView() {
 
         {sessionView === 'trace' ? (
           <div className="min-h-0 flex-1 overflow-y-auto pr-1" data-testid="trace-scroll">
+            <DshActivityPanel events={activeDetail?.activityEvents} />
             <TraceView />
           </div>
         ) : (
@@ -278,6 +280,7 @@ export function SessionsView() {
             <ChildAgentBanner />
             {activeDetail ? (
               <>
+                <DshActivityPanel events={activeDetail.activityEvents} />
                 <SystemContextPanel messages={activeDetail.contextMessages} />
                 <MessageList
                   messages={activeDetail.messages}

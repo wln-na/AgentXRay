@@ -932,6 +932,56 @@ describe('dsh v4 API integration', () => {
     assert.equal(audited.errors, 1);
   });
 
+  it('exposes activityEvents for jobs, approvals, and retries', async () => {
+    const detail = await getJson(srv.base, `/api/dsh/sessions/${MAIN.id}`);
+    const events = detail.activityEvents;
+    assert.ok(Array.isArray(events), 'activityEvents must be an array');
+    assert.ok(events.length > 0, 'expected activity events');
+
+    const jobs = events.filter((event) => event.type === 'job');
+    assert.equal(jobs.length, 1);
+    assert.equal(jobs[0].id, 'bash-fixture-001');
+    assert.equal(jobs[0].status, 'completed');
+    assert.equal(jobs[0].label, 'fixture: run test command');
+
+    const approvals = events.filter((event) => event.type === 'approval');
+    assert.equal(approvals.length, 1);
+    assert.equal(approvals[0].action, 'decided');
+    assert.equal(approvals[0].decision, 'allowed-once');
+    assert.equal(approvals[0].toolName, 'bash');
+
+    const retries = events.filter((event) => event.type === 'retry');
+    assert.equal(retries.length, 1);
+    assert.equal(retries[0].attempt, 1);
+    assert.equal(retries[0].maxRetries, 5);
+    assert.equal(retries[0].failure.code, 'RATE_LIMIT');
+  });
+
+  it('exposes tool result diffs in the detail payload', async () => {
+    const detail = await getJson(srv.base, `/api/dsh/sessions/${MAIN.id}`);
+    const toolResult = detail.messages.find((m) => m.role === 'toolResult' && m.toolCallId === fixtures.TOOL_2.callId);
+    assert.ok(toolResult, 'expected the successful tool result');
+    assert.ok(Array.isArray(toolResult.details?.diffs), 'expected diffs array');
+    assert.equal(toolResult.details.diffs.length, 1);
+    assert.equal(toolResult.details.diffs[0].path, '/fixtures/project-v4/config.txt');
+    assert.equal(toolResult.details.path, '/fixtures/project-v4/config.txt');
+    assert.equal(toolResult.details.operation, 'update');
+  });
+
+  it('builds a dsh context snapshot with system prompt and tools', async () => {
+    const detail = await getJson(srv.base, `/api/dsh/sessions/${MAIN.id}`);
+    // Pick a target user message past the first turn.
+    const targetIndex = detail.messages.findIndex((m, i) => m.role === 'user' && i > 0);
+    assert.ok(targetIndex > 0, 'expected a second user message');
+    const context = await getJson(srv.base, `/api/dsh/sessions/${MAIN.id}/context?messageIndex=${targetIndex}`);
+    assert.ok(context.systemPrompt, 'expected systemPrompt');
+    assert.ok(context.systemPrompt.components, 'expected components');
+    const systemComponent = context.systemPrompt.components.find((c) => c.type === 'system-prompt');
+    assert.ok(systemComponent, 'expected system-prompt component');
+    assert.ok(systemComponent.present, 'system message should be present in fixture');
+    assert.ok(context.tools.available || context.tools.count >= 0, 'tools block present');
+  });
+
   it('archives session.v4.jsonl.zstd and skips it on a second backup', async () => {
     const first = await sendJson(srv.base, 'POST', '/api/backup', undefined);
     assert.ok(first.byPlatform.dsh.copied > 0);

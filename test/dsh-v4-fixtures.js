@@ -237,16 +237,31 @@ function mainSessionRecords() {
   return [
     header(MAIN),
     event('session/title', 1, t + 1000, { title: TEXT.fallbackTitle, source: { kind: 'fallback' } }),
-    userMessage(2, t + 2000, TEXT.runtimeContext, 'runtime-context'),
-    userMessage(3, t + 3000, TEXT.skillCatalog, 'skill-catalog'),
-    userMessage(4, t + 4000, TEXT.mainUserAlpha),
-    assistantMessage(5, t + 5000, {
+    event(
+      'system/message',
+      2,
+      t + 1500,
+      {
+        turn: 1,
+        step: 1,
+        message: {
+          role: 'system',
+          content: [{ type: 'text', text: 'fixture: v4 system prompt for context builder' }],
+          source: { kind: 'system-prompt' },
+        },
+      },
+      'append'
+    ),
+    userMessage(3, t + 2000, TEXT.runtimeContext, 'runtime-context'),
+    userMessage(4, t + 3000, TEXT.skillCatalog, 'skill-catalog'),
+    userMessage(5, t + 4000, TEXT.mainUserAlpha),
+    assistantMessage(6, t + 5000, {
       reasoning: 'fixture: v4 reasoning about alpha',
       text: TEXT.mainAssistantAlpha,
       usage: { inputTokens: 100, outputTokens: 20, cacheReadTokens: 40, totalTokens: 160 },
     }),
-    event('tool/call', 6, t + 6000, { turn: 1, step: 1, ...TOOL_1 }),
-    event('tool/result', 7, t + 7000, {
+    event('tool/call', 7, t + 6000, { turn: 1, step: 1, ...TOOL_1 }),
+    event('tool/result', 8, t + 7000, {
       turn: 1,
       step: 1,
       message: {
@@ -257,14 +272,14 @@ function mainSessionRecords() {
         content: [{ type: 'text', text: TEXT.mainToolError }],
       },
     }),
-    userMessage(8, t + 8000, TEXT.mainUserBeta),
-    assistantMessage(9, t + 9000, {
+    userMessage(9, t + 8000, TEXT.mainUserBeta),
+    assistantMessage(10, t + 9000, {
       reasoning: 'fixture: v4 reasoning about beta',
       text: TEXT.mainAssistantBeta,
       usage: { inputTokens: 50, outputTokens: 10, cacheReadTokens: 20, totalTokens: 80 },
     }),
-    event('tool/call', 10, t + 10000, { turn: 2, step: 1, ...TOOL_2 }),
-    event('tool/result', 11, t + 11000, {
+    event('tool/call', 11, t + 10000, { turn: 2, step: 1, ...TOOL_2 }),
+    event('tool/result', 12, t + 11000, {
       turn: 2,
       step: 1,
       message: {
@@ -273,6 +288,17 @@ function mainSessionRecords() {
         toolCallId: TOOL_2.callId,
         isError: false,
         content: [{ type: 'text', text: TEXT.mainToolOk }],
+      },
+      meta: {
+        operation: 'update',
+        path: '/fixtures/project-v4/config.txt',
+        diffs: [
+          {
+            path: '/fixtures/project-v4/config.txt',
+            oldText: 'key=old\n',
+            newText: 'key=new\n',
+          },
+        ],
       },
     }),
     event('session/title', 12, t + 12000, {
@@ -291,11 +317,46 @@ function mainSessionRecords() {
       step: 1,
       contextWindow: 100000,
     }),
+    // P2 activity events.
+    event('job/registered', 15, t + 15000, {
+      jobId: 'bash-fixture-001',
+      owner: 'main',
+      kind: 'bash',
+      label: 'fixture: run test command',
+      startedAt: t + 15000,
+      toolCall: { callId: 'call-v4-2', rootCallId: 'call-v4-2' },
+    }),
+    event('job/settled', 16, t + 16000, {
+      jobId: 'bash-fixture-001',
+      status: 'completed',
+      finishedAt: t + 16000,
+    }),
+    event('approval/asked', 17, t + 17000, {
+      id: 'approval-fixture-001',
+      toolName: 'bash',
+      callId: 'call-v4-2',
+      reason: 'fixture: escalation needed',
+    }),
+    event('approval/decided', 18, t + 18000, {
+      id: 'approval-fixture-001',
+      outcome: 'allowed-once',
+    }),
+    event('llm/retry', 19, t + 19000, {
+      retryId: 'retry-fixture-001',
+      turn: 1,
+      step: 1,
+      provider: 'deepseek',
+      mode: 'normal',
+      retry: 1,
+      maxRetries: 5,
+      delayMs: 500,
+      failure: { message: 'fixture: rate limit', code: 'RATE_LIMIT' },
+    }),
   ];
 }
 
-// Groups: header / titles+injections / alpha turn / beta turn / title+turn end+request context.
-const MAIN_FRAMES = [1, 3, 4, 4, 3];
+// Groups: header / titles+injections / alpha turn / beta turn / title+turn end+ctx+activity.
+const MAIN_FRAMES = [1, 3, 4, 4, 6];
 
 function subagentSessionRecords() {
   const t = SUBAGENT.createdAt;

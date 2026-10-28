@@ -210,6 +210,47 @@ export interface SessionStats {
 }
 
 /** GET /api/<platform>/sessions/:id (and children/:name) */
+
+export interface DshDiff {
+  path?: string | null;
+  oldText?: string | null;
+  newText?: string | null;
+}
+
+export type DshActivityEvent =
+  | {
+      type: 'job';
+      id: string | null;
+      label?: string | null;
+      status?: string | null;
+      startedAt?: number | null;
+      finishedAt?: number | null;
+      toolCallId?: string | null;
+      cause?: string | null;
+      timestamp?: number | null;
+    }
+  | {
+      type: 'approval';
+      action: 'asked' | 'decided';
+      id?: string | null;
+      toolName?: string | null;
+      callId?: string | null;
+      reason?: string | null;
+      decision?: string | null;
+      timestamp?: number | null;
+    }
+  | {
+      type: 'retry';
+      id?: string | null;
+      turn?: number | null;
+      step?: number | null;
+      provider?: string | null;
+      attempt?: number | null;
+      maxRetries?: number | null;
+      failure?: { message?: string | null; code?: string | null } | null;
+      timestamp?: number | null;
+    };
+
 export interface SessionDetail {
   session: SessionMeta;
   messages: SessionMessage[];
@@ -219,6 +260,8 @@ export interface SessionDetail {
    * UI renders it in a collapsed panel.
    */
   contextMessages?: SessionMessage[] | null;
+  /** dsh task/approval/retry timeline (P2). */
+  activityEvents?: DshActivityEvent[] | null;
   tokenUsage?: MessageUsage | null;
   contextUsage?: ContextUsage | null;
   stats?: SessionStats | null;

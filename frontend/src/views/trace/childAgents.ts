@@ -23,7 +23,7 @@ export function hasChildAgents(platform: Platform): platform is ChildPlatform {
  */
 export function childAgentLabel(c: ChildAgentSummary, platform: Platform): string {
   if (platform === 'dsh') {
-    const label = (c.title || c.description || c.name).replace(/\s+/g, ' ').trim();
+    const label = (c.description || c.title || c.name).replace(/\s+/g, ' ').trim();
     return label.length > 56 ? `${label.slice(0, 56)}…` : label;
   }
   return (platform === 'claude-code' || platform === 'codex' ? c.description || c.agentType : '') || c.name;
