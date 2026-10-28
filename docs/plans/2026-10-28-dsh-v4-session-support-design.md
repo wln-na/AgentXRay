@@ -1,7 +1,7 @@
 # DeepSeek Harness v4 会话支持：需求与方案设计
 
 - 日期：2026-10-28
-- 状态：已实现，待发布
+- 状态：P0 与 P1 已实现，待发布
 - 范围：`lib/platforms/dsh.js`、`lib/platforms/index.js` 及其下游读取链
 - 结论：这是 dsh 平台的格式升级适配，不是新增一个 DeepSeek 应用平台
 
@@ -17,13 +17,13 @@
 |---|---|
 | 未知版本 v5 | 列表保留该会话并带可读错误；详情返回 422 |
 | v1 到 v3 | 不支持，不尽力解析；列表保留错误提示，详情 422，提示在 DSH 中打开以迁移到 v4 |
-| 本期范围 | 只做 P0；P1、P2 留到后续版本 |
+| 本期范围 | P0 与 P1 已实现；P2 留到后续版本 |
 | API 契约 | 接受 422 作为“版本不支持/版本不一致”的状态码 |
 | 性能上限 | 压缩日志超过 64 MB 时详情返回 413，并提示用导出或分段查看 |
 | 发布方式 | 跟随下一个 patch release，功能提交不改版本号 |
-| 子代理展示 | 已确认：P0 保留全部会话并加 `subagent` badge；P1 再做分组/默认隐藏 |
-| 注入消息展示 | 已确认：P0 默认过滤；P1 再加“显示系统注入”折叠区 |
-| P0 边界 | 子代理只加 `subagent` badge，注入消息只做默认过滤；分组、折叠区、父子树、上下文卡全部放到 P1 |
+| 子代理展示 | P0 保留全部会话并加 `subagent` badge；P1 已改为主列表只显示根会话，父会话带 `childCount` 与 chip，`?include_subagents=1` 返回全部 |
+| 注入消息展示 | P0 默认过滤；P1 已改为详情 `contextMessages` + 前端默认折叠、按 kind 分组的系统上下文区块 |
+| 实现边界 | P0 修格式；P1 做根会话列表、子代理 chip、注入折叠、上下文卡、turn/end 错误摘要；完整 context 重建和更深层父子树留到 P2 |
 
 ## 现象与复现
 
@@ -103,7 +103,7 @@ dsh 平台在 2026-08-19 就已接入（提交 `6f26216`），registry、`/api/d
 - 显示名：`DeepSeek Harness`
 - 默认目录：`~/.dsh/sessions`，继续兼容 `DSH_HOME` 和 `DSH_DIR`
 - API：`/api/dsh/sessions`、`/api/dsh/sessions/:id`
-- 能力矩阵：暂不改，`spawn` 和 `context` 作为后续独立需求
+- 能力矩阵：`spawn` 已打开（子代理 chip/详情）；`context` 仍为 false（完整上下文重建未做），上下文占用走 `contextUsage` 卡
 
 ## 需求分层
 
@@ -119,15 +119,15 @@ dsh 平台在 2026-08-19 就已接入（提交 `6f26216`），registry、`/api/d
 8. v0 fixture 和现有 15 个 dsh 测试继续通过。
 9. 未知版本 v5 和 v1 到 v3 不让整页 500：列表保留一条带错误的会话，详情返回 422。
 10. 压缩日志超过 64 MB 时详情返回 413，并给出可读提示。
-11. 子代理会话先保留在列表里，带 `origin`、`parentSession`、`delegationDepth` 和 `subagent` badge；是否默认隐藏留给 P1。
+11. 子代理会话先保留在列表里，带 `origin`、`parentSession`、`delegationDepth` 和 `subagent` badge。P1 已改为默认只显示根会话，子代理挂在父会话的 chip 下；`?include_subagents=1` 可返回全部。
 
-### P1：本次不做，后续版本再做
+### P1：已实现
 
-1. 子代理改成父子分组或“包含子代理”开关，主列表默认只显示根会话。
-2. 注入消息从“默认过滤”升级为“折叠成可展开的系统上下文区块”。
-3. `turn/end` 的 `reason.error.message` 显示为错误摘要，不再只显示 `ended without completing: error`。
-4. 打开 `spawn` 和 `context` 能力，做父子树、任务时间线和上下文占用卡。
-5. 聚合缓存（insights 60 秒、prompts 60 秒、tool-audit 5 分钟、usage 5 分钟）在升级后能通过重启或刷新立即看到数据，文档里写清楚。
+1. 子代理改成父子分组：主列表默认只显示根会话，父会话带 `childCount` 和 🌳 chip，通过 children API 查看直接子代理。
+2. 注入消息从“默认过滤”升级为详情里的 `contextMessages`，前端渲染成默认折叠、按 sourceKind 分组的系统上下文区块。
+3. `turn/end` 的 `reason.error.message` 已拼进错误摘要。
+4. `spawn` 能力已打开，做直接子代理的 chip 和详情；`contextUsage` 卡已做。完整 `context` 重建和更深层父子树留到 P2。
+5. 聚合缓存说明已写入测试计划：升级后重启或等 TTL（insights/prompts 60 秒，tool-audit/usage 5 分钟）。
 
 ### P2：可以另开 issue
 

@@ -213,6 +213,12 @@ export interface SessionStats {
 export interface SessionDetail {
   session: SessionMeta;
   messages: SessionMessage[];
+  /**
+   * Machine-injected system context (dsh v4 runtime/time/skill/instruction
+   * events). Kept out of `messages` so the conversation flow stays clean; the
+   * UI renders it in a collapsed panel.
+   */
+  contextMessages?: SessionMessage[] | null;
   tokenUsage?: MessageUsage | null;
   contextUsage?: ContextUsage | null;
   stats?: SessionStats | null;

@@ -1,10 +1,12 @@
-// DeepSeek Harness v4 session support (P0).
+// DeepSeek Harness v4 session support (P1).
 //
 // Two layers:
 //   unit        — discovery (canonical file names, generation picking, one log
-//                 per session dir), version dispatch, v4 normalization (tool
-//                 errors, closed seq compaction, injection filtering, titles,
-//                 subagents) and the 64 MB detail guard;
+//                 per session dir, roots-only list with includeSubagents),
+//                 version dispatch, v4 normalization (tool errors, closed seq
+//                 compaction, injection filtering, titles, turn/end error text,
+//                 context messages/window usage, subagent children) and the
+//                 64 MB detail guard;
 //   API/E2E     — the same fixtures written into an isolated HOME through
 //                 startServer's prepareHome hook, exercised via /api/dsh/*,
 //                 search, prompts, usage, backup and watch.
@@ -29,6 +31,9 @@ const { TEXT, MAIN, MIXED, SUBAGENT, COMPACTION, FALLBACK, V5, V2, MISMATCH, FIX
 const V0_PLAIN = 'dsh-fixture-session-0001';
 const V0_ZSTD = 'dsh-fixture-session-0002';
 
+// The default (roots-only) projection drops the subagent row from FIXTURE_ORDER.
+const ROOT_FIXTURE_ORDER = FIXTURE_ORDER.filter((id) => id !== SUBAGENT.id);
+
 const REQUIRED_EXPORTS = [
   'parseDshLogName',
   'pickDshLogFile',
@@ -36,6 +41,8 @@ const REQUIRED_EXPORTS = [
   'isDisplayableDshUserMessage',
   'parseDshSessionFile',
   'listDshSessions',
+  'listDshChildren',
+  'getDshChildSession',
   'normalizeDshEvents',
 ];
 
@@ -118,6 +125,8 @@ describe('dsh v4 discovery and version dispatch', () => {
   let root;
   let list;
   let byId;
+  let allList;
+  let allById;
   let collected;
 
   before(async () => {
@@ -131,6 +140,8 @@ describe('dsh v4 discovery and version dispatch', () => {
     );
     list = await dsh.listDshSessions(root);
     byId = new Map(list.map((session) => [session.id, session]));
+    allList = await dsh.listDshSessions(root, { includeSubagents: true });
+    allById = new Map(allList.map((session) => [session.id, session]));
     collected = await dsh.collectDshFiles(root);
   });
 
@@ -195,7 +206,7 @@ describe('dsh v4 discovery and version dispatch', () => {
   });
 
   it('lists v4 plain and multi-frame zstd sessions with v4 header metadata', () => {
-    for (const meta of [MAIN, SUBAGENT, MIXED, COMPACTION, FALLBACK]) {
+    for (const meta of [MAIN, MIXED, COMPACTION, FALLBACK]) {
       assert.ok(byId.has(meta.id), `missing session ${meta.id}`);
     }
 
@@ -209,6 +220,8 @@ describe('dsh v4 discovery and version dispatch', () => {
     assert.equal(main.assistantCount, 2);
     assert.equal(main.toolCallCount, 2);
     assert.equal(main.toolResultCount, 2);
+    assert.equal(main.parentSession, null);
+    assert.equal(main.childCount, 1, 'the root session must advertise its direct child');
     assert.deepEqual(main.tokens, { input: 150, output: 30, cacheRead: 60, reasoning: 0 });
     assert.deepEqual(
       [...main.topTools].sort((a, b) => a.name.localeCompare(b.name)),
@@ -219,6 +232,22 @@ describe('dsh v4 discovery and version dispatch', () => {
     );
     // Metadata from frames beyond the first proves multi-frame decoding.
     assert.ok(main.messageCount >= 4);
+  });
+
+  it('hides subagent sessions from the default list and counts children on the root', async () => {
+    assert.ok(!list.some((session) => session.id === SUBAGENT.id), 'default list must be roots-only');
+    assert.equal(list.length, allList.length - 1, 'exactly one subagent fixture is hidden');
+    assert.ok(allById.has(SUBAGENT.id), 'includeSubagents must surface the subagent row');
+
+    for (const meta of [MAIN, MIXED, COMPACTION, FALLBACK, V5, V2, MISMATCH]) {
+      assert.ok(byId.has(meta.id), `${meta.id} is a root and must stay in the default list`);
+      assert.ok(allById.has(meta.id), `${meta.id} missing from the includeSubagents list`);
+      assert.equal(byId.get(meta.id).childCount, allById.get(meta.id).childCount);
+    }
+
+    assert.equal(allById.get(MAIN.id).childCount, 1);
+    assert.equal(allById.get(SUBAGENT.id).childCount, 0, 'a subagent row never has children');
+    assert.equal(byId.get(COMPACTION.id).childCount, 0);
   });
 
   it('prefers the newest generation when v0 and v4 coexist in one session dir', () => {
@@ -247,13 +276,14 @@ describe('dsh v4 discovery and version dispatch', () => {
   });
 
   it('writes v4 subagent metadata (status/origin/parentSession/delegationDepth)', () => {
-    const subagent = byId.get(SUBAGENT.id);
+    const subagent = allById.get(SUBAGENT.id);
     assert.equal(subagent.file, SUBAGENT.file);
     assert.equal(subagent.status, 'subagent');
     assert.equal(subagent.origin, 'subagent');
     assert.equal(subagent.parentSession, MAIN.id);
     assert.equal(subagent.delegationDepth, 1);
-    assert.ok(byId.get(MAIN.id).status !== 'subagent');
+    assert.equal(subagent.childCount, 0);
+    assert.ok(allById.get(MAIN.id).status !== 'subagent');
   });
 
   it('uses a fallback session/title only as a last resort', () => {
@@ -266,14 +296,28 @@ describe('dsh v4 discovery and version dispatch', () => {
     const bySession = new Map(collected.map((entry) => [entry.sessionId, entry]));
     assert.equal(new Set(collected.map((entry) => entry.path)).size, collected.length, 'no path listed twice');
 
-    for (const meta of [MAIN, SUBAGENT, MIXED, COMPACTION, FALLBACK, V5, V2, MISMATCH]) {
-      const entry = bySession.get(meta.id);
-      assert.ok(entry, `collectDshFiles missed ${meta.id}`);
-      const found = await dsh.findDshSessionFile(root, meta.id);
-      assert.equal(found, entry.path, `find(${meta.id}) must match collectDshFiles`);
+    for (const [id, session] of allById) {
+      const entry = bySession.get(id);
+      assert.ok(entry, `collectDshFiles missed ${id}`);
+      const found = await dsh.findDshSessionFile(root, id);
+      assert.equal(found, entry.path, `find(${id}) must match collectDshFiles`);
       assert.equal(path.basename(found), entry.file);
-      assert.equal(byId.get(meta.id).file, entry.file);
+      assert.equal(session.file, entry.file, `list(${id}) must report the canonical file`);
+
+      // Rows are visible in exactly one projection: roots in the default list,
+      // subagents only when includeSubagents is set.
+      const inDefault = byId.get(id);
+      if (session.parentSession) {
+        assert.equal(inDefault, undefined, `subagent ${id} must not appear in the default list`);
+        assert.ok(allById.has(id), `subagent ${id} missing from the includeSubagents list`);
+      } else {
+        assert.ok(inDefault, `root ${id} missing from the default list`);
+        assert.equal(inDefault.file, session.file);
+        assert.equal(inDefault.childCount, session.childCount);
+      }
     }
+
+    assert.ok(!list.some((session) => session.parentSession), 'default list must not contain a subagent row');
   });
 
   it('ignores non-canonical files instead of listing a phantom session', async () => {
@@ -297,6 +341,55 @@ describe('dsh v4 discovery and version dispatch', () => {
     assert.equal(await dsh.findDshSessionFile(root, '..'), null);
     assert.equal(await dsh.findDshSessionFile(root, '../..'), null);
     assert.ok(fs.existsSync(trap), 'trap file is the thing find must not return');
+  });
+});
+
+// --- subagent children (unit, temp dir) ---
+
+describe('dsh v4 subagent children', () => {
+  let root;
+
+  before(async () => {
+    root = await fsp.mkdtemp(path.join(os.tmpdir(), 'dsh-v4-children-'));
+    fixtures.writeAll(root);
+  });
+
+  after(async () => {
+    await fsp.rm(root, { recursive: true, force: true });
+  });
+
+  it('lists the direct children of a root session with a readable title', async () => {
+    const children = await dsh.listDshChildren(root, MAIN.id);
+    assert.equal(children.length, 1);
+
+    const [child] = children;
+    assert.equal(child.name, SUBAGENT.id);
+    assert.equal(child.file, SUBAGENT.file);
+    assert.equal(child.title, TEXT.subagentUser);
+    assert.equal(child.description, child.title);
+    assert.equal(child.agentType, null);
+    assert.ok(child.timestamp, 'child rows carry the header timestamp');
+    assert.ok(child.messageCount >= 2);
+    assert.equal(child.toolCallCount, 0);
+
+    // A subagent has no children of its own, and an unknown parent has none.
+    assert.deepEqual(await dsh.listDshChildren(root, SUBAGENT.id), []);
+    assert.deepEqual(await dsh.listDshChildren(root, 'dsh-v4-no-such-parent'), []);
+  });
+
+  it('loads one child only through its real parent', async () => {
+    const payload = await dsh.getDshChildSession(root, MAIN.id, SUBAGENT.id);
+    assert.ok(payload, 'expected the subagent detail payload');
+    assert.equal(payload.session.id, SUBAGENT.id);
+    assert.equal(payload.session.parentSession, MAIN.id);
+    assert.equal(payload.session.origin, 'subagent');
+    assert.ok(Array.isArray(payload.messages) && payload.messages.length > 0);
+
+    // Wrong parent, unknown parent and unknown child all resolve to null: a
+    // guessed id must never surface an unrelated session.
+    assert.equal(await dsh.getDshChildSession(root, SUBAGENT.id, MAIN.id), null);
+    assert.equal(await dsh.getDshChildSession(root, 'dsh-v4-no-such-parent', SUBAGENT.id), null);
+    assert.equal(await dsh.getDshChildSession(root, MAIN.id, 'dsh-v4-no-such-child'), null);
   });
 });
 
@@ -518,6 +611,57 @@ describe('dsh v4 session detail', () => {
     assert.match(marker.content[0].text, /error/i);
   });
 
+  it('surfaces turn/end errors with the reason detail in the error row', async () => {
+    const { messages } = await dsh.parseDshSessionFile(path.join(root, MAIN.project, MAIN.id, MAIN.file));
+    const errorRow = messages.find((message) => message.role === 'error');
+    assert.ok(errorRow, 'expected the failing turn/end to produce an error row');
+    assert.equal(errorRow.isError, true);
+    const text = errorRow.content[0].text;
+    assert.ok(text.includes(TEXT.mainTurnError), `error row must quote the cause: ${text}`);
+    assert.ok(text.includes('ended without completing'), `error row must explain the turn state: ${text}`);
+  });
+
+  it('keeps injected context out of messages and reports it as contextMessages', async () => {
+    const { messages, contextMessages } = await dsh.parseDshSessionFile(
+      path.join(root, MAIN.project, MAIN.id, MAIN.file)
+    );
+    assert.equal(contextMessages.length, 2);
+    assert.deepEqual(
+      contextMessages.map((message) => message.details.sourceKind),
+      ['runtime-context', 'skill-catalog']
+    );
+    for (const message of contextMessages) assert.equal(message.role, 'context');
+
+    const contextText = contextMessages.map((message) => message.content[0].text).join('\n');
+    assert.ok(contextText.includes('v4-runtime-context-needle'));
+    assert.ok(contextText.includes('v4-skill-catalog-needle'));
+
+    const rendered = messages
+      .map((message) => (message.content || []).map((block) => block.text || '').join('\n'))
+      .join('\n');
+    assert.ok(!rendered.includes('v4-runtime-context-needle'), 'runtime-context injection leaked into messages');
+    assert.ok(!rendered.includes('v4-skill-catalog-needle'), 'skill-catalog injection leaked into messages');
+    assert.equal(
+      messages.filter((message) => message.role === 'context').length,
+      0,
+      'context messages must stay out of the conversation'
+    );
+  });
+
+  it('derives contextUsage from request/context plus the last assistant usage', async () => {
+    const { contextUsage } = await dsh.parseDshSessionFile(path.join(root, MAIN.project, MAIN.id, MAIN.file));
+    assert.ok(contextUsage, 'contextUsage must be present when the log carries usage');
+    assert.equal(contextUsage.used, 70); // last assistant: input 50 + cacheRead 20
+    assert.equal(contextUsage.limit, 100000);
+    assert.equal(contextUsage.input, 50);
+    assert.equal(contextUsage.cacheRead, 20);
+    assert.equal(contextUsage.source, 'native');
+    assert.ok(
+      Math.abs(contextUsage.percent - 0.07) < 1e-9,
+      `expected ~0.07 percent (70/100000), got ${contextUsage.percent}`
+    );
+  });
+
   it('masks compacted v4 messages so only the summary and later turns render', async () => {
     const { messages } = await dsh.parseDshSessionFile(
       path.join(root, COMPACTION.project, COMPACTION.id, COMPACTION.file)
@@ -583,9 +727,10 @@ describe('dsh v4 API integration', () => {
     assert.equal(byId.get(V0_PLAIN)?.file, 'session.jsonl');
     assert.equal(byId.get(V0_ZSTD)?.file, 'session.jsonl.zstd');
 
-    for (const meta of [MAIN, SUBAGENT, MIXED, COMPACTION, FALLBACK, V5, V2, MISMATCH]) {
+    for (const meta of [MAIN, MIXED, COMPACTION, FALLBACK, V5, V2, MISMATCH]) {
       assert.ok(byId.has(meta.id), `missing v4 session ${meta.id}`);
     }
+    assert.ok(!byId.has(SUBAGENT.id), 'the default list must not include subagent sessions');
 
     const main = byId.get(MAIN.id);
     assert.equal(main.file, MAIN.file);
@@ -596,11 +741,12 @@ describe('dsh v4 API integration', () => {
     assert.equal(main.assistantCount, 2);
     assert.equal(main.toolCallCount, 2);
     assert.equal(main.toolResultCount, 2);
+    assert.equal(main.childCount, 1);
     assert.deepEqual(main.tokens, { input: 150, output: 30, cacheRead: 60, reasoning: 0 });
 
     assert.deepEqual(
       sessions.filter((session) => FIXTURE_ORDER.includes(session.id)).map((session) => session.id),
-      FIXTURE_ORDER
+      ROOT_FIXTURE_ORDER
     );
     assert.equal(sessions.filter((session) => session.id === MIXED.id).length, 1);
     assert.ok(!sessions.some((session) => session.id === MIXED.staleId));
@@ -609,6 +755,45 @@ describe('dsh v4 API integration', () => {
     for (let i = 1; i < dated.length; i++) {
       assert.ok(Date.parse(dated[i - 1].timestamp) >= Date.parse(dated[i].timestamp), 'list is not newest-first');
     }
+  });
+
+  it('adds subagent rows only for include_subagents=1', async () => {
+    const sessions = await getJson(srv.base, '/api/dsh/sessions?include_subagents=1');
+    const byId = new Map(sessions.map((session) => [session.id, session]));
+
+    assert.deepEqual(
+      sessions.filter((session) => FIXTURE_ORDER.includes(session.id)).map((session) => session.id),
+      FIXTURE_ORDER
+    );
+
+    assert.equal(byId.get(MAIN.id).childCount, 1);
+
+    const subagent = byId.get(SUBAGENT.id);
+    assert.ok(subagent, 'include_subagents must add the subagent row');
+    assert.equal(subagent.status, 'subagent');
+    assert.equal(subagent.parentSession, MAIN.id);
+    assert.equal(subagent.childCount, 0);
+    assert.equal(subagent.file, SUBAGENT.file);
+    assert.equal(subagent.title, TEXT.subagentUser);
+  });
+
+  it('serves subagent children and their detail, with 404 for a session that is not a child', async () => {
+    const children = await getJson(srv.base, `/api/dsh/sessions/${MAIN.id}/children`);
+    assert.equal(children.length, 1);
+    assert.equal(children[0].name, SUBAGENT.id);
+    assert.ok(children[0].title.includes('subagent-needle'), `unreadable child title: ${children[0].title}`);
+
+    const detail = await getJson(srv.base, `/api/dsh/sessions/${MAIN.id}/children/${SUBAGENT.id}`);
+    assert.equal(detail.session.id, SUBAGENT.id);
+    assert.equal(detail.session.parentSession, MAIN.id);
+    assert.ok(Array.isArray(detail.messages) && detail.messages.length > 0);
+    assert.ok(detail.stats && typeof detail.stats === 'object');
+
+    // Unknown child and a reversed parent/child pair both 404 rather than
+    // resolving an unrelated session.
+    const missing = await getJson(srv.base, `/api/dsh/sessions/${MAIN.id}/children/dsh-v4-no-such-child`, 404);
+    assert.match(missing.error, /not found/i);
+    await getJson(srv.base, `/api/dsh/sessions/${SUBAGENT.id}/children/${MAIN.id}`, 404);
   });
 
   it('serves a v4 detail with the expected roles and session stats', async () => {
@@ -633,6 +818,36 @@ describe('dsh v4 API integration', () => {
     assert.ok(!allText.includes('v4-runtime-context-needle'));
     assert.ok(!allText.includes('v4-skill-catalog-needle'));
     assert.ok(allText.includes(TEXT.mainUserBeta));
+
+    const errorRow = messages.find((message) => message.role === 'error');
+    assert.ok(errorRow, 'expected the failing turn/end to produce an error row');
+    assert.ok(errorRow.content[0].text.includes(TEXT.mainTurnError));
+    assert.ok(errorRow.content[0].text.includes('ended without completing'));
+  });
+
+  it('serves injected context and context-window usage separately from the conversation', async () => {
+    const { messages, contextMessages, contextUsage } = await getJson(srv.base, `/api/dsh/sessions/${MAIN.id}`);
+
+    assert.equal(contextMessages.length, 2);
+    assert.deepEqual(
+      contextMessages.map((message) => message.details.sourceKind),
+      ['runtime-context', 'skill-catalog']
+    );
+    const injected = contextMessages.map((message) => message.content[0].text).join('\n');
+    assert.ok(injected.includes('v4-runtime-context-needle'));
+    assert.ok(injected.includes('v4-skill-catalog-needle'));
+
+    const rendered = messages
+      .map((message) => (message.content || []).map((block) => block.text || '').join('\n'))
+      .join('\n');
+    assert.ok(!rendered.includes('v4-runtime-context-needle'));
+    assert.ok(!rendered.includes('v4-skill-catalog-needle'));
+
+    assert.equal(contextUsage.used, 70);
+    assert.equal(contextUsage.limit, 100000);
+    assert.equal(contextUsage.input, 50);
+    assert.equal(contextUsage.cacheRead, 20);
+    assert.ok(Math.abs(contextUsage.percent - 0.07) < 1e-9, `unexpected percent: ${contextUsage.percent}`);
   });
 
   it('serves a compacted v4 detail with the summary rendered exactly once', async () => {
@@ -671,6 +886,13 @@ describe('dsh v4 API integration', () => {
     assert.equal(hits[0].sessionId, MAIN.id);
     assert.equal(hits[0].platform, 'dsh');
     assert.ok(hits[0].matches[0].snippet.includes('v4-needle-beta'));
+  });
+
+  it('groups subagent search hits under the root and keeps the child id', async () => {
+    const hits = await getJson(srv.base, '/api/search?q=v4-subagent-needle&platform=dsh');
+    const hit = hits.find((item) => item.childSessionId === SUBAGENT.id);
+    assert.ok(hit, 'expected a subagent hit');
+    assert.equal(hit.sessionId, MAIN.id);
   });
 
   it('extracts only human v4 prompts, never injected context', async () => {

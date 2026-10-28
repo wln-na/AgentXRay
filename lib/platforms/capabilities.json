@@ -5,7 +5,7 @@
   "claude-desktop": { "search": true, "context": true, "backup": true, "spawn": false, "watch": true, "open": true },
   "hermes": { "search": true, "context": false, "backup": false, "spawn": false, "watch": true, "open": false },
   "omp": { "search": true, "context": false, "backup": true, "spawn": true, "watch": true, "open": true },
-  "dsh": { "search": true, "context": false, "backup": true, "spawn": false, "watch": true, "open": true },
+  "dsh": { "search": true, "context": false, "backup": true, "spawn": true, "watch": true, "open": true },
   "gemini": { "search": true, "context": false, "backup": true, "spawn": false, "watch": true, "open": true },
   "cursor": { "search": true, "context": false, "backup": true, "spawn": false, "watch": true, "open": true },
   "doubao": { "search": true, "context": false, "backup": true, "spawn": false, "watch": true, "open": true },

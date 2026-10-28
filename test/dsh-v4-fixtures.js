@@ -228,7 +228,10 @@ function assistantMessage(seq, time, { reasoning = null, text = null, usage = nu
 
 // Main happy-path session: fallback→provider title, two injections, a real
 // user/assistant turn, a failed tool call (message.isError only — no data.error),
-// a second turn with a successful tool call, and a failing turn/end.
+// a second turn with a successful tool call, and a failing turn/end. A final
+// log-only request/context record carries the context window that the detail
+// payload turns into `contextUsage`; it is emitted after turn/end so it does not
+// shift any surface seq.
 function mainSessionRecords() {
   const t = MAIN.createdAt;
   return [
@@ -281,11 +284,18 @@ function mainSessionRecords() {
       turn: 2,
       reason: { kind: 'error', error: { message: TEXT.mainTurnError } },
     }),
+    // Log-only: no surface op, no normalized message. The context window is the
+    // limit for the last assistant usage (input 50 + cacheRead 20 = 70 used).
+    event('request/context', 14, t + 14000, {
+      turn: 2,
+      step: 1,
+      contextWindow: 100000,
+    }),
   ];
 }
 
-// Groups: header / titles+injections / alpha turn / beta turn / title+turn end.
-const MAIN_FRAMES = [1, 3, 4, 4, 2];
+// Groups: header / titles+injections / alpha turn / beta turn / title+turn end+request context.
+const MAIN_FRAMES = [1, 3, 4, 4, 3];
 
 function subagentSessionRecords() {
   const t = SUBAGENT.createdAt;

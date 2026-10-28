@@ -29,7 +29,7 @@ LangSmith、Langfuse 这类观测平台面向的是*你自己写的* agent：接
 
 ## 功能特性
 
-- **多平台支持** — 一个界面统一查看 OpenClaw、Codex、Claude Code、Claude Desktop Agent/Cowork、Hermes、OMP、DeepSeek Harness、Gemini CLI、Cursor、Doubao、WorkBuddy 和 Trae CN 的会话日志（dsh 支持 v0 与 v4 的 `session[.vN].jsonl[.zstd]` 日志，多帧 zstd 透明解压；v1–v3 会标注为不支持，v5 会带错误保留在列表里，v4 的注入消息默认过滤，子代理会话带 `subagent` badge；Gemini CLI 的 `/rewind` 回滚记录会先折叠，回滚掉的历史不会重复渲染；Cursor 的 agent 转写读自 `~/.cursor/projects`，子代理转写已排除，且记录本身无时间戳、以文件 mtime 为准）
+- **多平台支持** — 一个界面统一查看 OpenClaw、Codex、Claude Code、Claude Desktop Agent/Cowork、Hermes、OMP、DeepSeek Harness、Gemini CLI、Cursor、Doubao、WorkBuddy 和 Trae CN 的会话日志（dsh 支持 v0 与 v4 的 `session[.vN].jsonl[.zstd]` 日志，多帧 zstd 透明解压；v1–v3 会标注为不支持，v5 会带错误保留在列表里，v4 的注入消息默认收进可展开的系统上下文区块，子代理会话挂在父会话的 🌳 chip 下，详情还带上下文占用卡；Gemini CLI 的 `/rewind` 回滚记录会先折叠，回滚掉的历史不会重复渲染；Cursor 的 agent 转写读自 `~/.cursor/projects`，子代理转写已排除，且记录本身无时间戳、以文件 mtime 为准）
 - **会话浏览** — 浏览 Agent 列表，搜索/过滤会话，查看消息历史
 - **工具调用检查** — 可展开的工具调用详情，包含参数和返回结果
 - **Trace 视图** — 每轮对话的耗时瀑布图：模型推理（蓝）与工具执行（绿，出错为红）一目了然，点击色条跳转到对应消息
@@ -210,8 +210,10 @@ npm start
 | `GET /api/hermes/sessions/:id` | 获取 Hermes 会话消息详情 |
 | `GET /api/omp/sessions` | 获取 OMP（oh-my-pi）会话列表 |
 | `GET /api/omp/sessions/:id` | 获取 OMP 会话消息详情 |
-| `GET /api/dsh/sessions` | 获取 DeepSeek Harness 会话列表 |
-| `GET /api/dsh/sessions/:id` | 获取 DeepSeek Harness 会话消息详情 |
+| `GET /api/dsh/sessions` | 获取 DeepSeek Harness 根会话列表（`?include_subagents=1` 含子代理） |
+| `GET /api/dsh/sessions/:id` | 获取 DeepSeek Harness 会话消息详情（含 `contextMessages` 与 `contextUsage`） |
+| `GET /api/dsh/sessions/:id/children` | 获取直接子代理列表 |
+| `GET /api/dsh/sessions/:id/children/:childId` | 获取直接子代理的消息详情 |
 | `GET /api/gemini/sessions` | 获取 Gemini CLI 会话列表 |
 | `GET /api/gemini/sessions/:id` | 获取 Gemini CLI 会话消息详情 |
 | `GET /api/cursor/sessions` | 获取 Cursor agent 转写列表（不含子代理） |
@@ -288,7 +290,7 @@ npm start
 
 Doubao 使用 IndexedDB 作为实时项目、会话、消息与模型数据源，并用 trajectory 日志补充历史工具调用和 trace。首次刷新需要 `PATH` 中存在 `dfindexeddb` 或 `uv`；使用 `uv` 时，AgentXRay 会在 `~/.agentxray/cache` 下创建隔离的 Python 3.10 解析环境。
 
-WorkBuddy 的会话日志没有原生 token usage 字段，因此不参与 token 用量估算；Trae CN 只支持 CLI rollout 日志，会读取其中的真实 `token_count`，不支持读取 Trae IDE 的加密 AI 会话库。dsh 的 `.jsonl.zstd` 日志是多个独立 Zstandard 帧的串联（每个持久化批次一帧）；AgentXRay 会扫描帧边界并逐帧解压，崩溃残留的尾部不完整帧会被容忍丢弃。v0 的规范文件名是 `session.jsonl[.zstd]`，更高代际是 `session.vN.jsonl[.zstd]`；目前完整支持 v0 和 v4。v1–v3 不做解析：列表会保留该会话并标注不支持，详情返回 422，并提示在 DeepSeek Harness 中打开以迁移到 v4；v5 会话也会保留在列表里并带错误信息，不会被静默丢掉，详情同样返回 422。v4 的注入消息（运行时上下文、时间上下文、技能目录等系统注入）默认从对话中过滤；子代理会话在列表里带 `subagent` badge；压缩日志超过 64 MB 时，详情接口返回 413，并提示改用导出或分段查看。读取压缩日志需要 Node.js ≥ 22.15（内置 zstd）；未压缩的 `session.jsonl` 在任何受支持的 Node 上都能读。
+WorkBuddy 的会话日志没有原生 token usage 字段，因此不参与 token 用量估算；Trae CN 只支持 CLI rollout 日志，会读取其中的真实 `token_count`，不支持读取 Trae IDE 的加密 AI 会话库。dsh 的 `.jsonl.zstd` 日志是多个独立 Zstandard 帧的串联（每个持久化批次一帧）；AgentXRay 会扫描帧边界并逐帧解压，崩溃残留的尾部不完整帧会被容忍丢弃。v0 的规范文件名是 `session.jsonl[.zstd]`，更高代际是 `session.vN.jsonl[.zstd]`；目前完整支持 v0 和 v4。v1–v3 不做解析：列表会保留该会话并标注不支持，详情返回 422，并提示在 DeepSeek Harness 中打开以迁移到 v4；v5 会话也会保留在列表里并带错误信息，不会被静默丢掉，详情同样返回 422。v4 的注入消息（运行时上下文、时间上下文、技能目录等系统注入）不进入对话流，默认收进一个可展开的系统上下文区块；详情还会用 `request/context` 记录展示上下文窗口占用。子代理会话默认不铺在主列表，而是挂在父会话的 🌳 子 Agent chip 下；`?include_subagents=1` 可以把它们作为普通行返回。压缩日志超过 64 MB 时，详情接口返回 413，并提示改用导出或分段查看。读取压缩日志需要 Node.js ≥ 22.15（内置 zstd）；未压缩的 `session.jsonl` 在任何受支持的 Node 上都能读。
 
 启用「包含已归档」后，还会显示 `.jsonl.reset.*` 和 `.jsonl.deleted.*` 的归档会话。
 

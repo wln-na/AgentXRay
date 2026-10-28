@@ -4,7 +4,7 @@
 - 配套设计：`2026-10-28-dsh-v4-session-support-design.md`
 - 测试框架：Node 内置 `node:test`，命令入口 `npm test`（`node --test test/*.test.js`）
 - 目标：让 dsh v4 会话“看得见、读得对、下游不重复”，同时保证 v0 和其它平台不回归
-- 范围：只执行 P0；P1/P2 用例保留为后续版本参考，不作为本次验收条件
+- 范围：P0 与 P1 已实现；P2 用例保留为后续版本参考
 
 ## 测试目标
 
@@ -21,7 +21,7 @@
 | 命令 | 结果 | 耗时 |
 |---|---|---|
 | `npm test`（实现前） | 612 tests / 611 pass / 1 fail | 13 到 16 秒 |
-| `npm test`（实现后） | 645 tests / 645 pass / 0 fail | 约 11 秒 |
+| `npm test`（P1 实现后） | 655 tests / 655 pass / 0 fail | 约 11 秒 |
 | `node --test test/dsh.test.js` | 15 / 15 pass | 约 3.3 秒 |
 | `npx biome check .` | 通过 | 数秒 |
 
@@ -32,7 +32,7 @@
 timestamp: new Date(TEST_NOW).toISOString(),
 ```
 
-修完后基线应为 612 / 612。本次实现已经修掉该用例，最终全量为 645 / 645。若不修，则把它记为已知失败，验收时只要求“不新增失败”，不要把 611 当成全绿。
+修完后基线应为 612 / 612。本次实现已经修掉该用例，最终全量为 655 / 655。若不修，则把它记为已知失败，验收时只要求“不新增失败”，不要把 611 当成全绿。
 
 第一次全量运行曾出现 2 个失败，其中一个后续三次都没复现，疑为并发或端口抖动。回归时以三次稳定结果为准，并在失败时保留完整输出。
 
@@ -166,8 +166,21 @@ function writeSession(root, project, sessionId, records, groups, fileName = 'ses
 | PARSE-10 | U | usage 四字段 | input、output、cacheRead 分别累加；`reasoning` 为 0 | 同上 | P0 |
 | PARSE-11 | U | `totalTokens` | 不被重复累加 | 同上 | P0 |
 | PARSE-12 | U | 子代理 header 和 badge | `parentSession`、`origin`、`delegationDepth` 正确；summary 的 `status` 为 `subagent` | 同上 | P0 |
-| PARSE-13 | U | `turn/end` error | 错误气泡带 `reason.error.message` | 同上 | P1 |
+| PARSE-13 | U | `turn/end` error | 错误气泡带 `reason.error.message` | 同上 | P0 |
 | PARSE-14 | U | 空助手消息 / 只有 reasoning | 不崩溃；reasoning 仍保留 | 同上 | P1 |
+
+### P1：子代理、上下文与错误摘要
+
+| ID | 层 | 场景 | 预期 | 文件 | 优先级 |
+|---|---|---|---|---|---|
+| SUB-01 | U | 主列表默认只返回根会话 | `/api/dsh/sessions` 不含子代理；父会话 `childCount` 正确 | `test/dsh-v4.test.js` | P1 |
+| SUB-02 | U | `include_subagents=1` | 子代理作为普通行返回，`status='subagent'`、`childCount=0` | 同上 | P1 |
+| SUB-03 | U | children API | `/api/dsh/sessions/:id/children` 返回直接子代理；`:name` 返回详情；非子会话 404 | 同上 | P1 |
+| SUB-04 | E2E | 子代理内容搜索 | 命中归到根会话，带 `childSessionId`，Cmdk 可直接打开子代理 transcript | `test/dsh-v4.test.js` | P1 |
+| CTX-01 | U | 详情 `contextMessages` | 注入消息与 `messages` 分离，按 `sourceKind` 标记；对话流仍不含注入 | 同上 | P1 |
+| CTX-02 | U | 详情 `contextUsage` | `used=最后 input+cacheRead`、`limit=request/context.contextWindow`、percent 正确 | 同上 | P1 |
+| TURN-01 | U | `turn/end` 异常 | 错误气泡文本包含 `reason.error.message` | 同上 | P1 |
+| REG-06 | U | 前端构建 | `npm run build:ui` 通过；`SystemContextPanel` 默认折叠 | 手工/CI | P1 |
 
 ### API 与下游
 
@@ -191,7 +204,7 @@ function writeSession(root, project, sessionId, records, groups, fileName = 'ses
 | ID | 层 | 场景 | 预期 | 文件 | 优先级 |
 |---|---|---|---|---|---|
 | REG-01 | U | 现有 dsh 15 个用例 | 15/15 通过 | `test/dsh.test.js` | P0 |
-| REG-02 | U | registry / capabilities | dsh 六项能力不变 | `test/registry.test.js` | P0 |
+| REG-02 | U | registry / capabilities | dsh 的 `spawn` 为 true、`context` 为 false，其余不变 | `test/registry.test.js` | P0 |
 | REG-03 | E2E | 其它平台列表/详情 | 计数和断言不变 | `test/api.test.js` 等 | P0 |
 | REG-04 | — | 全量 `npm test` | 无新增失败；基线失败单独记录 | CI | P0 |
 | REG-05 | — | `npx biome check .` | 0 错误 | CI | P0 |
@@ -293,8 +306,8 @@ node --test --experimental-test-coverage test/dsh.test.js test/dsh-v4.test.js
 
 | 门槛 | 值 |
 |---|---|
-| 基线 | 修 `usage.test.js` 日期用例后 612/612；本次实现后全量 645/645 |
-| 新增用例 | 不少于 25 条 P0 用例，0 失败 |
+| 基线 | 修 `usage.test.js` 日期用例后 612/612；本次实现后全量 655/655 |
+| 新增用例 | 不少于 40 条 P0/P1 用例，0 失败 |
 | dsh 覆盖率 | `lib/platforms/dsh.js` 行覆盖不低于 85%，分支不低于 80% |
 | 全量 | `npm test` 无新增失败，耗时不超过 25 秒（本机） |
 | Lint | `npx biome check .` 0 错误 |

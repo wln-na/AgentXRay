@@ -15,6 +15,7 @@ import { MessageActionsContext } from './MessageItem';
 import { MessageList, MSG_BATCH_SIZE } from './MessageList';
 import { useSessionDetail } from './queries';
 import { SessionSummary } from './SessionSummary';
+import { SystemContextPanel } from './SystemContextPanel';
 import { useSessionSse } from './useSessionSse';
 
 // Every platform probed empty (#13): guide the user to where logs are
@@ -276,15 +277,18 @@ export function SessionsView() {
           <div ref={messagesRef} className="min-h-0 flex-1 overflow-y-auto pr-1" data-testid="messages-scroll">
             <ChildAgentBanner />
             {activeDetail ? (
-              <MessageList
-                messages={activeDetail.messages}
-                platform={platform}
-                sessionId={activeDetail.session?.id}
-                msgFilter={msgFilter}
-                timing={timing}
-                visibleUnitCount={visibleUnitCount}
-                onLoadMore={() => setVisibleUnitCount((c) => c + MSG_BATCH_SIZE)}
-              />
+              <>
+                <SystemContextPanel messages={activeDetail.contextMessages} />
+                <MessageList
+                  messages={activeDetail.messages}
+                  platform={platform}
+                  sessionId={activeDetail.session?.id}
+                  msgFilter={msgFilter}
+                  timing={timing}
+                  visibleUnitCount={visibleUnitCount}
+                  onLoadMore={() => setVisibleUnitCount((c) => c + MSG_BATCH_SIZE)}
+                />
+              </>
             ) : activeQuery.isError ? (
               <div className="py-8 text-center text-sm text-destructive">{(activeQuery.error as Error).message}</div>
             ) : (
