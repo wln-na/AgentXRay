@@ -358,7 +358,7 @@ test('computeDailyUsage: platforms only include platforms with data in the reque
 test('computeDailyUsage: platform directory overrides are honored and affect the cache key', async () => {
   const { file } = tmpFile('custom-dir.jsonl');
   writeJsonl(file, [
-    { type: 'message', timestamp: new Date().toISOString(), message: { usage: { input: 17, output: 4 } } },
+    { type: 'message', timestamp: new Date(TEST_NOW).toISOString(), message: { usage: { input: 17, output: 4 } } },
   ]);
   let seenDir = null;
   const customDir = path.join(os.homedir(), 'axr-usage-custom-dir');
@@ -381,6 +381,34 @@ test('computeDailyUsage: platform directory overrides are honored and affect the
   });
   assert.equal(seenDir, customDir);
   assert.equal(r.series.find((d) => d.total.input > 0)?.byPlatform.codex.input, 17);
+});
+
+test('computeDailyUsage: dsh sessions are counted by session id, not shared file name', async () => {
+  const a = tmpFile('session.v4.jsonl');
+  const b = tmpFile('session.v4.jsonl');
+  const record = (input) => [
+    { type: 'session', version: 4, id: path.basename(path.dirname(a.file)), createdAt: TEST_NOW },
+    {
+      type: 'assistant/message',
+      time: TEST_NOW,
+      data: { usage: { inputTokens: input, outputTokens: 1, cacheReadTokens: 0 } },
+    },
+  ];
+  writeJsonl(a.file, record(10));
+  writeJsonl(b.file, record(20));
+  const r = await compute({
+    days: 1,
+    platform: 'dsh',
+    platforms: fakePlatforms(['dsh']),
+    filesByPlatform: {
+      dsh: [
+        { path: a.file, file: 'session.v4.jsonl', sessionId: 'session-a' },
+        { path: b.file, file: 'session.v4.jsonl', sessionId: 'session-b' },
+      ],
+    },
+  });
+  assert.equal(r.totalSessions, 2);
+  assert.equal(r.series.find((d) => d.total.input > 0)?.byPlatform.dsh.sessions, 2);
 });
 
 test('computeDailyUsage: a broken scan file is skipped, not fatal', async () => {

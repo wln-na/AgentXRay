@@ -41,7 +41,7 @@ If you build and operate your own agent in production, use a tracing platform. I
 
 ## Features
 
-- **Multi-platform** — Unified view across OpenClaw, Codex, Claude Code, Claude Desktop Agent/Cowork, Hermes, OMP, DeepSeek Harness, Gemini CLI, Cursor, Doubao, WorkBuddy, and Trae CN sessions (dsh's multi-frame zstd session logs are decompressed transparently; Gemini CLI's `/rewind` checkpoints are folded so rewound history never renders twice; Cursor agent transcripts are read from `~/.cursor/projects` — subagent transcripts are excluded, and timestamps come from file mtime since Cursor records carry none)
+- **Multi-platform** — Unified view across OpenClaw, Codex, Claude Code, Claude Desktop Agent/Cowork, Hermes, OMP, DeepSeek Harness, Gemini CLI, Cursor, Doubao, WorkBuddy, and Trae CN sessions (dsh supports v0 and v4 `session[.vN].jsonl[.zstd]` logs and decompresses multi-frame zstd transparently; v1–v3 sessions stay listed as unsupported, v5 sessions stay listed with an error, v4 injection messages are filtered by default and subagent sessions carry a `subagent` badge; Gemini CLI's `/rewind` checkpoints are folded so rewound history never renders twice; Cursor agent transcripts are read from `~/.cursor/projects` — subagent transcripts are excluded, and timestamps come from file mtime since Cursor records carry none)
 - **Session browser** — Browse agents, filter/search sessions, view message history
 - **Tool call inspection** — Expandable tool calls with arguments and results
 - **Trace view** — Per-turn waterfall of where the time went: model inference (blue) vs tool execution (green, red on error); click any bar to jump to that message
@@ -87,7 +87,7 @@ Sessions with child agents show a clickable 🌳 spawn chip. Clicking it selects
 
 ### Multi-Platform Support
 
-Use the top platform bar to switch between OpenClaw, Codex, Claude Code, Claude Desktop, Hermes, OMP, DeepSeek Harness, Gemini CLI, Cursor, and Doubao; the sidebar and detail pane update for each platform's native local data source.
+Use the top platform bar to switch between OpenClaw, Codex, Claude Code, Claude Desktop, Hermes, OMP, DeepSeek Harness, Gemini CLI, Cursor, Doubao, WorkBuddy, and Trae CN; the sidebar and detail pane update for each platform's native local data source.
 
 ![Codex View](screenshots/codex-view.png)
 
@@ -135,7 +135,7 @@ Open http://localhost:3800
 
 ### Basic Workflow
 
-1. **Select a platform** — Click `OpenClaw`, `Codex`, `Claude Code`, `Claude Desktop`, `Hermes`, `OMP`, `DeepSeek Harness`, `Gemini CLI`, `Cursor`, or `Doubao` in the top bar
+1. **Select a platform** — Click `OpenClaw`, `Codex`, `Claude Code`, `Claude Desktop`, `Hermes`, `OMP`, `DeepSeek Harness`, `Gemini CLI`, `Cursor`, `Doubao`, `WorkBuddy`, or `Trae CN` in the top bar
 2. **Pick an agent** — For OpenClaw, choose an agent from the dropdown (e.g. `xiaot`, `mimo`)
 3. **Browse sessions** — Sessions are sorted by date, newest first. Each card shows:
    - Timestamp and status (`active` / `archived`)
@@ -306,7 +306,7 @@ All list/detail endpoints accept an optional `?dir=` parameter to override the d
 | Claude Desktop | Metadata JSON + JSONL | `~/Library/Application Support/Claude-3p/local-agent-mode-sessions/**/local_*.json` + linked `.claude/projects/**/{cliSessionId}.jsonl` |
 | Hermes | SQLite | `~/.hermes/state.db` |
 | OMP | JSONL | `~/.omp/agent/sessions/*/{timestamp}_{id}.jsonl` |
-| DeepSeek Harness | JSONL / zstd-compressed JSONL | `~/.dsh/sessions/{project}/{id}/session.jsonl[.zstd]` |
+| DeepSeek Harness | JSONL / zstd-compressed JSONL | `~/.dsh/sessions/{project}/{id}/session[.vN].jsonl[.zstd]` |
 | Gemini CLI | JSONL | `~/.gemini/tmp/{projectHash}/chats/session-*.jsonl` |
 | Cursor | JSONL | `~/.cursor/projects/{project-slug}/agent-transcripts/{id}/{id}.jsonl` (subagent transcripts under `{id}/subagents/` are excluded; the human query is wrapped in `<user_query>`, records carry no timestamps so mtime is used) |
 | Doubao | Chromium IndexedDB + JSONL trajectory | `~/Library/Application Support/Doubao/Profile 2/IndexedDB/chrome_doubao-chat_0.indexeddb.leveldb` + `.sessions/{id}/agents/*/system/trajectory.jsonl` |
@@ -315,7 +315,7 @@ All list/detail endpoints accept an optional `?dir=` parameter to override the d
 
 Doubao uses IndexedDB as the live project/session/message/model source and trajectory logs as the historical tool/trace supplement. The first refresh requires either `dfindexeddb` on `PATH` or `uv`; with `uv`, AgentXRay creates an isolated Python 3.10 parser runtime under `~/.agentxray/cache`. Only project/session IDs and titles, message text/tool summaries, timestamps, section IDs, and model names are copied into `~/.agentxray/cache/doubao.sqlite`. Older message bodies can be unavailable when Chromium has already removed their blob files and no trajectory exists.
 
-WorkBuddy logs carry no native token usage fields, so WorkBuddy does not participate in estimated token usage. Trae CN support covers CLI rollout logs and reads their real `token_count` events; it does not read the encrypted Trae IDE AI chat database. dsh's `.jsonl.zstd` logs are a concatenation of independent Zstandard frames (one per append batch); AgentXRay scans the frame boundaries and decompresses every frame, tolerating a torn trailing frame after a crash. Reading compressed dsh logs requires Node.js ≥ 22.15 (built-in zstd); plain `session.jsonl` logs work on any supported Node.
+WorkBuddy logs carry no native token usage fields, so WorkBuddy does not participate in estimated token usage. Trae CN support covers CLI rollout logs and reads their real `token_count` events; it does not read the encrypted Trae IDE AI chat database. dsh's `.jsonl.zstd` logs are a concatenation of independent Zstandard frames (one per append batch); AgentXRay scans the frame boundaries and decompresses every frame, tolerating a torn trailing frame after a crash. Canonical dsh log names are `session.jsonl[.zstd]` for v0 and `session.vN.jsonl[.zstd]` for later generations; v0 and v4 are fully supported. v1–v3 are not parsed: the list keeps the session flagged as unsupported, and its detail returns 422 with a hint to open it in DeepSeek Harness so it migrates to v4. A v5 session stays listed with an error instead of being silently dropped, and its detail also returns 422. In v4, injected messages (runtime context, time context, skill catalog, and similar system context) are filtered out of the conversation by default, subagent sessions carry a `subagent` badge in the list, and a compressed log larger than 64 MB makes the detail endpoint return 413 with a hint to export or page through the session. Reading compressed dsh logs requires Node.js ≥ 22.15 (built-in zstd); plain `session.jsonl` logs work on any supported Node.
 
 Archived sessions (`.jsonl.reset.*`, `.jsonl.deleted.*`) are also supported when "Include archived" is enabled.
 
