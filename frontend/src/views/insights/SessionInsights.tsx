@@ -10,9 +10,14 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { formatDurationCompact } from '@/lib/pure';
 import { dirForPlatform, useAppStore } from '@/store';
 import { ContextUsageCard } from '@/views/sessions/ContextUsageCard';
-import { InsightSection, ScopeChip, StatCard, UsageBar, fmtTokens, formatNumber } from './bits';
-import { computeSessionInsights, computeReflectionReport, PROMPT_CATEGORY_LABELS, WASTE_CATEGORY_LABELS } from './sessionStats';
+import { fmtTokens, formatNumber, InsightSection, ScopeChip, StatCard, UsageBar } from './bits';
 import type { WasteCategory } from './sessionStats';
+import {
+  computeReflectionReport,
+  computeSessionInsights,
+  PROMPT_CATEGORY_LABELS,
+  WASTE_CATEGORY_LABELS,
+} from './sessionStats';
 
 // Tool sequence chip palette — legacy toolColorPalette order preserved.
 const TOOL_PALETTE = [
@@ -75,7 +80,7 @@ export function SessionInsights() {
   // Jump to the message backing a stat item (error / retry).
   const jumpToIndex = (idx: number) => {
     const msg = msgs[idx];
-    if (msg && msg.id) requestScrollToMessage(msg.id);
+    if (msg?.id) requestScrollToMessage(msg.id);
   };
 
   // toolName → palette index, in first-appearance order (legacy toolColorMap).
@@ -171,28 +176,28 @@ export function SessionInsights() {
               {st.sourceBreakdown.map((b) => {
                 const pct = st.toolCallCount > 0 ? Math.round((b.calls / st.toolCallCount) * 100) : 0;
                 const sourceColor =
-                  b.source === 'mcp' ? '#d2a8ff' :
-                  b.source === 'skill' ? '#ffa657' :
-                  b.source === 'subagent' ? '#79c0ff' :
-                  b.source === 'builtin' ? '#3fb950' : '#8b949e';
+                  b.source === 'mcp'
+                    ? '#d2a8ff'
+                    : b.source === 'skill'
+                      ? '#ffa657'
+                      : b.source === 'subagent'
+                        ? '#79c0ff'
+                        : b.source === 'builtin'
+                          ? '#3fb950'
+                          : '#8b949e';
                 return (
                   <div key={b.source} className="flex items-center gap-2 text-[13px]">
                     <span className="w-20 shrink-0 font-medium" style={{ color: sourceColor }}>
                       {b.label}
                     </span>
                     <div className="h-2 flex-1 overflow-hidden rounded-full bg-secondary">
-                      <div
-                        className="h-full rounded-full"
-                        style={{ width: `${pct}%`, background: sourceColor }}
-                      />
+                      <div className="h-full rounded-full" style={{ width: `${pct}%`, background: sourceColor }} />
                     </div>
                     <span className="w-16 shrink-0 text-right font-mono text-xs text-muted-foreground">
                       {b.calls} 次 ({pct}%)
                     </span>
                     {b.errors > 0 && (
-                      <span className="w-12 shrink-0 text-right text-xs text-destructive">
-                        ❌ {b.errors}
-                      </span>
+                      <span className="w-12 shrink-0 text-right text-xs text-destructive">❌ {b.errors}</span>
                     )}
                   </div>
                 );
@@ -203,7 +208,7 @@ export function SessionInsights() {
               <div className="mt-3 border-t border-border pt-3">
                 <div className="mb-2 text-xs font-medium text-muted-foreground">MCP 服务器明细</div>
                 <div className="flex flex-wrap gap-1.5">
-                  {Array.from(new Set(st.toolStats.filter((t) => t.mcpServer).map((t) => t.mcpServer!))).map(
+                  {Array.from(new Set(st.toolStats.flatMap((t) => (t.mcpServer ? [t.mcpServer] : [])))).map(
                     (server) => {
                       const serverTools = st.toolStats.filter((t) => t.mcpServer === server);
                       const serverCalls = serverTools.reduce((s, t) => s + t.calls, 0);
@@ -227,12 +232,12 @@ export function SessionInsights() {
         {/* ── Post-hoc analysis: tool chain patterns ── */}
         {st.toolChainBigrams.length > 0 && (
           <InsightSection title="工具调用链模式">
-            <div className="mb-3 text-xs text-muted-foreground">
-              分析会话中频繁出现的工具调用顺序，发现工作流模式
-            </div>
+            <div className="mb-3 text-xs text-muted-foreground">分析会话中频繁出现的工具调用顺序，发现工作流模式</div>
             {st.toolChainBigrams.length > 0 && (
               <div className="mb-3">
-                <div className="mb-1.5 text-xs font-medium text-muted-foreground">双工具序列 (Top {st.toolChainBigrams.length})</div>
+                <div className="mb-1.5 text-xs font-medium text-muted-foreground">
+                  双工具序列 (Top {st.toolChainBigrams.length})
+                </div>
                 <div className="flex flex-col gap-1.5">
                   {st.toolChainBigrams.map((p, i) => (
                     <div key={i} className="flex items-center gap-2 text-[13px]">
@@ -252,7 +257,9 @@ export function SessionInsights() {
             )}
             {st.toolChainTrigrams.length > 0 && (
               <div>
-                <div className="mb-1.5 text-xs font-medium text-muted-foreground">三工具序列 (Top {st.toolChainTrigrams.length})</div>
+                <div className="mb-1.5 text-xs font-medium text-muted-foreground">
+                  三工具序列 (Top {st.toolChainTrigrams.length})
+                </div>
                 <div className="flex flex-col gap-1.5">
                   {st.toolChainTrigrams.map((p, i) => (
                     <div key={i} className="flex items-center gap-2 text-[13px]">
@@ -281,9 +288,14 @@ export function SessionInsights() {
               {st.errors.map((e, i) => (
                 <div
                   key={i}
+                  role="treeitem"
+                  tabIndex={0}
                   className="cursor-pointer rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2 hover:border-destructive/60"
                   title="点击跳到该消息"
                   onClick={() => jumpToIndex(e.index)}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Enter') jumpToIndex(e.index);
+                  }}
                 >
                   <div className="flex items-start justify-between gap-2 text-[13px]">
                     <span className="min-w-0 break-all">{e.snippet}</span>
@@ -303,9 +315,14 @@ export function SessionInsights() {
               {st.retries.map((r, i) => (
                 <div
                   key={i}
+                  role="treeitem"
+                  tabIndex={0}
                   className="cursor-pointer rounded-md border border-border bg-secondary/40 px-3 py-2 hover:border-primary/40"
                   title="点击跳到出错消息"
                   onClick={() => jumpToIndex(r.errorIndex)}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Enter') jumpToIndex(r.errorIndex);
+                  }}
                 >
                   <div className="flex items-start justify-between gap-2 text-[13px]">
                     <span className="min-w-0 break-all">{r.errorSnippet}</span>
@@ -325,15 +342,9 @@ export function SessionInsights() {
             <div className="flex flex-wrap gap-2">
               <Badge variant="secondary">Input: {formatNumber(tokenInput)}</Badge>
               <Badge variant="secondary">Output: {formatNumber(tokenOutput)}</Badge>
-              {tokenCacheRead > 0 && (
-                <Badge variant="secondary">Cache Read: {formatNumber(tokenCacheRead)}</Badge>
-              )}
-              {tokenCacheWrite > 0 && (
-                <Badge variant="secondary">Cache Write: {formatNumber(tokenCacheWrite)}</Badge>
-              )}
-              {tokenReasoning > 0 && (
-                <Badge variant="secondary">Reasoning: {formatNumber(tokenReasoning)}</Badge>
-              )}
+              {tokenCacheRead > 0 && <Badge variant="secondary">Cache Read: {formatNumber(tokenCacheRead)}</Badge>}
+              {tokenCacheWrite > 0 && <Badge variant="secondary">Cache Write: {formatNumber(tokenCacheWrite)}</Badge>}
+              {tokenReasoning > 0 && <Badge variant="secondary">Reasoning: {formatNumber(tokenReasoning)}</Badge>}
               <Badge variant="secondary">Total: {formatNumber(tokenTotal)}</Badge>
             </div>
           </InsightSection>
@@ -345,9 +356,7 @@ export function SessionInsights() {
           <div className="flex flex-wrap items-center gap-1 text-xs">
             {st.toolCalls.map((tc, idx) => {
               const pal = TOOL_PALETTE[toolColorMap[tc.name]];
-              const hasErrorAfter = st.errors.some(
-                (e) => e.toolName === tc.name && e.timestamp === tc.timestamp
-              );
+              const hasErrorAfter = st.errors.some((e) => e.toolName === tc.name && e.timestamp === tc.timestamp);
               return (
                 <span key={idx} className="flex items-center gap-1">
                   {idx > 0 && <span className="text-muted-foreground">→</span>}
@@ -365,10 +374,7 @@ export function SessionInsights() {
           <div className="mt-3 flex flex-wrap gap-3 text-xs text-muted-foreground">
             {Object.entries(toolColorMap).map(([name, ci]) => (
               <span key={name} className="flex items-center gap-1">
-                <span
-                  className="inline-block h-2 w-2 rounded-sm"
-                  style={{ background: TOOL_PALETTE[ci].color }}
-                />
+                <span className="inline-block h-2 w-2 rounded-sm" style={{ background: TOOL_PALETTE[ci].color }} />
                 {name}
               </span>
             ))}
@@ -448,7 +454,17 @@ export function SessionInsights() {
           {/* Overall quality score */}
           <div className="mb-4 flex items-center gap-4 rounded-lg border border-border bg-secondary/30 p-3">
             <div className="text-center">
-              <div className="text-3xl font-bold" style={{ color: st.promptAnalysis.avgQuality >= 70 ? '#3fb950' : st.promptAnalysis.avgQuality >= 50 ? '#d29922' : '#f85149' }}>
+              <div
+                className="text-3xl font-bold"
+                style={{
+                  color:
+                    st.promptAnalysis.avgQuality >= 70
+                      ? '#3fb950'
+                      : st.promptAnalysis.avgQuality >= 50
+                        ? '#d29922'
+                        : '#f85149',
+                }}
+              >
                 {st.promptAnalysis.avgQuality}
               </div>
               <div className="text-xs text-muted-foreground">平均质量分</div>
@@ -459,14 +475,23 @@ export function SessionInsights() {
                   className="h-full rounded-full transition-all"
                   style={{
                     width: `${st.promptAnalysis.avgQuality}%`,
-                    background: st.promptAnalysis.avgQuality >= 70 ? '#3fb950' : st.promptAnalysis.avgQuality >= 50 ? '#d29922' : '#f85149',
+                    background:
+                      st.promptAnalysis.avgQuality >= 70
+                        ? '#3fb950'
+                        : st.promptAnalysis.avgQuality >= 50
+                          ? '#d29922'
+                          : '#f85149',
                   }}
                 />
               </div>
               <div className="flex justify-between text-xs text-muted-foreground">
                 <span>{st.promptAnalysis.items.length} 个 Prompt</span>
                 <span>
-                  {st.promptAnalysis.avgQuality >= 70 ? '✓ 整体质量良好' : st.promptAnalysis.avgQuality >= 50 ? '⚠️ 有优化空间' : '❌ 建议改进提问方式'}
+                  {st.promptAnalysis.avgQuality >= 70
+                    ? '✓ 整体质量良好'
+                    : st.promptAnalysis.avgQuality >= 50
+                      ? '⚠️ 有优化空间'
+                      : '❌ 建议改进提问方式'}
                 </span>
               </div>
             </div>
@@ -487,9 +512,7 @@ export function SessionInsights() {
                     <span className="rounded-full bg-primary/10 px-1.5 py-0.5 text-xs font-mono text-primary">
                       {cs.count}
                     </span>
-                    <span className="text-xs text-muted-foreground">
-                      质量 {cs.avgQuality}
-                    </span>
+                    <span className="text-xs text-muted-foreground">质量 {cs.avgQuality}</span>
                   </div>
                 ))}
               </div>
@@ -504,7 +527,9 @@ export function SessionInsights() {
                 {st.promptAnalysis.bestPrompts.map((p) => (
                   <div key={p.index} className="rounded-md border border-[#3fb950]/30 bg-[#3fb950]/5 p-2">
                     <div className="flex items-center justify-between gap-2">
-                      <span className="truncate text-[13px] font-medium" title={p.text}>{p.text}</span>
+                      <span className="truncate text-[13px] font-medium" title={p.text}>
+                        {p.text}
+                      </span>
                       <span className="shrink-0 rounded-full bg-[#3fb950]/20 px-1.5 py-0.5 text-xs font-mono text-[#3fb950]">
                         {p.qualityScore}
                       </span>
@@ -524,7 +549,9 @@ export function SessionInsights() {
                 {st.promptAnalysis.worstPrompts.map((p) => (
                   <div key={p.index} className="rounded-md border border-[#f85149]/30 bg-[#f85149]/5 p-2">
                     <div className="flex items-center justify-between gap-2">
-                      <span className="truncate text-[13px] font-medium" title={p.text}>{p.text}</span>
+                      <span className="truncate text-[13px] font-medium" title={p.text}>
+                        {p.text}
+                      </span>
                       <span className="shrink-0 rounded-full bg-[#f85149]/20 px-1.5 py-0.5 text-xs font-mono text-[#f85149]">
                         {p.qualityScore}
                       </span>
@@ -536,9 +563,14 @@ export function SessionInsights() {
                     </div>
                     {p.qualityFactors.filter((f) => f.startsWith('⚠️') || f.startsWith('❌')).length > 0 && (
                       <div className="mt-1.5 flex flex-col gap-0.5">
-                        {p.qualityFactors.filter((f) => f.startsWith('⚠️') || f.startsWith('❌')).slice(0, 2).map((f, i) => (
-                          <div key={i} className="text-[0.65rem] text-[#f85149]">{f}</div>
-                        ))}
+                        {p.qualityFactors
+                          .filter((f) => f.startsWith('⚠️') || f.startsWith('❌'))
+                          .slice(0, 2)
+                          .map((f, i) => (
+                            <div key={i} className="text-[0.65rem] text-[#f85149]">
+                              {f}
+                            </div>
+                          ))}
                       </div>
                     )}
                   </div>
@@ -588,17 +620,28 @@ export function SessionInsights() {
                 {st.promptAnalysis.items.map((p) => (
                   <TableRow key={p.index}>
                     <TableCell className="font-mono text-xs text-muted-foreground">{p.index + 1}</TableCell>
-                    <TableCell className="max-w-[250px] truncate text-[13px]" title={p.text}>{p.text || '(空)'}</TableCell>
+                    <TableCell className="max-w-[250px] truncate text-[13px]" title={p.text}>
+                      {p.text || '(空)'}
+                    </TableCell>
                     <TableCell className="text-xs">{PROMPT_CATEGORY_LABELS[p.category]}</TableCell>
                     <TableCell className="font-mono text-xs">{p.length}</TableCell>
                     <TableCell className="font-mono text-xs">{p.toolCalls}</TableCell>
-                    <TableCell className={p.errors > 0 ? 'text-destructive' : ''}>{p.errors > 0 ? p.errors : '—'}</TableCell>
-                    <TableCell className="font-mono text-xs">{p.durationMs > 0 ? formatDurationCompact(p.durationMs) : '—'}</TableCell>
+                    <TableCell className={p.errors > 0 ? 'text-destructive' : ''}>
+                      {p.errors > 0 ? p.errors : '—'}
+                    </TableCell>
+                    <TableCell className="font-mono text-xs">
+                      {p.durationMs > 0 ? formatDurationCompact(p.durationMs) : '—'}
+                    </TableCell>
                     <TableCell>
                       <span
                         className="rounded-full px-1.5 py-0.5 text-[0.65rem] font-mono"
                         style={{
-                          background: p.qualityScore >= 70 ? 'rgba(63,185,80,0.15)' : p.qualityScore >= 50 ? 'rgba(210,153,34,0.15)' : 'rgba(248,81,73,0.15)',
+                          background:
+                            p.qualityScore >= 70
+                              ? 'rgba(63,185,80,0.15)'
+                              : p.qualityScore >= 50
+                                ? 'rgba(210,153,34,0.15)'
+                                : 'rgba(248,81,73,0.15)',
                           color: p.qualityScore >= 70 ? '#3fb950' : p.qualityScore >= 50 ? '#d29922' : '#f85149',
                         }}
                       >
@@ -618,7 +661,9 @@ export function SessionInsights() {
         <InsightSection title="🧠 思考时间分布">
           <div className="mb-3 flex flex-wrap gap-3">
             <div className="rounded-lg border border-border bg-secondary/30 px-3 py-2 text-center">
-              <div className="text-xl font-bold text-[#58a6ff]">{formatDurationCompact(st.thinkingAnalysis.totalThinkingMs)}</div>
+              <div className="text-xl font-bold text-[#58a6ff]">
+                {formatDurationCompact(st.thinkingAnalysis.totalThinkingMs)}
+              </div>
               <div className="text-xs text-muted-foreground">总思考时间</div>
             </div>
             <div className="rounded-lg border border-border bg-secondary/30 px-3 py-2 text-center">
@@ -626,7 +671,9 @@ export function SessionInsights() {
               <div className="text-xs text-muted-foreground">平均思考时间</div>
             </div>
             <div className="rounded-lg border border-border bg-secondary/30 px-3 py-2 text-center">
-              <div className="text-xl font-bold text-[#d29922]">{formatDurationCompact(st.thinkingAnalysis.maxThinkingMs)}</div>
+              <div className="text-xl font-bold text-[#d29922]">
+                {formatDurationCompact(st.thinkingAnalysis.maxThinkingMs)}
+              </div>
               <div className="text-xs text-muted-foreground">最长思考时间</div>
             </div>
             <div className="rounded-lg border border-border bg-secondary/30 px-3 py-2 text-center">
@@ -641,7 +688,10 @@ export function SessionInsights() {
               <div className="mb-2 text-xs font-medium text-muted-foreground">按阶段类型分布</div>
               <div className="flex flex-col gap-2">
                 {st.thinkingAnalysis.byType.map((t) => {
-                  const pct = st.thinkingAnalysis.totalThinkingMs > 0 ? Math.round((t.totalMs / st.thinkingAnalysis.totalThinkingMs) * 100) : 0;
+                  const pct =
+                    st.thinkingAnalysis.totalThinkingMs > 0
+                      ? Math.round((t.totalMs / st.thinkingAnalysis.totalThinkingMs) * 100)
+                      : 0;
                   return (
                     <div key={t.type} className="flex items-center gap-2 text-[13px]">
                       <span className="w-28 shrink-0">{t.label}</span>
@@ -684,13 +734,24 @@ export function SessionInsights() {
               <div className="mb-2 text-xs font-medium text-muted-foreground">最长思考阶段 Top 5</div>
               <div className="flex flex-col gap-1.5">
                 {st.thinkingAnalysis.phases.slice(0, 5).map((p, i) => (
-                  <div key={i} className="flex items-center gap-2 rounded-md border border-border bg-secondary/30 px-2 py-1.5 text-[13px]">
+                  <div
+                    key={i}
+                    className="flex items-center gap-2 rounded-md border border-border bg-secondary/30 px-2 py-1.5 text-[13px]"
+                  >
                     <span className="w-6 shrink-0 font-mono text-xs text-muted-foreground">{i + 1}</span>
                     <span className="w-24 shrink-0 text-xs">
-                      {p.type === 'before-tool' ? '🔧 工具前' : p.type === 'before-reply' ? '💬 回复前' : p.type === 'after-error' ? '❌ 错误后' : '📦 其他'}
+                      {p.type === 'before-tool'
+                        ? '🔧 工具前'
+                        : p.type === 'before-reply'
+                          ? '💬 回复前'
+                          : p.type === 'after-error'
+                            ? '❌ 错误后'
+                            : '📦 其他'}
                     </span>
                     {p.toolName && <span className="truncate text-xs text-muted-foreground">{p.toolName}</span>}
-                    <span className="ml-auto shrink-0 font-mono text-xs text-[#58a6ff]">{formatDurationCompact(p.durationMs)}</span>
+                    <span className="ml-auto shrink-0 font-mono text-xs text-[#58a6ff]">
+                      {formatDurationCompact(p.durationMs)}
+                    </span>
                   </div>
                 ))}
               </div>
@@ -708,7 +769,8 @@ export function SessionInsights() {
               <span className="text-sm text-muted-foreground">预估总成本 (USD)</span>
             </div>
             <div className="mt-1 text-xs text-muted-foreground">
-              基于 Claude Sonnet 定价：Input ${st.costEstimate.modelPricing.input}/M, Output ${st.costEstimate.modelPricing.output}/M, Cache Read ${st.costEstimate.modelPricing.cacheRead}/M
+              基于 Claude Sonnet 定价：Input ${st.costEstimate.modelPricing.input}/M, Output $
+              {st.costEstimate.modelPricing.output}/M, Cache Read ${st.costEstimate.modelPricing.cacheRead}/M
             </div>
           </div>
 
@@ -737,7 +799,11 @@ export function SessionInsights() {
               <div className="mb-2 text-xs font-medium text-muted-foreground">每轮成本分布</div>
               <div className="flex items-end gap-1">
                 {st.costEstimate.perTurn.map((t) => (
-                  <div key={t.turnIndex} className="flex flex-1 flex-col items-center gap-0.5" title={`第${t.turnIndex + 1}轮: $${t.cost.toFixed(4)}, ${t.tokens} tokens`}>
+                  <div
+                    key={t.turnIndex}
+                    className="flex flex-1 flex-col items-center gap-0.5"
+                    title={`第${t.turnIndex + 1}轮: $${t.cost.toFixed(4)}, ${t.tokens} tokens`}
+                  >
                     <div
                       className="w-full rounded-t bg-[#d29922]/60"
                       style={{ height: `${Math.max(4, (t.cost / st.costEstimate.totalCost) * 100)}px` }}
@@ -760,12 +826,19 @@ export function SessionInsights() {
           <div className="grid gap-4 md:grid-cols-2">
             {st.commonCommands.length > 0 && (
               <div>
-                <div className="mb-2 text-xs font-medium text-muted-foreground">🔧 常用命令 (Top {st.commonCommands.length})</div>
+                <div className="mb-2 text-xs font-medium text-muted-foreground">
+                  🔧 常用命令 (Top {st.commonCommands.length})
+                </div>
                 <div className="flex flex-col gap-1.5">
                   {st.commonCommands.map((c, i) => (
-                    <div key={i} className="flex items-center gap-2 rounded-md border border-border bg-secondary/30 px-2 py-1.5">
+                    <div
+                      key={i}
+                      className="flex items-center gap-2 rounded-md border border-border bg-secondary/30 px-2 py-1.5"
+                    >
                       <span className="w-5 shrink-0 font-mono text-xs text-muted-foreground">{i + 1}</span>
-                      <code className="min-w-0 flex-1 truncate text-xs" title={c.command}>{c.command}</code>
+                      <code className="min-w-0 flex-1 truncate text-xs" title={c.command}>
+                        {c.command}
+                      </code>
                       <span className="shrink-0 rounded-full bg-[#3fb950]/15 px-1.5 py-0.5 text-[0.65rem] font-mono text-[#3fb950]">
                         ×{c.count}
                       </span>
@@ -776,20 +849,33 @@ export function SessionInsights() {
             )}
             {st.commonFiles.length > 0 && (
               <div>
-                <div className="mb-2 text-xs font-medium text-muted-foreground">📁 高频操作文件 (Top {st.commonFiles.length})</div>
+                <div className="mb-2 text-xs font-medium text-muted-foreground">
+                  📁 高频操作文件 (Top {st.commonFiles.length})
+                </div>
                 <div className="flex flex-col gap-1.5">
                   {st.commonFiles.map((f, i) => (
-                    <div key={i} className="flex items-center gap-2 rounded-md border border-border bg-secondary/30 px-2 py-1.5">
+                    <div
+                      key={i}
+                      className="flex items-center gap-2 rounded-md border border-border bg-secondary/30 px-2 py-1.5"
+                    >
                       <span className="w-5 shrink-0 font-mono text-xs text-muted-foreground">{i + 1}</span>
-                      <span className="min-w-0 flex-1 truncate text-xs" title={f.path}>{f.path}</span>
+                      <span className="min-w-0 flex-1 truncate text-xs" title={f.path}>
+                        {f.path}
+                      </span>
                       <span className="flex shrink-0 gap-1">
                         {f.readCount > 0 && (
-                          <span className="rounded bg-[#58a6ff]/15 px-1 py-0.5 text-[0.6rem] text-[#58a6ff]" title="读取次数">
+                          <span
+                            className="rounded bg-[#58a6ff]/15 px-1 py-0.5 text-[0.6rem] text-[#58a6ff]"
+                            title="读取次数"
+                          >
                             📖{f.readCount}
                           </span>
                         )}
                         {f.writeCount > 0 && (
-                          <span className="rounded bg-[#f85149]/15 px-1 py-0.5 text-[0.6rem] text-[#f85149]" title="写入次数">
+                          <span
+                            className="rounded bg-[#f85149]/15 px-1 py-0.5 text-[0.6rem] text-[#f85149]"
+                            title="写入次数"
+                          >
                             ✏️{f.writeCount}
                           </span>
                         )}
@@ -815,9 +901,11 @@ export function SessionInsights() {
                 <div className="flex items-start gap-2">
                   <span
                     className={`mt-0.5 shrink-0 rounded-full px-1.5 py-0.5 text-[0.6rem] ${
-                      d.confidence === 'high' ? 'bg-[#3fb950]/15 text-[#3fb950]' :
-                      d.confidence === 'medium' ? 'bg-[#d29922]/15 text-[#d29922]' :
-                      'bg-secondary text-muted-foreground'
+                      d.confidence === 'high'
+                        ? 'bg-[#3fb950]/15 text-[#3fb950]'
+                        : d.confidence === 'medium'
+                          ? 'bg-[#d29922]/15 text-[#d29922]'
+                          : 'bg-secondary text-muted-foreground'
                     }`}
                   >
                     {d.confidence === 'high' ? '高置信' : d.confidence === 'medium' ? '中置信' : '低置信'}
@@ -852,9 +940,14 @@ export function SessionInsights() {
           </div>
           <div className="flex flex-col gap-2">
             {st.errorKnowledge.slice(0, 10).map((e, i) => (
-              <div key={i} className={`rounded-md border p-2.5 ${e.resolved ? 'border-border bg-secondary/30' : 'border-destructive/30 bg-destructive/5'}`}>
+              <div
+                key={i}
+                className={`rounded-md border p-2.5 ${e.resolved ? 'border-border bg-secondary/30' : 'border-destructive/30 bg-destructive/5'}`}
+              >
                 <div className="flex items-center gap-2">
-                  <span className={`shrink-0 rounded-full px-1.5 py-0.5 text-[0.6rem] ${e.resolved ? 'bg-[#3fb950]/15 text-[#3fb950]' : 'bg-destructive/15 text-destructive'}`}>
+                  <span
+                    className={`shrink-0 rounded-full px-1.5 py-0.5 text-[0.6rem] ${e.resolved ? 'bg-[#3fb950]/15 text-[#3fb950]' : 'bg-destructive/15 text-destructive'}`}
+                  >
                     {e.resolved ? `✓ 已解决 (${e.attempts}次尝试)` : '❌ 未解决'}
                   </span>
                   <span className="shrink-0 rounded bg-secondary px-1.5 py-0.5 text-[0.6rem] text-muted-foreground">
@@ -889,11 +982,15 @@ export function SessionInsights() {
         <div className="mb-4 grid grid-cols-2 gap-2 sm:grid-cols-4">
           <div className="rounded-md border border-border bg-secondary/30 p-2.5">
             <div className="text-[0.65rem] text-muted-foreground">任务目标</div>
-            <div className="mt-0.5 truncate text-xs font-medium" title={reflection.summary.taskGoal}>{reflection.summary.taskGoal || '(无)'}</div>
+            <div className="mt-0.5 truncate text-xs font-medium" title={reflection.summary.taskGoal}>
+              {reflection.summary.taskGoal || '(无)'}
+            </div>
           </div>
           <div className="rounded-md border border-border bg-secondary/30 p-2.5">
             <div className="text-[0.65rem] text-muted-foreground">完成状态</div>
-            <div className={`mt-0.5 text-xs font-medium ${reflection.summary.completed ? 'text-[#3fb950]' : 'text-amber-500'}`}>
+            <div
+              className={`mt-0.5 text-xs font-medium ${reflection.summary.completed ? 'text-[#3fb950]' : 'text-amber-500'}`}
+            >
               {reflection.summary.completed ? '✓ 有最终回复' : '⚠ 无最终回复'}
             </div>
           </div>
@@ -901,13 +998,16 @@ export function SessionInsights() {
             <div className="text-[0.65rem] text-muted-foreground">轮次 / 工具 / 错误</div>
             <div className="mt-0.5 text-xs font-medium">
               {reflection.summary.totalTurns} 轮 · {reflection.summary.totalToolCalls} 工具
-              {reflection.summary.totalErrors > 0 && <span className="text-destructive"> · {reflection.summary.totalErrors} 错误</span>}
+              {reflection.summary.totalErrors > 0 && (
+                <span className="text-destructive"> · {reflection.summary.totalErrors} 错误</span>
+              )}
             </div>
           </div>
           <div className="rounded-md border border-border bg-secondary/30 p-2.5">
             <div className="text-[0.65rem] text-muted-foreground">有效 Token / 耗时</div>
             <div className="mt-0.5 text-xs font-medium">
-              {fmtTokens(reflection.summary.effectiveTokens)} · {formatDurationCompact(reflection.summary.totalDurationMs)}
+              {fmtTokens(reflection.summary.effectiveTokens)} ·{' '}
+              {formatDurationCompact(reflection.summary.totalDurationMs)}
             </div>
           </div>
         </div>
@@ -929,17 +1029,26 @@ export function SessionInsights() {
           ) : (
             <div className="flex flex-col gap-2">
               {reflection.waste.items.map((w, i) => (
-                <div key={i} className={`rounded-md border p-2.5 ${
-                  w.severity === 'high' ? 'border-destructive/40 bg-destructive/5' :
-                  w.severity === 'medium' ? 'border-amber-500/40 bg-amber-500/5' :
-                  'border-border bg-secondary/30'
-                }`}>
+                <div
+                  key={i}
+                  className={`rounded-md border p-2.5 ${
+                    w.severity === 'high'
+                      ? 'border-destructive/40 bg-destructive/5'
+                      : w.severity === 'medium'
+                        ? 'border-amber-500/40 bg-amber-500/5'
+                        : 'border-border bg-secondary/30'
+                  }`}
+                >
                   <div className="flex items-center gap-2">
-                    <span className={`shrink-0 rounded-full px-1.5 py-0.5 text-[0.6rem] font-medium ${
-                      w.severity === 'high' ? 'bg-destructive/15 text-destructive' :
-                      w.severity === 'medium' ? 'bg-amber-500/15 text-amber-500' :
-                      'bg-secondary text-muted-foreground'
-                    }`}>
+                    <span
+                      className={`shrink-0 rounded-full px-1.5 py-0.5 text-[0.6rem] font-medium ${
+                        w.severity === 'high'
+                          ? 'bg-destructive/15 text-destructive'
+                          : w.severity === 'medium'
+                            ? 'bg-amber-500/15 text-amber-500'
+                            : 'bg-secondary text-muted-foreground'
+                      }`}
+                    >
                       {w.severity === 'high' ? '高' : w.severity === 'medium' ? '中' : '低'}
                     </span>
                     <span className="text-xs font-medium">{WASTE_CATEGORY_LABELS[w.category as WasteCategory]}</span>
@@ -956,17 +1065,22 @@ export function SessionInsights() {
           <div className="mb-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs font-medium text-muted-foreground">
             <span>流程健康检查</span>
             <span className="font-normal">
-              {reflection.healthCheck.passCount} 通过 · {reflection.healthCheck.failCount} 未通过 · {reflection.healthCheck.manualCount} 需人工判断
+              {reflection.healthCheck.passCount} 通过 · {reflection.healthCheck.failCount} 未通过 ·{' '}
+              {reflection.healthCheck.manualCount} 需人工判断
             </span>
           </div>
           <div className="grid gap-1.5 sm:grid-cols-2">
             {reflection.healthCheck.items.map((item) => (
               <div key={item.id} className="flex items-start gap-2 rounded-md border border-border bg-secondary/20 p-2">
-                <span className={`mt-0.5 shrink-0 text-xs ${
-                  item.status === 'pass' ? 'text-[#3fb950]' :
-                  item.status === 'fail' ? 'text-destructive' :
-                  'text-amber-500'
-                }`}>
+                <span
+                  className={`mt-0.5 shrink-0 text-xs ${
+                    item.status === 'pass'
+                      ? 'text-[#3fb950]'
+                      : item.status === 'fail'
+                        ? 'text-destructive'
+                        : 'text-amber-500'
+                  }`}
+                >
                   {item.status === 'pass' ? '✓' : item.status === 'fail' ? '✗' : '?'}
                 </span>
                 <div className="min-w-0">
@@ -987,16 +1101,25 @@ export function SessionInsights() {
             </div>
             <div className="flex flex-col gap-1.5">
               {reflection.assets.map((a, i) => (
-                <div key={i} className="flex items-start gap-2 rounded-md border border-[#58a6ff]/30 bg-[#58a6ff]/5 p-2">
-                  <span className={`mt-0.5 shrink-0 rounded px-1.5 py-0.5 text-[0.6rem] font-medium ${
-                    a.type === 'rule' ? 'bg-amber-500/15 text-amber-500' :
-                    a.type === 'workflow' ? 'bg-[#3fb950]/15 text-[#3fb950]' :
-                    'bg-[#58a6ff]/15 text-[#58a6ff]'
-                  }`}>
+                <div
+                  key={i}
+                  className="flex items-start gap-2 rounded-md border border-[#58a6ff]/30 bg-[#58a6ff]/5 p-2"
+                >
+                  <span
+                    className={`mt-0.5 shrink-0 rounded px-1.5 py-0.5 text-[0.6rem] font-medium ${
+                      a.type === 'rule'
+                        ? 'bg-amber-500/15 text-amber-500'
+                        : a.type === 'workflow'
+                          ? 'bg-[#3fb950]/15 text-[#3fb950]'
+                          : 'bg-[#58a6ff]/15 text-[#58a6ff]'
+                    }`}
+                  >
                     {a.type === 'rule' ? '规则' : a.type === 'workflow' ? 'Workflow' : '术语'}
                   </span>
                   <div className="min-w-0">
-                    <div className="truncate text-xs font-medium" title={a.label}>{a.label}</div>
+                    <div className="truncate text-xs font-medium" title={a.label}>
+                      {a.label}
+                    </div>
                     <div className="mt-0.5 text-[0.65rem] text-muted-foreground">{a.description}</div>
                   </div>
                 </div>

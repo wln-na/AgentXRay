@@ -12,8 +12,8 @@
 import { useEffect, useState } from 'react';
 import { toast } from 'sonner';
 import { getPetState, openSession, petStateUrl } from '@/api/client';
-import { PLATFORM_LABELS } from '@/api/types';
 import type { PetState, PetStateName } from '@/api/types';
+import { PLATFORM_LABELS } from '@/api/types';
 import { DEMO } from '@/demo/flag';
 
 interface PetMeta {
@@ -79,7 +79,9 @@ function usePetState(): PetConnection {
       setConnected(false);
     });
     // Best-effort immediate snapshot in case the first SSE frame is slow.
-    getPetState().then(setPet).catch(() => {});
+    getPetState()
+      .then(setPet)
+      .catch(() => {});
 
     return () => es.close();
   }, []);
@@ -90,7 +92,7 @@ function usePetState(): PetConnection {
 export function PetWidget() {
   const { pet, connected, errored } = usePetState();
   const meta = pet ? PET_META[pet.state] : PET_META.idle;
-  const platformLabel = pet?.platform ? PLATFORM_LABELS[pet.platform] ?? pet.platform : null;
+  const platformLabel = pet?.platform ? (PLATFORM_LABELS[pet.platform] ?? pet.platform) : null;
   const clickable = !!pet?.platform && !!pet?.sessionId;
 
   const handleClick = async () => {

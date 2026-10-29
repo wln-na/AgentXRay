@@ -175,3 +175,113 @@ describe('aggregatePetState', () => {
     assert.equal(r.platform, null);
   });
 });
+
+describe('aggregatePetState ignore filter (dismissed sessions)', () => {
+  // Fake store mirroring the lib/pet-ignore.js contract: get() returns null for
+  // expired entries; remove() records what it was asked to lift.
+  function fakeIgnoreStore(entries = [], now = NOW) {
+    const map = new Map(entries.map((e) => [e.key, { ignoredAt: e.ignoredAt, until: e.until }]));
+    const removed = [];
+    return {
+      sessionKey: (platform, sessionId, agent) => `${platform}:${agent || ''}:${sessionId}`,
+      get: async (key) => {
+        const e = map.get(key);
+        if (!e) return null;
+        if (e.until <= now) {
+          map.delete(key);
+          return null;
+        }
+        return { ignoredAt: e.ignoredAt, until: e.until };
+      },
+      remove: async (key) => {
+        if (map.delete(key)) removed.push(key);
+        return true;
+      },
+      removedKeys: () => removed,
+    };
+  }
+
+  it('hides an ignored session from sessions/activeCount/top-1', async () => {
+    const key = 'codex::s-top';
+    const platforms = fakePlatforms([
+      {
+        id: 'codex',
+        summaries: [
+          { id: 's-top', lastActivity: t(2), agent: null },
+          { id: 's-other', lastActivity: t(1), agent: null },
+        ],
+        getSession: async (_dir, sid) =>
+          sid === 's-top'
+            ? { messages: [userMsg(t(30)), assistantMsg('done', t(20))] }
+            : { messages: [userMsg(t(40)), assistantMsg('other done', t(10))] },
+      },
+    ]);
+    const ignoreStore = fakeIgnoreStore([{ key, ignoredAt: NOW - 10_000, until: NOW + 60_000 }]);
+    const r = await aggregatePetState({ now: NOW, windowMs: DEFAULT_WINDOW_MS, platforms, ignoreStore });
+    // s-other: assistant done 10s ago → still within doneBubbleWindow → 'done'
+    assert.equal(r.state, 'done');
+    assert.equal(r.sessionId, 's-other', 'ignored top session must not win');
+    assert.deepEqual(
+      r.sessions.map((s) => s.sessionId),
+      ['s-other']
+    );
+    assert.equal(r.activeCount, 1);
+  });
+
+  it('a new user message after ignore time lifts the dismissal', async () => {
+    const key = 'codex::s-re';
+    const platforms = fakePlatforms([
+      {
+        id: 'codex',
+        summaries: [{ id: 's-re', lastActivity: t(1), agent: null }],
+        getSession: async () => ({
+          // last user message is 1s ago — after ignoredAt (5s ago) → re-engage
+          messages: [userMsg(t(30)), assistantMsg('done', t(20)), userMsg(t(1))],
+        }),
+      },
+    ]);
+    const ignoreStore = fakeIgnoreStore([{ key, ignoredAt: NOW - 5_000, until: NOW + 60_000 }]);
+    const r = await aggregatePetState({ now: NOW, windowMs: DEFAULT_WINDOW_MS, platforms, ignoreStore });
+    assert.deepEqual(
+      r.sessions.map((s) => s.sessionId),
+      ['s-re'],
+      're-engaged session shows again'
+    );
+    assert.deepEqual(ignoreStore.removedKeys(), [key], 'store asked to clear the ignore');
+  });
+
+  it('an expired ignore is transparent (session shows again)', async () => {
+    const key = 'codex::s-exp';
+    const platforms = fakePlatforms([
+      {
+        id: 'codex',
+        summaries: [{ id: 's-exp', lastActivity: t(1), agent: null }],
+        getSession: async () => ({ messages: [userMsg(t(30)), assistantMsg('done', t(20))] }),
+      },
+    ]);
+    const ignoreStore = fakeIgnoreStore([{ key, ignoredAt: NOW - 10_000, until: NOW - 1_000 }]); // already expired
+    const r = await aggregatePetState({ now: NOW, windowMs: DEFAULT_WINDOW_MS, platforms, ignoreStore });
+    assert.deepEqual(
+      r.sessions.map((s) => s.sessionId),
+      ['s-exp']
+    );
+    assert.equal(r.state, 'waiting_input');
+  });
+
+  it('ignoring the only active session yields idle with an empty list', async () => {
+    const key = 'codex::s-only';
+    const platforms = fakePlatforms([
+      {
+        id: 'codex',
+        summaries: [{ id: 's-only', lastActivity: t(1), agent: null }],
+        getSession: async () => ({ messages: [userMsg(t(30)), assistantMsg('done', t(20))] }),
+      },
+    ]);
+    const ignoreStore = fakeIgnoreStore([{ key, ignoredAt: NOW - 10_000, until: NOW + 60_000 }]);
+    const r = await aggregatePetState({ now: NOW, windowMs: DEFAULT_WINDOW_MS, platforms, ignoreStore });
+    assert.equal(r.state, 'idle');
+    assert.equal(r.platform, null);
+    assert.deepEqual(r.sessions, []);
+    assert.equal(r.activeCount, 0);
+  });
+});

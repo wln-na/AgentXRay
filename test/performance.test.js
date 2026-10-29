@@ -189,7 +189,7 @@ test('withInFlightDedup cleans up after failure so subsequent calls re-execute',
   let attempt = 0;
   const fn = withInFlightDedup(
     (key) => key,
-    async (key) => {
+    async (_key) => {
       attempt++;
       await new Promise((r) => setTimeout(r, 10));
       if (attempt === 1) throw new Error('boom');

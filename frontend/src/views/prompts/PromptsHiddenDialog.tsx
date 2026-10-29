@@ -7,13 +7,7 @@ import { useState } from 'react';
 import { unhidePrompt } from '@/api/client';
 import type { HiddenPrompt } from '@/api/types';
 import { Button } from '@/components/ui/button';
-import {
-  Dialog,
-  DialogContent,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog';
+import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { ScrollArea } from '@/components/ui/scroll-area';
 
 import { errorMessage } from './promptsLib';
@@ -40,7 +34,7 @@ export function PromptsHiddenDialog({ open, onOpenChange, hidden }: PromptsHidde
       void queryClient.invalidateQueries({ queryKey: ['prompts-hidden'] });
     },
     onError: (err) => {
-      setError('恢复失败: ' + errorMessage(err));
+      setError(`恢复失败: ${errorMessage(err)}`);
       // A mid-loop failure may still have restored earlier hashes — resync.
       void queryClient.invalidateQueries({ queryKey: ['prompts'] });
       void queryClient.invalidateQueries({ queryKey: ['prompts-hidden'] });
@@ -59,9 +53,7 @@ export function PromptsHiddenDialog({ open, onOpenChange, hidden }: PromptsHidde
         </DialogHeader>
         <ScrollArea className="max-h-[55vh]">
           {hidden.length === 0 ? (
-            <div className="py-6 text-center text-sm text-muted-foreground">
-              没有已隐藏的 prompt
-            </div>
+            <div className="py-6 text-center text-sm text-muted-foreground">没有已隐藏的 prompt</div>
           ) : (
             <div className="space-y-1 pr-3">
               {hidden.map((h) => (

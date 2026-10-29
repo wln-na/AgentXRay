@@ -31,7 +31,10 @@ function HistoryInner({ name, onClose }: { name: string; onClose: () => void }) 
 
   const entryQuery = useQuery({
     queryKey: ['library', 'history', name, hash],
-    queryFn: () => getLibraryHistoryEntry(name, hash!),
+    queryFn: () => {
+      if (hash === null) throw new Error('Missing history hash');
+      return getLibraryHistoryEntry(name, hash);
+    },
     enabled: hash !== null,
   });
   const content = entryQuery.data?.content || '';
@@ -43,7 +46,7 @@ function HistoryInner({ name, onClose }: { name: string; onClose: () => void }) 
       toast.success('已恢复此版本');
       queryClient.invalidateQueries({ queryKey: ['library'] });
     },
-    onError: (err: Error) => setError('恢复失败: ' + err.message),
+    onError: (err: Error) => setError(`恢复失败: ${err.message}`),
   });
 
   return (
@@ -56,9 +59,7 @@ function HistoryInner({ name, onClose }: { name: string; onClose: () => void }) 
           {historyQuery.isLoading ? (
             <div className="p-3 text-sm text-muted-foreground">加载历史…</div>
           ) : historyQuery.isError ? (
-            <div className="p-3 text-sm text-destructive">
-              获取历史失败: {(historyQuery.error as Error).message}
-            </div>
+            <div className="p-3 text-sm text-destructive">获取历史失败: {(historyQuery.error as Error).message}</div>
           ) : !commits.length ? (
             <div className="p-3 text-sm text-muted-foreground">暂无历史</div>
           ) : (
@@ -88,9 +89,7 @@ function HistoryInner({ name, onClose }: { name: string; onClose: () => void }) 
             {entryQuery.isLoading ? (
               <div className="text-sm text-muted-foreground">加载版本内容…</div>
             ) : entryQuery.isError ? (
-              <div className="text-sm text-destructive">
-                获取版本内容失败: {(entryQuery.error as Error).message}
-              </div>
+              <div className="text-sm text-destructive">获取版本内容失败: {(entryQuery.error as Error).message}</div>
             ) : (
               <>
                 <div className={cn(!expanded && 'max-h-40 overflow-hidden')}>

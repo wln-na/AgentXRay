@@ -18,6 +18,7 @@ const IS_MAC = process.platform === 'darwin';
 
 const openSessionModule = require(path.join(__dirname, '..', 'lib', 'open-session'));
 const { PLATFORMS } = require(path.join(__dirname, '..', 'lib', 'platforms'));
+const { WORKBUDDY_DIR, TRAE_DIR } = require(path.join(__dirname, '..', 'lib', 'config'));
 const { startServer, sendJson } = require('./helpers.js');
 
 const {
@@ -27,6 +28,7 @@ const {
   escapeAppleScript,
   locateSession,
   openSession,
+  checkAllowedLogPath,
   RESUME_PLATFORMS,
 } = openSessionModule;
 
@@ -123,6 +125,13 @@ test('shellCommandLine quotes cwd with spaces and single quotes', () => {
 
 test('escapeAppleScript escapes backslashes and double quotes', () => {
   assert.equal(escapeAppleScript('a"b\\c'), 'a\\"b\\\\c');
+});
+
+// --- locate allowlist (unit) ---
+
+test('checkAllowedLogPath accepts WorkBuddy and Trae session roots', () => {
+  assert.equal(checkAllowedLogPath(path.join(WORKBUDDY_DIR, 'project', 'session.jsonl')).ok, true);
+  assert.equal(checkAllowedLogPath(path.join(TRAE_DIR, '2026', 'session.jsonl')).ok, true);
 });
 
 // --- locate (unit, fake runner) ---
@@ -407,7 +416,7 @@ test('open route rejects invalid platform / session id / action before executing
   const srv = await startServer();
   try {
     // Unknown platform → falls through to 404.
-    const unknown = await fetch(srv.base + '/api/nope/sessions/x/open', {
+    const unknown = await fetch(`${srv.base}/api/nope/sessions/x/open`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ action: 'locate' }),
@@ -415,7 +424,7 @@ test('open route rejects invalid platform / session id / action before executing
     assert.equal(unknown.status, 404);
 
     // Invalid session id → 400.
-    const badId = await fetch(srv.base + `/api/codex/sessions/${encodeURIComponent('a b!')}/open`, {
+    const badId = await fetch(`${srv.base}/api/codex/sessions/${encodeURIComponent('a b!')}/open`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ action: 'locate' }),
@@ -441,7 +450,7 @@ test('open route rejects invalid platform / session id / action before executing
 test('open route returns 404 for a valid id with no matching session', async () => {
   const srv = await startServer();
   try {
-    const res = await fetch(srv.base + '/api/codex/sessions/aaaaaaaa-0000-0000-0000-000000000000/open', {
+    const res = await fetch(`${srv.base}/api/codex/sessions/aaaaaaaa-0000-0000-0000-000000000000/open`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ action: 'locate' }),
@@ -483,7 +492,7 @@ test('open route resolves fixture sessions but validation stops before any exec'
   try {
     // The route must answer 404 (not 500) for a well-formed id that has no
     // matching session — this path never reaches the command layer.
-    const res = await fetch(srv.base + '/api/dsh/sessions/does-not-exist/open', {
+    const res = await fetch(`${srv.base}/api/dsh/sessions/does-not-exist/open`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ action: 'open' }),

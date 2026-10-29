@@ -6,15 +6,9 @@ import { CalendarRange, FolderTree, RotateCcw } from 'lucide-react';
 import { memo, useEffect, useMemo, useRef, useState } from 'react';
 import type { SessionSummary } from '@/api/types';
 import { Button } from '@/components/ui/button';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select';
-import { parseTimestampMs } from '@/lib/pure';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { isLive } from '@/lib/live';
+import { parseTimestampMs } from '@/lib/pure';
 import { cn } from '@/lib/utils';
 import { useAppStore } from '@/store';
 import { filterSessionList, formatDate } from './lib';
@@ -44,8 +38,7 @@ const CHIP_CLASSES: Record<SessionChip['kind'], string> = {
   user: 'border-[#58a6ff]/30 bg-[#58a6ff]/10 text-[#1f6feb] dark:text-[#79c0ff]',
   assistant: 'border-border bg-secondary text-muted-foreground',
   tool: 'border-[#d29922]/30 bg-[#d29922]/10 text-[#9a6700] dark:text-[#e3b341]',
-  spawn:
-    'border-[#f0883e]/30 bg-[#f0883e]/10 text-[#bc4c00] hover:bg-[#f0883e]/20 dark:text-[#ffa657]',
+  spawn: 'border-[#f0883e]/30 bg-[#f0883e]/10 text-[#bc4c00] hover:bg-[#f0883e]/20 dark:text-[#ffa657]',
   model: 'border-border bg-secondary text-muted-foreground',
 };
 
@@ -78,14 +71,14 @@ const SessionCard = memo(function SessionCard({
   };
   const preview = session.firstUserMessage
     ? session.firstUserMessage.length > 80
-      ? session.firstUserMessage.slice(0, 80) + '…'
+      ? `${session.firstUserMessage.slice(0, 80)}…`
       : session.firstUserMessage
     : '';
   return (
     <div
       tabIndex={0}
-      role="button"
-      aria-current={active ? 'true' : undefined}
+      role="option"
+      aria-selected={active}
       data-session-id={session.id}
       onClick={onClick}
       onKeyDown={(e) => {
@@ -129,10 +122,7 @@ const SessionCard = memo(function SessionCard({
               {chip.text}
             </button>
           ) : (
-            <span
-              key={chip.kind}
-              className={cn('rounded border px-1.5 py-0.5 text-[10px]', CHIP_CLASSES[chip.kind])}
-            >
+            <span key={chip.kind} className={cn('rounded border px-1.5 py-0.5 text-[10px]', CHIP_CLASSES[chip.kind])}>
               {chip.text}
             </span>
           )
@@ -364,8 +354,7 @@ export function SessionList({
   const projectScopedSessions = useMemo(
     () =>
       sessions.filter(
-        (session) =>
-          selectedProject === ALL_PROJECTS || sessionProjectInfo(session, platform).key === selectedProject
+        (session) => selectedProject === ALL_PROJECTS || sessionProjectInfo(session, platform).key === selectedProject
       ),
     [sessions, selectedProject, platform]
   );
@@ -412,15 +401,13 @@ export function SessionList({
     [sessions, filterTerm, matchedSessionIds]
   );
   const searchFiltered = useMemo(
-    () =>
-      matchedSessionIds ? baseFiltered.filter((session) => matchedSessionIds.has(session.id)) : baseFiltered,
+    () => (matchedSessionIds ? baseFiltered.filter((session) => matchedSessionIds.has(session.id)) : baseFiltered),
     [baseFiltered, matchedSessionIds]
   );
   const projectFiltered = useMemo(
     () =>
       searchFiltered.filter(
-        (session) =>
-          selectedProject === ALL_PROJECTS || sessionProjectInfo(session, platform).key === selectedProject
+        (session) => selectedProject === ALL_PROJECTS || sessionProjectInfo(session, platform).key === selectedProject
       ),
     [searchFiltered, selectedProject, platform]
   );
@@ -469,8 +456,7 @@ export function SessionList({
       const state = useAppStore.getState();
       if (state.view !== 'sessions' || !filtered.length) return;
       const index = filtered.findIndex((item) => item.id === state.selectedSessionId);
-      const nextIndex =
-        event.key === 'ArrowDown' ? Math.min(index + 1, filtered.length - 1) : Math.max(index - 1, 0);
+      const nextIndex = event.key === 'ArrowDown' ? Math.min(index + 1, filtered.length - 1) : Math.max(index - 1, 0);
       const next = filtered[nextIndex];
       if (!next || next.id === state.selectedSessionId) return;
       event.preventDefault();
@@ -520,7 +506,7 @@ export function SessionList({
 
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-2">
-      <div className="rounded-xl border border-border/60 bg-card/70 p-3 shadow-soft-sm" aria-label="会话筛选">
+      <fieldset className="rounded-xl border border-border/60 bg-card/70 p-3 shadow-soft-sm" aria-label="会话筛选">
         <div className="mb-1.5 flex items-center justify-between gap-2 text-[11px] text-muted-foreground">
           <span className="inline-flex items-center gap-1">
             <FolderTree className="h-3.5 w-3.5" />
@@ -543,7 +529,12 @@ export function SessionList({
             <SelectContent>
               <SelectItem value={ALL_PROJECTS}>全部项目（{sessions.length}）</SelectItem>
               {availableProjects.map((project) => (
-                <SelectItem key={project.key} value={project.key} className="text-xs" title={project.path || project.name}>
+                <SelectItem
+                  key={project.key}
+                  value={project.key}
+                  className="text-xs"
+                  title={project.path || project.name}
+                >
                   {project.label}（{project.count}）
                 </SelectItem>
               ))}
@@ -597,7 +588,7 @@ export function SessionList({
             ) : null}
           </div>
         </div>
-      </div>
+      </fieldset>
 
       {isSearching ? (
         <div className="p-2 text-xs text-muted-foreground">正在搜索当前平台会话…</div>
@@ -614,46 +605,42 @@ export function SessionList({
         </div>
       ) : (
         <div ref={parentRef} className="min-h-0 flex-1 overflow-y-auto pr-1" data-testid="session-list">
-      {virtualized ? (
-        <div className="relative w-full" style={{ height: virtualizer.getTotalSize() }}>
-          {virtualizer.getVirtualItems().map((row) => {
-            const session = filtered[row.index];
-            return (
-              <div
-                key={session.id}
-                ref={virtualizer.measureElement}
-                data-index={row.index}
-                className="absolute left-0 top-0 w-full pb-2"
-                style={{ transform: `translateY(${row.start}px)` }}
-              >
-                <SessionCard
-                  session={session}
-                  active={session.id === selectedSessionId}
-                  onSelect={selectSession}
-                />
-              </div>
-            );
-          })}
-        </div>
-      ) : groupedPlatform ? (
-        <SessionGroups
-          sessions={filtered}
-          platform={platform}
-          selectedSessionId={selectedSessionId}
-          onSelect={setSelectedSessionId}
-        />
-      ) : (
-        <div className="flex flex-col gap-2">
-          {filtered.map((session) => (
-            <SessionCard
-              key={session.id}
-              session={session}
-              active={session.id === selectedSessionId}
+          {virtualized ? (
+            <div className="relative w-full" style={{ height: virtualizer.getTotalSize() }}>
+              {virtualizer.getVirtualItems().map((row) => {
+                const session = filtered[row.index];
+                return (
+                  <div
+                    key={session.id}
+                    ref={virtualizer.measureElement}
+                    data-index={row.index}
+                    className="absolute left-0 top-0 w-full pb-2"
+                    style={{ transform: `translateY(${row.start}px)` }}
+                  >
+                    <SessionCard session={session} active={session.id === selectedSessionId} onSelect={selectSession} />
+                  </div>
+                );
+              })}
+            </div>
+          ) : groupedPlatform ? (
+            <SessionGroups
+              sessions={filtered}
+              platform={platform}
+              selectedSessionId={selectedSessionId}
               onSelect={setSelectedSessionId}
             />
-          ))}
-        </div>
-      )}
+          ) : (
+            <div className="flex flex-col gap-2">
+              {filtered.map((session) => (
+                <SessionCard
+                  key={session.id}
+                  session={session}
+                  active={session.id === selectedSessionId}
+                  onSelect={setSelectedSessionId}
+                />
+              ))}
+            </div>
+          )}
         </div>
       )}
     </div>

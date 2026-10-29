@@ -17,7 +17,7 @@ export function formatNumber(value: unknown): string {
 
 export function truncateId(value: string | null | undefined): string {
   if (!value) return 'unknown';
-  return value.length > 14 ? value.slice(0, 14) + '…' : value;
+  return value.length > 14 ? `${value.slice(0, 14)}…` : value;
 }
 
 // DOM anchor for a message. Codex records carry id:null — fall back to
@@ -437,11 +437,7 @@ function skillFileNamesFromValue(value: unknown): string[] {
     for (const match of text.matchAll(skillFilePattern)) {
       const name = match[1];
       const relativePath = match[2] || '';
-      if (
-        name &&
-        /^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(name) &&
-        !/^SKILL\.md(?:\b|$)/i.test(relativePath)
-      ) {
+      if (name && /^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(name) && !/^SKILL\.md(?:\b|$)/i.test(relativePath)) {
         names.add(name);
       }
     }

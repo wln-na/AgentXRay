@@ -6,9 +6,9 @@ import { cn } from '@/lib/utils';
 /** Legacy token compact format: 1.2M / 3.4K / 999 */
 export function fmtTokens(total: number): string {
   return total >= 1_000_000
-    ? (total / 1_000_000).toFixed(1) + 'M'
+    ? `${(total / 1_000_000).toFixed(1)}M`
     : total >= 1_000
-      ? (total / 1_000).toFixed(1) + 'K'
+      ? `${(total / 1_000).toFixed(1)}K`
       : total.toString();
 }
 
@@ -56,10 +56,7 @@ export function StatCard({
 export function UsageBar({ pct, error }: { pct: number; error?: boolean }) {
   return (
     <div className="h-1.5 w-full min-w-[80px] overflow-hidden rounded bg-secondary">
-      <div
-        className={cn('h-full rounded', error ? 'bg-destructive' : 'bg-primary')}
-        style={{ width: `${pct}%` }}
-      />
+      <div className={cn('h-full rounded', error ? 'bg-destructive' : 'bg-primary')} style={{ width: `${pct}%` }} />
     </div>
   );
 }
@@ -77,9 +74,7 @@ export function InsightSection({
   return (
     <section className={cn('rounded-lg border border-border bg-card p-4', className)}>
       {title != null && (
-        <h3 className="mb-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-          {title}
-        </h3>
+        <h3 className="mb-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">{title}</h3>
       )}
       {children}
     </section>
@@ -110,9 +105,7 @@ export function InsightsScopeSeg({
       }}
       className={cn(
         'rounded-md px-3 py-1 text-sm transition-colors',
-        active === scope
-          ? 'bg-primary/20 text-foreground shadow-sm'
-          : 'text-muted-foreground hover:text-foreground',
+        active === scope ? 'bg-primary/20 text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground',
         disabled && 'cursor-not-allowed opacity-50 hover:text-muted-foreground'
       )}
     >

@@ -4,13 +4,13 @@
 import { Activity, MessageSquare } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { usePlatformProbe } from '@/hooks/usePlatformProbe';
+import { cn } from '@/lib/utils';
 import { useAppStore } from '@/store';
 import { ChildAgentBanner } from '@/views/trace/ChildAgentsSection';
 import { useActiveSessionDetail } from '@/views/trace/childAgents';
 import { TraceView } from '@/views/trace/TraceView';
-import { cn } from '@/lib/utils';
-import { buildTimingAnalysis } from './lib';
 import type { MsgFilter } from './lib';
+import { buildTimingAnalysis } from './lib';
 import { MessageActionsContext } from './MessageItem';
 import { MessageList, MSG_BATCH_SIZE } from './MessageList';
 import { useSessionDetail } from './queries';
@@ -36,8 +36,8 @@ function AllEmptyState() {
       <h3 className="text-base font-semibold">没有找到任何会话日志</h3>
       <div className="space-y-3 text-sm leading-6 text-muted-foreground">
         <p>
-          AgentXRay 直接读取各 CLI agent 落盘的会话日志，无需任何集成。当前在以下默认路径都没有发现日志
-          —— 用过其中某个工具后刷新页面即可,或在 <b className="text-foreground">⚙ 设置</b>
+          AgentXRay 直接读取各 CLI agent 落盘的会话日志，无需任何集成。当前在以下默认路径都没有发现日志 ——
+          用过其中某个工具后刷新页面即可,或在 <b className="text-foreground">⚙ 设置</b>
           里指向自定义目录：
         </p>
         <table className="w-full text-left">

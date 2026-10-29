@@ -8,15 +8,27 @@ import { Markdown } from '@/components/Markdown';
 import { ToolCallViewer } from '@/components/ToolCallViewer';
 import { formatDurationCompact, getTextContent } from '@/lib/pure';
 import { cn } from '@/lib/utils';
+import { ContextPanel } from './ContextPanel';
 import type { TimingMeta } from './lib';
 import { formatDate, formatNumber, messageAnchorId, splitUserMessageContext, truncateId } from './lib';
-import { ContextPanel } from './ContextPanel';
 /** scrollToMessage from SessionsView: expands pagination + clears filter + flashes. */
 export const MessageActionsContext = createContext<{ scrollToMessage: (id: string) => void }>({
   scrollToMessage: () => {},
 });
 
-function DurationBadge({ ms, warnAt, dangerAt, prefix, title }: { ms: number | null; warnAt: number; dangerAt: number; prefix: string; title?: string }) {
+function DurationBadge({
+  ms,
+  warnAt,
+  dangerAt,
+  prefix,
+  title,
+}: {
+  ms: number | null;
+  warnAt: number;
+  dangerAt: number;
+  prefix: string;
+  title?: string;
+}) {
   if (!Number.isFinite(ms as number)) return null;
   const v = ms as number;
   return (
@@ -115,7 +127,8 @@ export function ToolCallPart({ part }: { part: MessageContentPart }) {
   const isSpawn = part.name === 'sessions_spawn' && !!args.agentId;
   const isDelegate = part.name === 'delegate_task';
   const isExecSpawn = part.name === 'exec' && (command.includes('codex ') || command.includes('claude '));
-  const taskPreview = typeof (args.task ?? args.prompt) === 'string' ? String(args.task ?? args.prompt).slice(0, 80) : '';
+  const taskPreview =
+    typeof (args.task ?? args.prompt) === 'string' ? String(args.task ?? args.prompt).slice(0, 80) : '';
 
   return (
     <>
@@ -269,7 +282,7 @@ export function MessageBubble({
 
   if (message.role === 'user') {
     const { input, contexts } = splitUserMessageContext(text);
-    const preview = input.length > 1400 ? input.slice(0, 1400) + '\n\n[truncated]' : input;
+    const preview = input.length > 1400 ? `${input.slice(0, 1400)}\n\n[truncated]` : input;
     return (
       <article
         id={`message-${anchor}`}
@@ -282,7 +295,9 @@ export function MessageBubble({
         />
         {preview ? (
           <>
-            <div className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">用户实际输入</div>
+            <div className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+              用户实际输入
+            </div>
             <Markdown text={preview} />
           </>
         ) : (
@@ -295,7 +310,10 @@ export function MessageBubble({
             </summary>
             <div className="mt-2 space-y-2">
               {contexts.map((context, index) => (
-                <section key={`${context.label}:${index}`} className="rounded border border-border/60 bg-secondary/30 p-2">
+                <section
+                  key={`${context.label}:${index}`}
+                  className="rounded border border-border/60 bg-secondary/30 p-2"
+                >
                   <div className="mb-1 text-[10px] font-semibold text-muted-foreground">{context.label}</div>
                   <pre className={PRE_CLASS}>{context.text}</pre>
                 </section>
@@ -305,9 +323,7 @@ export function MessageBubble({
         ) : null}
         {contextEnabled && contextPlatform && contextSessionId ? (
           <details className="mt-2 rounded border border-[#9BBBF4]/40 bg-[#9BBBF4]/5 px-2 py-1.5">
-            <summary className="cursor-pointer text-[11px] font-medium text-[#5B7FC9]">
-              完整上下文（重建）
-            </summary>
+            <summary className="cursor-pointer text-[11px] font-medium text-[#5B7FC9]">完整上下文（重建）</summary>
             <div className="mt-2">
               <ContextPanel
                 platform={contextPlatform}
@@ -369,7 +385,10 @@ export function MessageBubble({
   if (message.role === 'assistant') {
     const toolCalls = (message.content || []).filter((c) => c.type === 'toolCall');
     return (
-      <article id={`message-${anchor}`} className="rounded-2xl rounded-tl-md border border-assistant/20 bg-card p-4 shadow-soft-sm">
+      <article
+        id={`message-${anchor}`}
+        className="rounded-2xl rounded-tl-md border border-assistant/20 bg-card p-4 shadow-soft-sm"
+      >
         <MessageHead
           role={<span className="font-semibold text-assistant">Assistant</span>}
           meta={
@@ -392,9 +411,7 @@ export function MessageBubble({
           </details>
         ) : null}
         {text ? <Markdown text={text} /> : null}
-        {showEmbeddedToolCalls
-          ? toolCalls.map((part, i) => <ToolCallPart key={part.id || i} part={part} />)
-          : null}
+        {showEmbeddedToolCalls ? toolCalls.map((part, i) => <ToolCallPart key={part.id || i} part={part} />) : null}
       </article>
     );
   }

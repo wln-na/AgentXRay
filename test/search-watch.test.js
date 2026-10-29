@@ -29,7 +29,7 @@ describe('search snippet extraction', () => {
 
   it('omits ellipses at text boundaries', () => {
     assert.equal(extractSnippet('needle here', 'needle'), 'needle here');
-    const s = extractSnippet('needle' + 'y'.repeat(100), 'needle');
+    const s = extractSnippet(`needle${'y'.repeat(100)}`, 'needle');
     assert.ok(!s.startsWith('\u2026'));
     assert.ok(s.endsWith('\u2026'));
   });

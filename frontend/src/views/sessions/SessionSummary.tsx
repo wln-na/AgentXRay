@@ -7,10 +7,10 @@ import { toast } from 'sonner';
 import { openSession } from '@/api/client';
 import type { OpenSessionResult, SessionDetail } from '@/api/types';
 import { DEMO } from '@/demo/flag';
-import { formatCost, formatDurationCompact } from '@/lib/pure';
 import { isLive } from '@/lib/live';
+import { formatCost, formatDurationCompact } from '@/lib/pure';
 import { cn } from '@/lib/utils';
-import { dirForPlatform, loadStoredFlag, saveStoredFlag, SUMMARY_COLLAPSED_KEY, useAppStore } from '@/store';
+import { dirForPlatform, loadStoredFlag, SUMMARY_COLLAPSED_KEY, saveStoredFlag, useAppStore } from '@/store';
 import { ChildAgentsSection } from '@/views/trace/ChildAgentsSection';
 import { ContextUsageCard } from './ContextUsageCard';
 import type { ExportFormat } from './exports';
@@ -85,7 +85,8 @@ function ExportMenu({ detail }: { detail: SessionDetail }) {
     ['json', '📦 JSON (.json)'],
     ['clipboard', '📋 复制到剪贴板'],
   ];
-  if (['codex', 'claude-code', 'claude-desktop', 'omp', 'dsh', 'gemini'].includes(platform)) entries.push(['otlp', '🔭 OTLP JSON']);
+  if (['codex', 'claude-code', 'claude-desktop', 'omp', 'dsh', 'gemini'].includes(platform))
+    entries.push(['otlp', '🔭 OTLP JSON']);
 
   return (
     <div className="relative">
@@ -94,7 +95,12 @@ function ExportMenu({ detail }: { detail: SessionDetail }) {
       </button>
       {open ? (
         <>
-          <div className="fixed inset-0 z-10" onClick={() => setOpen(false)} />
+          <button
+            type="button"
+            aria-label="关闭导出菜单"
+            className="fixed inset-0 z-10 cursor-default bg-transparent"
+            onClick={() => setOpen(false)}
+          />
           <div className="absolute right-0 z-20 mt-1 w-44 rounded-md border border-border bg-popover p-1 shadow-lg">
             {entries.map(([format, label]) => (
               <button
@@ -132,7 +138,7 @@ function ResumeButton({ cwd }: { cwd: string | null | undefined }) {
           setCopied(true);
           setTimeout(() => setCopied(false), 1500);
         } catch (error) {
-          toast.error('复制失败: ' + (error as Error).message);
+          toast.error(`复制失败: ${(error as Error).message}`);
         }
       }}
     >
@@ -149,6 +155,8 @@ const RESUME_PLATFORM_TITLES: Record<string, string> = {
   doubao: '打开 Doubao 2 应用（深链直达会话；应用缺失时回退应用启动）',
   'claude-desktop': '打开 Claude 应用（无会话级深链；应用缺失时回退默认编辑器）',
   cursor: '打开 Cursor 应用（无会话级深链；应用缺失时回退默认编辑器）',
+  workbuddy: '打开 WorkBuddy 应用（无会话级深链；应用缺失时回退默认编辑器）',
+  trae: '打开 Trae CN 应用（无会话级深链；应用缺失时回退默认编辑器）',
 };
 
 // Mirror of lib/platforms/capabilities.json `open` flag: hermes sessions share
@@ -205,7 +213,7 @@ function OpenButtons() {
         toast.error(res.error || '操作失败');
       }
     } catch (error) {
-      toast.error('操作失败: ' + (error as Error).message);
+      toast.error(`操作失败: ${(error as Error).message}`);
     } finally {
       setPending(null);
     }
@@ -273,8 +281,7 @@ export function SessionSummary({
         selectedSummary?.trajectoryPath,
         selectedSummary?.filePath,
         sessionFile,
-      ]
-        .filter((value): value is string => typeof value === 'string' && Boolean(value))
+      ].filter((value): value is string => typeof value === 'string' && Boolean(value))
     )
   );
 
@@ -319,11 +326,16 @@ export function SessionSummary({
     <div className="rounded-2xl border border-border/60 bg-card p-5 shadow-soft-md" data-testid="session-summary">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0 flex-1">
-          <h2 className="truncate text-lg font-semibold tracking-tight" title={selectedSummary?.title || detail.session?.id || selectedSessionId}>
+          <h2
+            className="truncate text-lg font-semibold tracking-tight"
+            title={selectedSummary?.title || detail.session?.id || selectedSessionId}
+          >
             {selectedSummary?.title || detail.session?.id || selectedSessionId}
           </h2>
           <div className="mt-2 flex flex-wrap items-center gap-1.5 text-[11px] text-muted-foreground">
-            <span className="rounded-full bg-secondary/80 px-2 py-0.5 font-medium">{formatDate(detail.session?.timestamp)}</span>
+            <span className="rounded-full bg-secondary/80 px-2 py-0.5 font-medium">
+              {formatDate(detail.session?.timestamp)}
+            </span>
             {isLive(detail.session?.lastActivity) ? (
               <span className="flex items-center gap-1 rounded-full bg-green-500/10 px-2 py-0.5 font-medium text-green-600 dark:text-green-300">
                 <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-green-500" />
@@ -331,11 +343,16 @@ export function SessionSummary({
               </span>
             ) : null}
             {selectedSummary?.projectName || detail.session?.projectName || detail.session?.cwd ? (
-              <span className="max-w-[260px] truncate rounded-full bg-secondary/80 px-2 py-0.5 font-medium" title={selectedSummary?.projectPath || detail.session?.projectPath || detail.session?.cwd || ''}>
+              <span
+                className="max-w-[260px] truncate rounded-full bg-secondary/80 px-2 py-0.5 font-medium"
+                title={selectedSummary?.projectPath || detail.session?.projectPath || detail.session?.cwd || ''}
+              >
                 {selectedSummary?.projectName || detail.session?.projectName || detail.session?.cwd}
               </span>
             ) : null}
-            {listModel ? <span className="rounded-full bg-secondary/80 px-2 py-0.5 font-medium">模型：{listModel}</span> : null}
+            {listModel ? (
+              <span className="rounded-full bg-secondary/80 px-2 py-0.5 font-medium">模型：{listModel}</span>
+            ) : null}
             <span className="rounded-full bg-secondary/80 px-2 py-0.5 font-medium">消息：{msgs.length}</span>
             <span className="rounded-full bg-secondary/80 px-2 py-0.5 font-medium">{toolCallCount} 次工具调用</span>
             {selectedSummary?.archived || detail.session?.archived ? (
@@ -344,7 +361,9 @@ export function SessionSummary({
               </span>
             ) : null}
             {detail.session?.contentAvailable === false ? (
-              <span className="rounded-full bg-amber-500/10 px-2 py-0.5 font-medium text-[#b7791f]">本地未保留正文</span>
+              <span className="rounded-full bg-amber-500/10 px-2 py-0.5 font-medium text-[#b7791f]">
+                本地未保留正文
+              </span>
             ) : null}
           </div>
         </div>
@@ -352,7 +371,9 @@ export function SessionSummary({
           <button
             type="button"
             className={ACTION_BTN}
-            title={msgOrder === 'newest-first' ? '当前：最新在上；点击改为最早在上' : '当前：最早在上；点击改为最新在上'}
+            title={
+              msgOrder === 'newest-first' ? '当前：最新在上；点击改为最早在上' : '当前：最早在上；点击改为最新在上'
+            }
             onClick={() => setMsgOrder(msgOrder === 'newest-first' ? 'oldest-first' : 'newest-first')}
           >
             {msgOrder === 'newest-first' ? '改为最早在上' : '改为最新在上'}
@@ -411,7 +432,7 @@ export function SessionSummary({
                         setPathCopied(true);
                         setTimeout(() => setPathCopied(false), 1500);
                       } catch (error) {
-                        toast.error('复制失败: ' + (error as Error).message);
+                        toast.error(`复制失败: ${(error as Error).message}`);
                       }
                     }}
                   >
@@ -558,7 +579,9 @@ export function SessionSummary({
               ) : (
                 <div className="text-[11px] text-muted-foreground">本会话没有记录到 Skill 加载</div>
               )}
-              <div className="mt-1 text-[10px] text-muted-foreground">按原生 Skill 工具调用及实际读取 SKILL.md 统计</div>
+              <div className="mt-1 text-[10px] text-muted-foreground">
+                按原生 Skill 工具调用及实际读取 SKILL.md 统计
+              </div>
               <div className="mt-2 border-t border-border/60 pt-2 text-[10px] font-medium text-muted-foreground">
                 Skill 目录文件读取
               </div>

@@ -6,7 +6,13 @@ function safePercent(value: number | null | undefined): number | null {
   return Math.max(0, Math.min(100, value));
 }
 
-export function ContextUsageCard({ usage, unavailableNote }: { usage?: ContextUsage | null; unavailableNote?: string }) {
+export function ContextUsageCard({
+  usage,
+  unavailableNote,
+}: {
+  usage?: ContextUsage | null;
+  unavailableNote?: string;
+}) {
   const used = typeof usage?.used === 'number' ? usage.used : null;
   const limit = typeof usage?.limit === 'number' && usage.limit > 0 ? usage.limit : null;
   const percent = safePercent(
@@ -22,10 +28,19 @@ export function ContextUsageCard({ usage, unavailableNote }: { usage?: ContextUs
           <div className="text-lg font-semibold text-foreground">
             {fmtTokens(used)}
             {limit ? ` / ${fmtTokens(limit)}` : ' / 上限未记录'}
-            {percent !== null ? <span className="ml-1 text-xs font-normal text-muted-foreground">· {percent.toFixed(1)}%</span> : null}
+            {percent !== null ? (
+              <span className="ml-1 text-xs font-normal text-muted-foreground">· {percent.toFixed(1)}%</span>
+            ) : null}
           </div>
           {percent !== null ? (
-            <div className="mt-2 h-2 overflow-hidden rounded-full bg-secondary" aria-label={`上下文已使用 ${percent.toFixed(1)}%`}>
+            <div
+              role="progressbar"
+              aria-valuemin={0}
+              aria-valuemax={100}
+              aria-valuenow={Math.round(percent)}
+              className="mt-2 h-2 overflow-hidden rounded-full bg-secondary"
+              aria-label={`上下文已使用 ${percent.toFixed(1)}%`}
+            >
               <div className="h-full rounded-full bg-primary" style={{ width: `${percent}%` }} />
             </div>
           ) : null}
@@ -39,9 +54,16 @@ export function ContextUsageCard({ usage, unavailableNote }: { usage?: ContextUs
             <div className="mt-2 grid gap-1 sm:grid-cols-2">
               {breakdown.map((item) => (
                 <div key={item.key} className="flex items-center justify-between gap-2 text-[11px]">
-                  <span className="text-muted-foreground">{item.label}{item.estimated ? '（估算）' : ''}</span>
+                  <span className="text-muted-foreground">
+                    {item.label}
+                    {item.estimated ? '（估算）' : ''}
+                  </span>
                   <span className="font-medium text-foreground">
-                    {typeof item.percent === 'number' ? `${item.percent.toFixed(1)}%` : typeof item.tokens === 'number' ? fmtTokens(item.tokens) : '—'}
+                    {typeof item.percent === 'number'
+                      ? `${item.percent.toFixed(1)}%`
+                      : typeof item.tokens === 'number'
+                        ? fmtTokens(item.tokens)
+                        : '—'}
                   </span>
                 </div>
               ))}

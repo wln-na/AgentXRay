@@ -37,18 +37,15 @@ export function LibraryCard({
 
   const toggleInstall = useMutation({
     mutationFn: ({ target, installed }: { target: InstallTarget; installed: boolean }) =>
-      installed
-        ? uninstallLibraryPrompt(prompt.name, [target])
-        : installLibraryPrompt(prompt.name, [target]),
+      installed ? uninstallLibraryPrompt(prompt.name, [target]) : installLibraryPrompt(prompt.name, [target]),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['library'] }),
-    onError: (err: Error, { installed }) =>
-      toast.error((installed ? '卸载失败: ' : '安装失败: ') + err.message),
+    onError: (err: Error, { installed }) => toast.error((installed ? '卸载失败: ' : '安装失败: ') + err.message),
   });
 
   const remove = useMutation({
     mutationFn: () => deleteLibraryPrompt(prompt.name),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['library'] }),
-    onError: (err: Error) => toast.error('删除失败: ' + err.message),
+    onError: (err: Error) => toast.error(`删除失败: ${err.message}`),
   });
 
   const copy = () => {

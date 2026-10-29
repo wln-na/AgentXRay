@@ -3,20 +3,20 @@
 // exposes every export as a window/global function for the frozen vanilla UI
 // and as module.exports for the node tests.
 
+export { escapeHtml, renderMarkdown, renderMarkdownHtml } from './markdown';
 export {
-  formatBytes,
-  parseTimestampMs,
-  formatDurationCompact,
-  formatCost,
-  firstInformativeLine,
-  getTextContent,
-  clusterPrefillContent,
   buildTraceTurns,
-  flattenSpans,
-  pickAutoPlatform,
-  parseToolArguments,
+  clusterPrefillContent,
   detectPatch,
-  extractEmbeddedPatch,
   diffLineSegments,
+  extractEmbeddedPatch,
+  firstInformativeLine,
+  flattenSpans,
+  formatBytes,
+  formatCost,
+  formatDurationCompact,
+  getTextContent,
+  parseTimestampMs,
+  parseToolArguments,
+  pickAutoPlatform,
 } from './pure';
-export { escapeHtml, renderMarkdownHtml, renderMarkdown } from './markdown';

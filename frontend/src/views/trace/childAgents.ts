@@ -2,8 +2,8 @@
 // TraceView, ChildAgentsSection and the sessions detail (via useActiveSessionDetail).
 // Behavior ported from public/js/app.js (childrenEndpoint/childAgentLabel/getSessionChildren).
 
-import { useQuery } from '@tanstack/react-query';
 import type { UseQueryResult } from '@tanstack/react-query';
+import { useQuery } from '@tanstack/react-query';
 import { getSessionChild, getSessionChildren, getSessionDetail } from '@/api/client';
 import type { ChildAgentSummary, Platform, SessionDetail } from '@/api/types';
 import { PLATFORM_CAPABILITIES } from '@/api/types';
@@ -30,10 +30,7 @@ export function useChildrenQuery(): UseQueryResult<ChildAgentSummary[]> {
   return useQuery({
     queryKey: ['session-children', platform, sessionId],
     enabled: hasChildAgents(platform) && !!sessionId,
-    queryFn: () =>
-      getSessionChildren(platform as ChildPlatform, sessionId, dir).catch(
-        () => [] as ChildAgentSummary[]
-      ),
+    queryFn: () => getSessionChildren(platform as ChildPlatform, sessionId, dir).catch(() => [] as ChildAgentSummary[]),
   });
 }
 

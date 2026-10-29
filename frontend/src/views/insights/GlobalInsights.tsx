@@ -10,7 +10,7 @@ import { PLATFORM_LABELS } from '@/api/types';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { formatCost } from '@/lib/pure';
 import { dirForPlatform, useAppStore } from '@/store';
-import { InsightSection, ScopeChip, StatCard, UsageBar, fmtTokens } from './bits';
+import { fmtTokens, InsightSection, ScopeChip, StatCard, UsageBar } from './bits';
 import { ToolsAuditSection } from './ToolsAuditSection';
 
 /** One error cluster row — click header toggles examples; example links jump to the failing message. */
@@ -24,8 +24,17 @@ function ClusterItem({
   const [expanded, setExpanded] = useState(false);
   return (
     <div
+      role="treeitem"
+      tabIndex={0}
+      aria-expanded={expanded}
       className="cursor-pointer rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2"
       onClick={() => setExpanded((v) => !v)}
+      onKeyDown={(event) => {
+        if (event.key === 'Enter' || event.key === ' ') {
+          event.preventDefault();
+          setExpanded((v) => !v);
+        }
+      }}
     >
       <div className="flex items-start justify-between gap-2">
         <span className="min-w-0 break-all text-[13px]" title={cluster.pattern}>
@@ -68,8 +77,7 @@ export function GlobalInsights() {
   const agent = platform === 'openclaw' && selectedAgent ? selectedAgent : undefined;
   const query = useQuery({
     queryKey: ['insights', platform, agent ?? ''],
-    queryFn: () =>
-      getInsights({ platform, agent, dir: dirForPlatform(settings, platform) || undefined }),
+    queryFn: () => getInsights({ platform, agent, dir: dirForPlatform(settings, platform) || undefined }),
   });
 
   // Error-example session link: land on the failing message in the sessions view.
@@ -114,8 +122,7 @@ export function GlobalInsights() {
   return (
     <div className="flex flex-col gap-4">
       <h2 className="flex items-center gap-2 text-lg font-semibold">
-        全局分析{agent ? ` — ${agent}` : ''}{' '}
-        <ScopeChip>📍 当前平台：{PLATFORM_LABELS[platform] || platform}</ScopeChip>
+        全局分析{agent ? ` — ${agent}` : ''} <ScopeChip>📍 当前平台：{PLATFORM_LABELS[platform] || platform}</ScopeChip>
       </h2>
 
       <div className="flex flex-wrap gap-3">
@@ -123,18 +130,10 @@ export function GlobalInsights() {
         <StatCard value={data.totalToolCalls} label="Tool Calls" />
         <StatCard value={`${errPct}%`} label="Error Rate" tone="error" />
         <StatCard value={fmtTokens(tokenTotal)} label="Tokens (in+out)" tone="token" />
-        {cacheRead > 0 && (
-          <StatCard value={fmtTokens(cacheRead)} label="Cache Read" tone="token" />
-        )}
-        {cacheWrite > 0 && (
-          <StatCard value={fmtTokens(cacheWrite)} label="Cache Write" tone="token" />
-        )}
-        {reasoning > 0 && (
-          <StatCard value={fmtTokens(reasoning)} label="Reasoning" tone="token" />
-        )}
-        {data.totalCost > 0 && (
-          <StatCard value={`💰 ${formatCost(data.totalCost)}`} label="Cost" tone="cost" />
-        )}
+        {cacheRead > 0 && <StatCard value={fmtTokens(cacheRead)} label="Cache Read" tone="token" />}
+        {cacheWrite > 0 && <StatCard value={fmtTokens(cacheWrite)} label="Cache Write" tone="token" />}
+        {reasoning > 0 && <StatCard value={fmtTokens(reasoning)} label="Reasoning" tone="token" />}
+        {data.totalCost > 0 && <StatCard value={`💰 ${formatCost(data.totalCost)}`} label="Cost" tone="cost" />}
       </div>
 
       <div className="grid gap-4 lg:grid-cols-2">
@@ -155,11 +154,9 @@ export function GlobalInsights() {
                   <TableRow key={t.name}>
                     <TableCell className="font-medium">{t.name}</TableCell>
                     <TableCell>{t.calls}</TableCell>
+                    <TableCell className={t.errors > 0 ? 'text-destructive' : ''}>{t.errors || '—'}</TableCell>
                     <TableCell className={t.errors > 0 ? 'text-destructive' : ''}>
-                      {t.errors || '—'}
-                    </TableCell>
-                    <TableCell className={t.errors > 0 ? 'text-destructive' : ''}>
-                      {t.errors > 0 ? (t.errorRate * 100).toFixed(1) + '%' : '—'}
+                      {t.errors > 0 ? `${(t.errorRate * 100).toFixed(1)}%` : '—'}
                     </TableCell>
                     <TableCell>
                       <UsageBar pct={Math.max(2, Math.round((t.calls / maxCalls) * 100))} />
@@ -214,9 +211,7 @@ export function GlobalInsights() {
                     style={{ height: `${Math.max(1, Math.round((d.toolCalls / maxTrend) * 90))}px` }}
                   />
                 </div>
-                {d.cost > 0 && (
-                  <span className="text-[10px] text-[#3fb950]">{formatCost(d.cost)}</span>
-                )}
+                {d.cost > 0 && <span className="text-[10px] text-[#3fb950]">{formatCost(d.cost)}</span>}
                 <span className="text-[10px] text-muted-foreground">{d.date.slice(5)}</span>
               </div>
             ))}

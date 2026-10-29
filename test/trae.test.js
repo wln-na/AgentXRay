@@ -101,7 +101,7 @@ test('listTraeSessions sorts newest-first with title from first user_message', a
 
 test('find + getSession resolve by session id (nested YYYY/MM/DD layout)', async () => {
   const filePath = await trae.findTraeSessionFile(ROOT, S1);
-  assert.ok(filePath && filePath.endsWith(`${S1}.jsonl`));
+  assert.ok(filePath?.endsWith(`${S1}.jsonl`));
   const got = await trae.getTraeSession(ROOT, S2);
   assert.equal(got.session.id, S2);
   assert.equal(await trae.findTraeSessionFile(ROOT, 'no-such-session'), null);

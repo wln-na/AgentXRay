@@ -44,6 +44,83 @@ var __axrPure = (() => {
     renderMarkdownHtml: () => renderMarkdownHtml
   });
 
+  // frontend/src/lib/markdown.ts
+  function escapeHtml(value) {
+    return String(value).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+  }
+  function renderMarkdownInline(s) {
+    s = s.replace(/\[([^\]]+)\]\((https?:[^\s)]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>');
+    s = s.replace(/\*\*([^*\n]+)\*\*/g, "<strong>$1</strong>");
+    s = s.replace(/__([^_\n]+)__/g, "<strong>$1</strong>");
+    s = s.replace(/(^|[^*])\*([^*\n]+)\*/g, "$1<em>$2</em>");
+    s = s.replace(/`([^`]+)`/g, "<code>$1</code>");
+    return s;
+  }
+  function renderMarkdownBlock(segment) {
+    const lines = segment.split("\n");
+    const out = [];
+    let para = [];
+    let list = null;
+    const flushPara = () => {
+      const text = para.join("\n").replace(/^\n+|\n+$/g, "");
+      if (text.trim()) out.push(`<p>${renderMarkdownInline(text).replace(/\n/g, "<br>")}</p>`);
+      para = [];
+    };
+    const flushList = () => {
+      if (list) out.push(`<${list.type}>${list.items.join("")}</${list.type}>`);
+      list = null;
+    };
+    for (const line of lines) {
+      const h = line.match(/^(#{1,6})\s+(.*)$/);
+      const ul = line.match(/^\s*[-*]\s+(.*)$/);
+      const ol = line.match(/^\s*\d+[.、]\s+(.*)$/);
+      if (h) {
+        flushPara();
+        flushList();
+        out.push(`<h${h[1].length}>${renderMarkdownInline(h[2])}</h${h[1].length}>`);
+      } else if (ul) {
+        flushPara();
+        if (list?.type !== "ul") {
+          flushList();
+          list = { type: "ul", items: [] };
+        }
+        list.items.push(`<li>${renderMarkdownInline(ul[1])}</li>`);
+      } else if (ol) {
+        flushPara();
+        if (list?.type !== "ol") {
+          flushList();
+          list = { type: "ol", items: [] };
+        }
+        list.items.push(`<li>${renderMarkdownInline(ol[1])}</li>`);
+      } else if (!line.trim()) {
+        flushPara();
+        flushList();
+      } else {
+        flushList();
+        para.push(line);
+      }
+    }
+    flushPara();
+    flushList();
+    return out.join("");
+  }
+  function renderMarkdownHtml(text) {
+    const escaped = escapeHtml(text);
+    const segments = escaped.split(/```/);
+    return segments.map((segment, index) => {
+      if (index % 2 === 1) {
+        const lines = segment.split("\n");
+        const maybeLang = lines[0].trim();
+        const code = lines.slice(1).join("\n") || lines.join("\n");
+        return `<pre><code data-lang="${escapeHtml(maybeLang)}">${code}</code></pre>`;
+      }
+      return renderMarkdownBlock(segment);
+    }).join("");
+  }
+  function renderMarkdown(text) {
+    return `<div class="markdown">${renderMarkdownHtml(text)}</div>`;
+  }
+
   // frontend/src/lib/pure.ts
   function num(value) {
     return typeof value === "number" && Number.isFinite(value) ? value : 0;
@@ -83,7 +160,7 @@ var __axrPure = (() => {
     return `${seconds}s`;
   }
   function formatCost(dollars) {
-    return "$" + (dollars >= 0.01 ? dollars.toFixed(2) : dollars.toFixed(4));
+    return `$${dollars >= 0.01 ? dollars.toFixed(2) : dollars.toFixed(4)}`;
   }
   function pickAutoPlatform(counts, order) {
     if (!counts) return null;
@@ -115,7 +192,7 @@ var __axrPure = (() => {
       prefix = prefix.slice(0, i);
     }
     if (examples.length > 1 && prefix.trim().length >= 30 && prefix.length < examples[0].length) {
-      return prefix.replace(/\s+$/, "") + " $ARGUMENTS";
+      return `${prefix.replace(/\s+$/, "")} $ARGUMENTS`;
     }
     return examples[0];
   }
@@ -176,7 +253,9 @@ var __axrPure = (() => {
       raw = args;
     } else if (typeof args === "object") {
       const o = args;
-      const pick = TOOL_SUBJECT_FIELDS.map((k) => o[k]).find((v) => typeof v === "string" && v.trim().length > 0 || Array.isArray(v));
+      const pick = TOOL_SUBJECT_FIELDS.map((k) => o[k]).find(
+        (v) => typeof v === "string" && v.trim().length > 0 || Array.isArray(v)
+      );
       if (pick === void 0) return "";
       raw = Array.isArray(pick) ? String(pick[pick.length - 1] ?? "").trim() : String(pick).trim();
     }
@@ -287,7 +366,7 @@ var __axrPure = (() => {
       }
       if (!owner) continue;
       owner.spans.push({
-        kind: r && r.isError ? "tool-error" : "tool",
+        kind: r?.isError ? "tool-error" : "tool",
         label: c.name,
         start: c.ts,
         end,
@@ -350,7 +429,7 @@ var __axrPure = (() => {
       const parent = s.msgId && chatByMsgId.get(s.msgId) || lastChat;
       if (parent) {
         s.depth = 1;
-        parent.children.push(s);
+        parent.children?.push(s);
       } else {
         s.depth = 0;
         roots.push(s);
@@ -377,7 +456,11 @@ var __axrPure = (() => {
         try {
           const parsed = JSON.parse(trimmed);
           if (parsed !== null && typeof parsed === "object") {
-            return { object: parsed, text: JSON.stringify(parsed, null, 2), wasJsonString: true };
+            return {
+              object: parsed,
+              text: JSON.stringify(parsed, null, 2),
+              wasJsonString: true
+            };
           }
           return { object: null, text: String(parsed), wasJsonString: true };
         } catch {
@@ -427,83 +510,6 @@ var __axrPure = (() => {
       if (line.startsWith("-")) return { type: "del", text: line };
       return { type: "context", text: line };
     });
-  }
-
-  // frontend/src/lib/markdown.ts
-  function escapeHtml(value) {
-    return String(value).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#39;");
-  }
-  function renderMarkdownInline(s) {
-    s = s.replace(/\[([^\]]+)\]\((https?:[^\s)]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>');
-    s = s.replace(/\*\*([^*\n]+)\*\*/g, "<strong>$1</strong>");
-    s = s.replace(/__([^_\n]+)__/g, "<strong>$1</strong>");
-    s = s.replace(/(^|[^*])\*([^*\n]+)\*/g, "$1<em>$2</em>");
-    s = s.replace(/`([^`]+)`/g, "<code>$1</code>");
-    return s;
-  }
-  function renderMarkdownBlock(segment) {
-    const lines = segment.split("\n");
-    const out = [];
-    let para = [];
-    let list = null;
-    const flushPara = () => {
-      const text = para.join("\n").replace(/^\n+|\n+$/g, "");
-      if (text.trim()) out.push(`<p>${renderMarkdownInline(text).replace(/\n/g, "<br>")}</p>`);
-      para = [];
-    };
-    const flushList = () => {
-      if (list) out.push(`<${list.type}>${list.items.join("")}</${list.type}>`);
-      list = null;
-    };
-    for (const line of lines) {
-      const h = line.match(/^(#{1,6})\s+(.*)$/);
-      const ul = line.match(/^\s*[-*]\s+(.*)$/);
-      const ol = line.match(/^\s*\d+[.、]\s+(.*)$/);
-      if (h) {
-        flushPara();
-        flushList();
-        out.push(`<h${h[1].length}>${renderMarkdownInline(h[2])}</h${h[1].length}>`);
-      } else if (ul) {
-        flushPara();
-        if (!list || list.type !== "ul") {
-          flushList();
-          list = { type: "ul", items: [] };
-        }
-        list.items.push(`<li>${renderMarkdownInline(ul[1])}</li>`);
-      } else if (ol) {
-        flushPara();
-        if (!list || list.type !== "ol") {
-          flushList();
-          list = { type: "ol", items: [] };
-        }
-        list.items.push(`<li>${renderMarkdownInline(ol[1])}</li>`);
-      } else if (!line.trim()) {
-        flushPara();
-        flushList();
-      } else {
-        flushList();
-        para.push(line);
-      }
-    }
-    flushPara();
-    flushList();
-    return out.join("");
-  }
-  function renderMarkdownHtml(text) {
-    const escaped = escapeHtml(text);
-    const segments = escaped.split(/```/);
-    return segments.map((segment, index) => {
-      if (index % 2 === 1) {
-        const lines = segment.split("\n");
-        const maybeLang = lines[0].trim();
-        const code = lines.slice(1).join("\n") || lines.join("\n");
-        return `<pre><code data-lang="${escapeHtml(maybeLang)}">${code}</code></pre>`;
-      }
-      return renderMarkdownBlock(segment);
-    }).join("");
-  }
-  function renderMarkdown(text) {
-    return `<div class="markdown">${renderMarkdownHtml(text)}</div>`;
   }
   return __toCommonJS(legacy_pure_exports);
 })();

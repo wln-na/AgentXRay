@@ -12,11 +12,13 @@ function sessionListSource() {
 describe('React session list semantic badges', () => {
   it('keeps semantic badge order and always renders the tool-call count', () => {
     const source = sessionListSource();
-    const user = source.indexOf("kind: 'user', text: `👤 ${session.userCount} 条用户消息`");
-    const assistant = source.indexOf("kind: 'assistant', text: `🤖 ${session.assistantCount} 条助手消息`");
-    const tool = source.indexOf("kind: 'tool', text: `🔧 ${session.toolCallCount || 0} 次工具调用`");
-    const spawn = source.indexOf("kind: 'spawn', text: `🌳 ${spawnCount} 个子 Agent`");
-    const model = source.indexOf("kind: 'model', text: `🧠 ${session.model.split('/').pop() || session.model}`");
+    const user = source.search(/kind: 'user', text: `👤 \$\{session\.userCount\} 条用户消息`/);
+    const assistant = source.search(/kind: 'assistant', text: `🤖 \$\{session\.assistantCount\} 条助手消息`/);
+    const tool = source.search(/kind: 'tool', text: `🔧 \$\{session\.toolCallCount \|\| 0\} 次工具调用`/);
+    const spawn = source.search(/kind: 'spawn', text: `🌳 \$\{spawnCount\} 个子 Agent`/);
+    const model = source.search(
+      /kind: 'model', text: `🧠 \$\{session\.model\.split\('\/'\)\.pop\(\) \|\| session\.model\}`/
+    );
 
     for (const [name, index] of Object.entries({ user, assistant, tool, spawn, model })) {
       assert.notEqual(index, -1, `missing ${name} badge`);
@@ -29,7 +31,7 @@ describe('React session list semantic badges', () => {
 
   it('selects the session and opens trace without bubbling from the spawn chip', () => {
     const source = sessionListSource();
-    const handler = source.match(/const onSpawnClick = [\s\S]*?\n  };/)?.[0] || '';
+    const handler = source.match(/const onSpawnClick = [\s\S]*?\n {2}};/)?.[0] || '';
 
     assert.match(handler, /event\.stopPropagation\(\)/);
     assert.match(handler, /onSelect\(session\.id\)/);

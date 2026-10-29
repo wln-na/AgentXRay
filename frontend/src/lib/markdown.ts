@@ -49,14 +49,14 @@ function renderMarkdownBlock(segment: string): string {
       out.push(`<h${h[1].length}>${renderMarkdownInline(h[2])}</h${h[1].length}>`);
     } else if (ul) {
       flushPara();
-      if (!list || list.type !== 'ul') {
+      if (list?.type !== 'ul') {
         flushList();
         list = { type: 'ul', items: [] };
       }
       list.items.push(`<li>${renderMarkdownInline(ul[1])}</li>`);
     } else if (ol) {
       flushPara();
-      if (!list || list.type !== 'ol') {
+      if (list?.type !== 'ol') {
         flushList();
         list = { type: 'ol', items: [] };
       }

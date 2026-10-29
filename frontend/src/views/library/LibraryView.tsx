@@ -7,14 +7,8 @@ import { useState } from 'react';
 import { getLibrary, getLibraryUsage } from '@/api/client';
 import type { LibraryPrompt } from '@/api/types';
 import { Button } from '@/components/ui/button';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select';
 import { Input } from '@/components/ui/input';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { LIB_SORT_KEY, useAppStore } from '@/store';
 import { LibraryCard } from './LibraryCard';
 import { LibraryFabricDialog } from './LibraryFabricDialog';
@@ -60,9 +54,7 @@ export function LibraryView() {
   }
   if (library.isError) {
     return (
-      <div className="p-4 text-sm text-destructive">
-        Failed to load library: {(library.error as Error).message}
-      </div>
+      <div className="p-4 text-sm text-destructive">Failed to load library: {(library.error as Error).message}</div>
     );
   }
 
@@ -72,9 +64,7 @@ export function LibraryView() {
   if (sort === 'uses') {
     prompts.sort((a, b) => (usage?.[b.name]?.uses || 0) - (usage?.[a.name]?.uses || 0));
   } else {
-    prompts.sort(
-      (a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime()
-    );
+    prompts.sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime());
   }
 
   const changeSort = (value: LibrarySort) => {
@@ -114,8 +104,7 @@ export function LibraryView() {
       </div>
       <div className="text-sm text-muted-foreground">
         <span className="mr-2 rounded-full bg-muted px-2 py-px text-xs">🌐 全平台</span>
-        Prompt 资产库（~/.agentxray/library）— 点亮 Claude / Codex / OMP
-        开关即安装为该工具的 slash command，工具内{' '}
+        Prompt 资产库（~/.agentxray/library）— 点亮 Claude / Codex / OMP 开关即安装为该工具的 slash command，工具内{' '}
         <code className="rounded bg-muted px-1 text-xs">/名字</code> 调用 · {all.length} prompt
         {all.length === 1 ? '' : 's'}
         {q ? ` — showing ${prompts.length}` : ''}

@@ -4,7 +4,7 @@
 // Behavior reference: public/js/app.js loadPrompts/renderPrompts.
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useId, useMemo, useState } from 'react';
 import { toast } from 'sonner';
 
 import { getHiddenPrompts, getPromptAnalysis, getPrompts } from '@/api/client';
@@ -14,21 +14,16 @@ import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
 import { clusterPrefillContent } from '@/lib/pure';
-import { HIDE_TRIVIAL_KEY, dirForPlatform, loadStoredFlag, saveStoredFlag, useAppStore } from '@/store';
-import { LibraryFormDialog, heuristicLibraryName } from '@/views/library/LibraryFormDialog';
+import { dirForPlatform, HIDE_TRIVIAL_KEY, loadStoredFlag, saveStoredFlag, useAppStore } from '@/store';
+import { heuristicLibraryName, LibraryFormDialog } from '@/views/library/LibraryFormDialog';
 
 import { PromptGroupSection } from './PromptGroupSection';
 import { PromptsAnalysis } from './PromptsAnalysis';
 import { PromptsHiddenDialog } from './PromptsHiddenDialog';
-import {
-  downloadJson,
-  errorMessage,
-  filterPromptGroups,
-  hidePromptTextsChunked,
-  selectionTexts,
-} from './promptsLib';
+import { downloadJson, errorMessage, filterPromptGroups, hidePromptTextsChunked, selectionTexts } from './promptsLib';
 
 export function PromptsView() {
+  const hideTrivialId = useId();
   const platform = useAppStore((s) => s.platform);
   const selectedAgent = useAppStore((s) => s.selectedAgent);
   const settings = useAppStore((s) => s.settings);
@@ -94,7 +89,7 @@ export function PromptsView() {
       void queryClient.invalidateQueries({ queryKey: ['prompts'] });
       void queryClient.invalidateQueries({ queryKey: ['prompts-hidden'] });
     },
-    onError: (error) => toast.error('隐藏失败: ' + errorMessage(error)),
+    onError: (error) => toast.error(`隐藏失败: ${errorMessage(error)}`),
   });
 
   const filtered = useMemo(
@@ -147,10 +142,12 @@ export function PromptsView() {
           {analyzeLabel}
         </Button>
         <label
+          htmlFor={hideTrivialId}
           className="flex cursor-pointer items-center gap-1.5 text-xs"
           title="隐藏折叠后不足 12 字符的琐碎 prompt（搜索时自动停用）"
         >
           <Checkbox
+            id={hideTrivialId}
             checked={hideTrivial}
             onCheckedChange={(v) => {
               setHideTrivialState(v === true);
@@ -188,11 +185,10 @@ export function PromptsView() {
         <span className="mr-1 rounded-full border border-border bg-secondary px-2 py-0.5">
           📍 当前平台：{PLATFORM_LABELS[platform] || platform}
         </span>
-        从会话历史自动提取的真人 prompt（已过滤工具输出与系统注入），按目录分组 — 每条可 ⭐
-        收藏入库、「优化」用 Claude 改写 · {data.totalPrompts} prompts / {data.totalSessions} sessions /{' '}
-        {data.groups.length} directories
+        从会话历史自动提取的真人 prompt（已过滤工具输出与系统注入），按目录分组 — 每条可 ⭐ 收藏入库、「优化」用 Claude
+        改写 · {data.totalPrompts} prompts / {data.totalSessions} sessions / {data.groups.length} directories
         {q && filtered ? ` — showing ${filtered.shownPrompts} prompts / ${filtered.shownSessions} sessions` : ''}
-        {filtered && filtered.trivialActive && filtered.trivialHidden > 0 && (
+        {filtered?.trivialActive && filtered.trivialHidden > 0 && (
           <span className="ml-1 rounded-full border border-border bg-secondary px-2 py-0.5">
             已滤琐碎 {filtered.trivialHidden}
           </span>

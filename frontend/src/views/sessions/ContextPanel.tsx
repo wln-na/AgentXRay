@@ -4,8 +4,8 @@
 // re-rendered here (it's already visible in the main message stream).
 
 import { useEffect, useState } from 'react';
-import type { ContextSnapshot, Platform, SessionMessage } from '@/api/types';
 import { getSessionContext } from '@/api/client';
+import type { ContextSnapshot, Platform, SessionMessage } from '@/api/types';
 import { DEMO } from '@/demo/flag';
 import { getTextContent } from '@/lib/pure';
 import { cn } from '@/lib/utils';
@@ -29,7 +29,12 @@ function PromptComponent({ component }: { component: ContextSnapshot['systemProm
         className="flex w-full cursor-pointer items-center justify-between gap-2 px-2 py-1.5 text-left"
       >
         <span className="flex min-w-0 items-center gap-1.5">
-          <span className={cn('h-1.5 w-1.5 shrink-0 rounded-full', component.present ? 'bg-green-500' : 'bg-muted-foreground/40')} />
+          <span
+            className={cn(
+              'h-1.5 w-1.5 shrink-0 rounded-full',
+              component.present ? 'bg-green-500' : 'bg-muted-foreground/40'
+            )}
+          />
           <span className="truncate text-[11px] font-medium text-foreground">{component.label}</span>
           {component.source ? (
             <span className="shrink-0 truncate text-[9px] text-muted-foreground">{component.source}</span>
@@ -42,9 +47,7 @@ function PromptComponent({ component }: { component: ContextSnapshot['systemProm
       {expanded ? (
         <div className="border-t border-border/50 px-2 py-1.5">
           {!component.present ? (
-            <div className="text-[11px] text-muted-foreground">
-              {component.note || '无法从日志获取'}
-            </div>
+            <div className="text-[11px] text-muted-foreground">{component.note || '无法从日志获取'}</div>
           ) : hasContent ? (
             <pre className="max-h-64 overflow-x-auto whitespace-pre-wrap break-words rounded bg-muted/50 p-2 font-mono text-[10.5px] leading-relaxed">
               {component.content}
@@ -60,7 +63,8 @@ function PromptComponent({ component }: { component: ContextSnapshot['systemProm
 
 function ContextMessageRow({ message, label }: { message: SessionMessage; label?: string }) {
   const text = getTextContent(message.content);
-  const details = message.details && typeof message.details === 'object' ? JSON.stringify(message.details, null, 2) : '';
+  const details =
+    message.details && typeof message.details === 'object' ? JSON.stringify(message.details, null, 2) : '';
   const content = text || details || '（无可显示文本）';
   return (
     <details className="rounded border border-border/50 bg-secondary/10 px-2 py-1.5">
@@ -115,7 +119,8 @@ export function ContextPanel({
   if (DEMO) {
     return (
       <div className="rounded-md border border-[#58a6ff]/30 bg-[#58a6ff]/5 px-2.5 py-2 text-[11px] text-[#58a6ff]">
-        💡 演示模式不支持上下文重建。连接本地 AgentXRay 后端（<code className="font-mono">npm start</code>）后，可在真实会话中查看模型重建的完整上下文。
+        💡 演示模式不支持上下文重建。连接本地 AgentXRay 后端（<code className="font-mono">npm start</code>
+        ）后，可在真实会话中查看模型重建的完整上下文。
       </div>
     );
   }
@@ -151,9 +156,7 @@ export function ContextPanel({
 
       {/* Sources + missing items */}
       <div className="flex flex-wrap gap-x-3 gap-y-1 text-[10px] text-muted-foreground">
-        <span>
-          来源：{snapshot.metadata.sources.join(' · ')}
-        </span>
+        <span>来源：{snapshot.metadata.sources.join(' · ')}</span>
       </div>
       {snapshot.metadata.missingItems.length > 0 ? (
         <div className="text-[10px] text-muted-foreground">
@@ -177,7 +180,9 @@ export function ContextPanel({
       {/* Current user input */}
       {snapshot.messages.target ? (
         <div>
-          <div className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">本轮用户输入</div>
+          <div className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+            本轮用户输入
+          </div>
           <ContextMessageRow message={snapshot.messages.target} label="user" />
         </div>
       ) : null}
@@ -193,7 +198,10 @@ export function ContextPanel({
         {snapshot.messages.included && snapshot.messages.items?.length ? (
           <div className="max-h-96 space-y-1 overflow-auto pr-1">
             {snapshot.messages.items.map((message, index) => (
-              <ContextMessageRow key={`${message.id || message.timestamp || message.role}-${index}`} message={message} />
+              <ContextMessageRow
+                key={`${message.id || message.timestamp || message.role}-${index}`}
+                message={message}
+              />
             ))}
           </div>
         ) : (

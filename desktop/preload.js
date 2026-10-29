@@ -6,6 +6,7 @@
 // 暴露面（window.pet）：
 //   getInfo()                  → Promise<{host,port,geom,grid,states,skin,debug}>
 //   openSession({platform,sessionId,agent}) → Promise<OpenSessionResult>   // N1：只跳转，永不回复
+//   ignoreSession({platform,sessionId,agent,durationMs?}) → Promise        // 忽略该会话（气泡不再提醒）
 //   setInteractive(bool)       → Promise<true>                             // pointer 是否在热区
 //   drag({phase:'start'|'end'})→ Promise<true>                             // ⌘/右键拖动移动窗口
 //   onState(cb)                → off()   // 主进程推送 pet:state
@@ -15,7 +16,14 @@
 
 const { contextBridge, ipcRenderer } = require('electron');
 
-const ALLOWED_PUSH = new Set(['pet:state', 'pet:status', 'pet:fullscreen', 'pet:open-result']);
+const ALLOWED_PUSH = new Set([
+  'pet:state',
+  'pet:status',
+  'pet:fullscreen',
+  'pet:open-result',
+  'pet:geom',
+  'pet:drag-cancel',
+]);
 
 function subscribe(channel, cb) {
   if (!ALLOWED_PUSH.has(channel) || typeof cb !== 'function') return () => {};
@@ -27,9 +35,13 @@ function subscribe(channel, cb) {
 contextBridge.exposeInMainWorld('pet', {
   getInfo: () => ipcRenderer.invoke('pet:get-info'),
   openSession: (payload) => ipcRenderer.invoke('pet:open-session', payload),
+  ignoreSession: (payload) => ipcRenderer.invoke('pet:ignore-session', payload),
   setInteractive: (value) => ipcRenderer.invoke('pet:set-interactive', !!value),
   drag: (payload) => ipcRenderer.invoke('pet:drag', payload),
+  setExpanded: (value) => ipcRenderer.invoke('pet:set-expanded', !!value),
   onState: (cb) => subscribe('pet:state', cb),
+  onGeom: (cb) => subscribe('pet:geom', cb),
+  onDragCancel: (cb) => subscribe('pet:drag-cancel', cb),
   onStatus: (cb) => subscribe('pet:status', cb),
   onFullscreen: (cb) => subscribe('pet:fullscreen', cb),
   onOpenResult: (cb) => subscribe('pet:open-result', cb),

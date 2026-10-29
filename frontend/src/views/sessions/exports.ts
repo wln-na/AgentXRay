@@ -57,14 +57,14 @@ export function sessionToMarkdown(detail: SessionDetail, platform: Platform, sel
       }
     } else if (msg.role === 'toolResult') {
       const name = msg.toolName || (msg.name as string | undefined) || '';
-      lines.push(`### ${msg.isError ? '❌' : '📋'} Tool Result${name ? ': ' + name : ''} ${ts ? `(${ts})` : ''}`);
+      lines.push(`### ${msg.isError ? '❌' : '📋'} Tool Result${name ? `: ${name}` : ''} ${ts ? `(${ts})` : ''}`);
       lines.push('');
       const output = text || (typeof msg.content === 'string' ? msg.content : JSON.stringify(msg.content, null, 2));
       // Truncate very long tool outputs
       const maxLen = 2000;
       lines.push('```');
       lines.push(
-        output.length > maxLen ? output.slice(0, maxLen) + `\n\n... (truncated, ${output.length} chars total)` : output
+        output.length > maxLen ? `${output.slice(0, maxLen)}\n\n... (truncated, ${output.length} chars total)` : output
       );
       lines.push('```');
       lines.push('');
@@ -116,7 +116,7 @@ export async function runExport(
   selectedSessionId: string,
   dir: string | undefined,
   agent?: string
-): Promise<'copied' | void> {
+): Promise<'copied' | undefined> {
   if (format === 'markdown' || format === 'html') {
     if (DEMO) {
       // No backend in demo mode — fall back to the client-side markdown serializer.
@@ -148,7 +148,7 @@ export async function runExport(
       const data = await getOtlp(platform, selectedSessionId, dir);
       downloadFile(JSON.stringify(data, null, 2), `${selectedSessionId}-otlp.json`, 'application/json;charset=utf-8');
     } catch (error) {
-      toast.error('OTLP 导出失败: ' + (error as Error).message);
+      toast.error(`OTLP 导出失败: ${(error as Error).message}`);
     }
   }
 }

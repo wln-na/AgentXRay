@@ -8,8 +8,8 @@ import type { PromptEntry, PromptGroup, PromptSession } from '@/api/types';
 import { cn } from '@/lib/utils';
 
 import { PromptItemRow } from './PromptItemRow';
-import { TriCheckbox } from './TriCheckbox';
 import { groupKeys, promptKey, sessionKeys } from './promptsLib';
+import { TriCheckbox } from './TriCheckbox';
 
 function triState(keys: string[], selection: Set<string>): boolean | 'indeterminate' {
   let checked = 0;
@@ -77,9 +77,18 @@ export function PromptGroupSection({
           return (
             <div key={s.id} className="rounded-md border border-border/70">
               <div
+                role="treeitem"
+                tabIndex={0}
+                aria-expanded={expanded}
                 className="group/session flex cursor-pointer select-none flex-wrap items-center gap-2 px-2 py-1.5 text-xs hover:bg-accent/40"
                 onClick={(e) => {
                   if ((e.target as HTMLElement).closest('button, input, a, [data-session-link]')) return;
+                  setOpenOverrides((prev) => ({ ...prev, [si]: !expanded }));
+                }}
+                onKeyDown={(e) => {
+                  if (e.key !== 'Enter' && e.key !== ' ') return;
+                  if ((e.target as HTMLElement).closest('button, input, a, [data-session-link]')) return;
+                  e.preventDefault();
                   setOpenOverrides((prev) => ({ ...prev, [si]: !expanded }));
                 }}
               >
@@ -92,9 +101,10 @@ export function PromptGroupSection({
                 )}
                 <span className="text-muted-foreground">{expanded ? '▼' : '▶'}</span>
                 <span className="text-muted-foreground">{dateStr}</span>
-                <span
+                <button
+                  type="button"
                   data-session-link
-                  className="cursor-pointer font-mono text-primary hover:underline"
+                  className="cursor-pointer bg-transparent p-0 font-mono text-primary hover:underline"
                   title="Open session"
                   onClick={(e) => {
                     e.stopPropagation();
@@ -102,11 +112,8 @@ export function PromptGroupSection({
                   }}
                 >
                   {s.id.slice(0, 12)}…
-                </span>
-                <span
-                  className="min-w-0 flex-1 truncate text-foreground/80"
-                  title={s.prompts[0].text.slice(0, 500)}
-                >
+                </button>
+                <span className="min-w-0 flex-1 truncate text-foreground/80" title={s.prompts[0].text.slice(0, 500)}>
                   {s.prompts[0].text.replace(/\s+/g, ' ').slice(0, 160)}
                 </span>
                 {s.slug && <span className="text-muted-foreground">{s.slug}</span>}
@@ -116,6 +123,7 @@ export function PromptGroupSection({
                 </span>
                 {!selectMode && (
                   <button
+                    type="button"
                     className={cn(
                       'rounded px-1.5 py-0.5 opacity-0 transition-opacity hover:bg-destructive/20',
                       'group-hover/session:opacity-100'

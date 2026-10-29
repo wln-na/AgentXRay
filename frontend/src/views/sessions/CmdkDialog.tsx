@@ -7,13 +7,14 @@ import { useQueryClient } from '@tanstack/react-query';
 import { useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
 import { getSessionChild, searchSessions } from '@/api/client';
-import type { Platform, SearchMatch, SearchResult, SessionMessage } from '@/api/types';
+import type { Platform, SearchMatch, SearchResult, SessionDetail, SessionMessage } from '@/api/types';
 import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog';
 import { getTextContent, parseTimestampMs } from '@/lib/pure';
 import { cn } from '@/lib/utils';
 import { dirForPlatform, useAppStore } from '@/store';
-import { sessionDetailOptions, sessionsListOptions } from './queries';
 import { isDisplayableMessage, messageAnchorId } from './lib';
+import { sessionDetailOptions, sessionsListOptions } from './queries';
+
 const PLAT_BADGE: Record<string, [string, string]> = {
   openclaw: ['OpenClaw', '#3fb950'],
   codex: ['Codex', '#58a6ff'],
@@ -24,6 +25,8 @@ const PLAT_BADGE: Record<string, [string, string]> = {
   dsh: ['DeepSeek', '#4d6bfe'],
   gemini: ['Gemini', '#4285f4'],
   doubao: ['Doubao', '#00a870'],
+  workbuddy: ['WorkBuddy', '#0052d9'],
+  trae: ['Trae CN', '#ff5a1f'],
 };
 
 const SOURCE_LABELS: Record<string, string> = {
@@ -89,7 +92,12 @@ function messageSearchText(message: SessionMessage): string {
 function locateTargetMessage(messages: SessionMessage[], q: string, match: SearchMatch | null): string | null {
   const visible = messages.filter(isDisplayableMessage);
   if (match?.messageId) {
-    const byId = visible.find((message) => messageAnchorId(message) === match.messageId || message.id === match.messageId || message.toolCallId === match.messageId);
+    const byId = visible.find(
+      (message) =>
+        messageAnchorId(message) === match.messageId ||
+        message.id === match.messageId ||
+        message.toolCallId === match.messageId
+    );
     if (byId) return messageAnchorId(byId);
   }
   const hitTs = match ? parseTimestampMs(match.timestamp) : null;
@@ -147,7 +155,7 @@ export function CmdkDialog({
       if (seq !== seqRef.current) return;
       setRows([]);
       setHitCount(0);
-      toast.error('搜索失败: ' + (err as Error).message);
+      toast.error(`搜索失败: ${(err as Error).message}`);
     } finally {
       if (seq === seqRef.current) setSearching(false);
     }
@@ -194,7 +202,7 @@ export function CmdkDialog({
         return;
       }
       store.setSelectedSessionId(found.id);
-      let detail;
+      let detail: SessionDetail;
       if (row.result.childSessionId && (plat === 'codex' || plat === 'claude-code' || plat === 'omp')) {
         store.setViewingChildAgent(row.result.childSessionId);
         detail = await getSessionChild(
@@ -212,7 +220,7 @@ export function CmdkDialog({
       const target = locateTargetMessage(detail.messages, query, row.match);
       if (target) store.requestScrollToMessage(target);
     } catch (err) {
-      toast.error('打开会话失败: ' + (err as Error).message);
+      toast.error(`打开会话失败: ${(err as Error).message}`);
     }
   };
 
@@ -264,13 +272,19 @@ export function CmdkDialog({
               const shortId = result.history
                 ? (result.project || '').replace(/^\/Users\/[^/]+/, '~')
                 : result.sessionId && result.sessionId.length > 20
-                  ? result.sessionId.slice(0, 8) + '…'
+                  ? `${result.sessionId.slice(0, 8)}…`
                   : result.sessionId || '未知会话';
               return (
                 <div
                   key={i}
+                  role="option"
+                  aria-selected={selected === i}
+                  tabIndex={row.clickable ? 0 : -1}
                   data-row-index={i}
                   onClick={() => void openHit(row)}
+                  onKeyDown={(event) => {
+                    if (row.clickable && event.key === 'Enter') void openHit(row);
+                  }}
                   onMouseEnter={() => row.clickable && setSelected(i)}
                   className={cn(
                     'rounded-md px-3 py-2',
@@ -279,14 +293,15 @@ export function CmdkDialog({
                   )}
                 >
                   <div className="flex flex-wrap items-center gap-1.5 text-[11px] text-muted-foreground">
-                    <span
-                      className="rounded px-1"
-                      style={{ color: platColor, border: `1px solid ${platColor}33` }}
-                    >
+                    <span className="rounded px-1" style={{ color: platColor, border: `1px solid ${platColor}33` }}>
                       {platLabel}
                     </span>
                     <span>{shortId}</span>
-                    {result.cwd ? <span className="max-w-[280px] truncate font-mono" title={result.cwd}>{result.cwd.replace(/^\/Users\/[^/]+/, '~')}</span> : null}
+                    {result.cwd ? (
+                      <span className="max-w-[280px] truncate font-mono" title={result.cwd}>
+                        {result.cwd.replace(/^\/Users\/[^/]+/, '~')}
+                      </span>
+                    ) : null}
                     {result.agentNickname || result.agentRole || result.originator ? (
                       <span>来源：{result.agentNickname || result.agentRole || result.originator}</span>
                     ) : null}
@@ -296,7 +311,9 @@ export function CmdkDialog({
                       <span>{SOURCE_LABELS[match.source || ''] || match.role}</span>
                     )}
                     {match.toolName ? <span className="font-mono">{match.toolName}</span> : null}
-                    {match.evidenceType === 'mutation' ? <span className="rounded bg-amber-500/15 px-1 text-amber-500">创建/变更证据</span> : null}
+                    {match.evidenceType === 'mutation' ? (
+                      <span className="rounded bg-amber-500/15 px-1 text-amber-500">创建/变更证据</span>
+                    ) : null}
                     {result.childSessionId ? <span className="text-[#f0883e]">子 Agent</span> : null}
                     {match.timestamp ? <span>{new Date(match.timestamp).toLocaleString()}</span> : null}
                   </div>

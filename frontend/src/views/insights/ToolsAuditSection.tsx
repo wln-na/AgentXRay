@@ -14,15 +14,15 @@ import { InsightSection, ScopeChip, UsageBar } from './bits';
 
 function fmtAuditMs(ms: number | null | undefined): string {
   if (ms == null) return '—';
-  if (ms >= 60000) return (ms / 60000).toFixed(1) + 'm';
-  if (ms >= 1000) return (ms / 1000).toFixed(1) + 's';
-  return Math.round(ms) + 'ms';
+  if (ms >= 60000) return `${(ms / 60000).toFixed(1)}m`;
+  if (ms >= 1000) return `${(ms / 1000).toFixed(1)}s`;
+  return `${Math.round(ms)}ms`;
 }
 
 function fmtAuditDate(iso: string | null | undefined): string {
   if (!iso) return '—';
   const d = new Date(iso);
-  return isNaN(d.getTime()) ? '—' : d.toLocaleDateString();
+  return Number.isNaN(d.getTime()) ? '—' : d.toLocaleDateString();
 }
 
 export function ToolsAuditSection() {
@@ -90,12 +90,10 @@ export function ToolsAuditSection() {
                 {shown.map((t) => (
                   <TableRow key={t.name}>
                     <TableCell className="font-medium">{t.name}</TableCell>
-                    <TableCell className="text-muted-foreground">
-                      {(t.platforms || []).join(', ')}
-                    </TableCell>
+                    <TableCell className="text-muted-foreground">{(t.platforms || []).join(', ')}</TableCell>
                     <TableCell>{t.calls}</TableCell>
                     <TableCell className={t.errors > 0 ? 'text-destructive' : ''}>
-                      {t.errors > 0 ? (t.errorRate * 100).toFixed(1) + '%' : '—'}
+                      {t.errors > 0 ? `${(t.errorRate * 100).toFixed(1)}%` : '—'}
                     </TableCell>
                     <TableCell>{fmtAuditMs(t.avgMs)}</TableCell>
                     <TableCell className="text-muted-foreground">{fmtAuditDate(t.lastUsed)}</TableCell>
@@ -120,11 +118,7 @@ export function ToolsAuditSection() {
             <div className="mb-1.5">配置了但从未使用（{unused.length}）：</div>
             <div className="flex flex-wrap gap-1.5">
               {unused.map((u) => (
-                <code
-                  key={u.name}
-                  title={u.source || ''}
-                  className="rounded bg-secondary px-1.5 py-0.5 text-xs"
-                >
+                <code key={u.name} title={u.source || ''} className="rounded bg-secondary px-1.5 py-0.5 text-xs">
                   {u.name}
                 </code>
               ))}

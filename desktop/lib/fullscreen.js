@@ -11,9 +11,13 @@ const { promisify } = require('node:util');
 
 const execFileAsync = promisify(execFile);
 
-// 「最前台应用的前窗尺寸」——返回 "w, h"。
+// 「最前台应用的主窗尺寸」——返回 "w, h"。
+// 不用 front window：Electron 应用（如 Codex）常有隐藏的离屏辅助窗口（实测有
+// 1132x1805 的离屏渲染窗）排在 AX 窗口列表首位，会被误判成全屏导致宠物隐藏。
+// main window 只指向真正聚焦的可见主窗；同时排除 Finder——它的主窗是整个桌面，
+// 点一下桌面也会被误判。两者都拿不到时 probe 报错，decideHidden 退化为不隐藏。
 const APP_WIN_SCRIPT =
-  'tell application "System Events" to tell (first process whose frontmost is true) to get size of front window';
+  'tell application "System Events" to tell (first process whose frontmost is true and name is not "Finder") to get size of main window';
 // 「桌面（主屏）bounds」——返回 "x1, y1, x2, y2"。
 const SCREEN_BOUNDS_SCRIPT = 'tell application "Finder" to get bounds of window of desktop';
 

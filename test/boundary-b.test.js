@@ -14,9 +14,7 @@ const { createRequire } = require('node:module');
 
 const ROOT = path.join(__dirname, '..');
 const { parseCodexSessionFile, parseCodexSessionMetadata } = require(path.join(ROOT, 'lib', 'platforms', 'codex'));
-const { parseClaudeCodeSessionFile, parseClaudeCodeSessionMetadata } = require(
-  path.join(ROOT, 'lib', 'platforms', 'claude')
-);
+const { parseClaudeCodeSessionFile } = require(path.join(ROOT, 'lib', 'platforms', 'claude'));
 const { parseSessionMetadata, parseSessionFile } = require(path.join(ROOT, 'lib', 'platforms', 'openclaw'));
 const { collectClaudeDesktopEntries, findClaudeDesktopSessionFile } = require(
   path.join(ROOT, 'lib', 'platforms', 'claude-desktop')

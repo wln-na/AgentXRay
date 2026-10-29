@@ -4,20 +4,14 @@
 
 import { useQuery } from '@tanstack/react-query';
 import { Search, Settings, X } from 'lucide-react';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useId, useRef, useState } from 'react';
 import { getAgents, searchSessions } from '@/api/client';
 import { PLATFORM_LABELS } from '@/api/types';
 import { SettingsDialog } from '@/components/SettingsDialog';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useAppStore } from '@/store';
 import { CmdkDialog } from '@/views/sessions/CmdkDialog';
 import { SessionList } from '@/views/sessions/SessionList';
@@ -33,9 +27,19 @@ function ToggleRow({
   checked: boolean;
   onChange: (value: boolean) => void;
 }) {
+  const checkboxId = useId();
   return (
-    <label className="flex cursor-pointer items-center gap-1.5 text-[11px] text-muted-foreground" title={title}>
-      <Checkbox checked={checked} onCheckedChange={(v) => onChange(v === true)} className="h-3.5 w-3.5" />
+    <label
+      htmlFor={checkboxId}
+      className="flex cursor-pointer items-center gap-1.5 text-[11px] text-muted-foreground"
+      title={title}
+    >
+      <Checkbox
+        id={checkboxId}
+        checked={checked}
+        onCheckedChange={(v) => onChange(v === true)}
+        className="h-3.5 w-3.5"
+      />
       {label}
     </label>
   );
@@ -126,7 +130,7 @@ export function Sidebar({
     try {
       const results = await searchSessions(q, settings, platform);
       if (searchRequestRef.current !== requestId) return;
-      setMatchedSessionIds(new Set(results.flatMap((result) => result.sessionId ? [result.sessionId] : [])));
+      setMatchedSessionIds(new Set(results.flatMap((result) => (result.sessionId ? [result.sessionId] : []))));
     } catch (searchError) {
       if (searchRequestRef.current !== requestId) return;
       setMatchedSessionIds(null);
@@ -183,10 +187,18 @@ export function Sidebar({
             <span className="inline-block h-2.5 w-2.5 shrink-0 rounded-full bg-gradient-to-br from-primary to-assistant shadow-soft-sm" />
             <h1 className="truncate text-[17px] font-semibold tracking-tight">AgentXRay</h1>
           </div>
-          <div className="mt-0.5 pl-[18px] text-[11px] font-medium text-muted-foreground">{PLATFORM_LABELS[platform]} 会话</div>
+          <div className="mt-0.5 pl-[18px] text-[11px] font-medium text-muted-foreground">
+            {PLATFORM_LABELS[platform]} 会话
+          </div>
         </div>
         <div className="flex items-center gap-1">
-          <Button variant="ghost" size="icon" title="设置" onClick={() => setSettingsOpen(true)} className="rounded-full">
+          <Button
+            variant="ghost"
+            size="icon"
+            title="设置"
+            onClick={() => setSettingsOpen(true)}
+            className="rounded-full"
+          >
             <Settings className="h-4 w-4" />
           </Button>
           <Button
@@ -259,10 +271,8 @@ export function Sidebar({
         </div>
       ) : matchedSessionIds !== null ? (
         <div className="flex items-center justify-between text-[11px] text-muted-foreground">
-          <span>
-            {isSearching ? '搜索中…' : `全文搜索命中 ${matchedSessionIds.size} 个会话`}
-          </span>
-          <button onClick={clearSearch} className="text-primary hover:underline">
+          <span>{isSearching ? '搜索中…' : `全文搜索命中 ${matchedSessionIds.size} 个会话`}</span>
+          <button type="button" onClick={clearSearch} className="text-primary hover:underline">
             清除
           </button>
         </div>
@@ -283,12 +293,7 @@ export function Sidebar({
           checked={autoRefresh}
           onChange={setAutoRefresh}
         />
-        <ToggleRow
-          label="自动跟随"
-          title="新消息到达时自动滚到最新"
-          checked={autoScroll}
-          onChange={setAutoScroll}
-        />
+        <ToggleRow label="自动跟随" title="新消息到达时自动滚到最新" checked={autoScroll} onChange={setAutoScroll} />
       </div>
       <SessionList
         filterTerm={filterTerm}

@@ -1,14 +1,9 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
-import { getBackupStatus, getLlmSettings, runBackup, saveLlmSettings } from '@/api/client';
 import type { DirSettings } from '@/api/client';
+import { getBackupStatus, getLlmSettings, runBackup, saveLlmSettings } from '@/api/client';
 import { Button } from '@/components/ui/button';
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog';
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { formatBytes } from '@/lib/pure';
 import { EMPTY_SETTINGS, useAppStore } from '@/store';
@@ -28,6 +23,8 @@ const DIR_FIELDS: { key: keyof DirSettings; label: string; placeholder: string }
   { key: 'geminiDir', label: 'Gemini CLI Directory', placeholder: '~/.gemini/tmp' },
   { key: 'cursorDir', label: 'Cursor Directory', placeholder: '~/.cursor/projects' },
   { key: 'doubaoDir', label: 'Doubao Directory', placeholder: '~/.doubao/agent_mode/workspace/.sessions' },
+  { key: 'workbuddyDir', label: 'WorkBuddy Directory', placeholder: '~/.workbuddy/projects' },
+  { key: 'traeDir', label: 'Trae CN Directory', placeholder: '~/.trae/cli/sessions' },
 ];
 
 function BackupSection() {
@@ -51,16 +48,9 @@ function BackupSection() {
 
   return (
     <div className="space-y-1.5">
-      <label className="text-xs text-muted-foreground">
-        会话备份（codex / claude-code / claude-desktop / omp 增量归档）
-      </label>
+      <p className="text-xs text-muted-foreground">会话备份（codex / claude-code / claude-desktop / omp 增量归档）</p>
       <div className="flex items-center gap-2.5">
-        <Button
-          variant="outline"
-          size="sm"
-          disabled={backup.isPending}
-          onClick={() => backup.mutate()}
-        >
+        <Button variant="outline" size="sm" disabled={backup.isPending} onClick={() => backup.mutate()}>
           {backup.isPending ? '备份中…' : '立即备份'}
         </Button>
         {backup.data && (
@@ -110,9 +100,9 @@ function LlmSection() {
 
   return (
     <div className="space-y-1.5 border-t border-border pt-3">
-      <label className="text-xs text-muted-foreground">
+      <p className="text-xs text-muted-foreground">
         LLM 接口（prompt 优化 / 聚类建议 / 命名建议）— 当前后端：{backendLabel}
-      </label>
+      </p>
       <Input
         placeholder="Base URL，如 https://api.openai.com/v1 或 http://localhost:11434/v1"
         value={current.baseUrl}
@@ -135,24 +125,14 @@ function LlmSection() {
         <Button variant="outline" size="sm" disabled={save.isPending} onClick={() => save.mutate()}>
           {save.isPending ? '保存中…' : '保存 LLM 配置'}
         </Button>
-        <span className="text-xs text-muted-foreground">
-          留空 Base URL 并保存 = 回退到本机 claude CLI 探测
-        </span>
+        <span className="text-xs text-muted-foreground">留空 Base URL 并保存 = 回退到本机 claude CLI 探测</span>
       </div>
-      {save.error && (
-        <div className="text-xs text-danger">保存失败: {(save.error as Error).message}</div>
-      )}
+      {save.error && <div className="text-xs text-danger">保存失败: {(save.error as Error).message}</div>}
     </div>
   );
 }
 
-export function SettingsDialog({
-  open,
-  onOpenChange,
-}: {
-  open: boolean;
-  onOpenChange: (open: boolean) => void;
-}) {
+export function SettingsDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (open: boolean) => void }) {
   const settings = useAppStore((s) => s.settings);
   const saveSettings = useAppStore((s) => s.saveSettings);
   const queryClient = useQueryClient();
@@ -176,6 +156,8 @@ export function SettingsDialog({
       geminiDir: draft.geminiDir.trim(),
       cursorDir: draft.cursorDir.trim(),
       doubaoDir: draft.doubaoDir.trim(),
+      workbuddyDir: draft.workbuddyDir.trim(),
+      traeDir: draft.traeDir.trim(),
     });
     onOpenChange(false);
     // Legacy refreshAll(false): every dir-dependent query must refetch.

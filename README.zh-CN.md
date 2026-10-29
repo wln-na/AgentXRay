@@ -1,6 +1,6 @@
 # AgentXRay
 
-AI Agent 会话 X 光透视工具，支持 **OpenClaw**、**Codex**、**Claude Code**、**Claude Desktop**、**Hermes**、**OMP**、**DeepSeek Harness**、**Gemini CLI** 和 **Doubao** —— 一个界面全搞定。
+AI Agent 会话 X 光透视工具，支持 **OpenClaw**、**Codex**、**Claude Code**、**Claude Desktop**、**Hermes**、**OMP**、**DeepSeek Harness**、**Gemini CLI**、**Cursor**、**Doubao**、**WorkBuddy** 和 **Trae CN** —— 一个界面全搞定。
 
 [English](README.md) | 中文
 
@@ -21,7 +21,7 @@ AgentXRay 是一个 **local-first 的查看器，看的是你已经拥有的 age
 
 LangSmith、Langfuse 这类观测平台面向的是*你自己写的* agent：接入 SDK、埋点插桩，trace 上报到托管后端。做自研 agent 时它们很好用 —— 但 Claude Code、Codex、Gemini CLI 这些现成的 CLI coding agent 不是你的代码，没法插桩。它们本来就把完整会话日志写在你的磁盘上，AgentXRay 直接读这些日志：零接入、零配置，数据不出本机。
 
-相比自己翻原始日志，AgentXRay 把九个平台的数据源归一化到一个界面里：工具调用与结果自动配对、token 用量按会话汇总、跨平台全文搜索、prompt 提取、trace 时间线 —— 这些从一份 50MB 的会话日志里手工还原起来非常费劲。
+相比自己翻原始日志，AgentXRay 把 12 个平台的数据源归一化到一个界面里：工具调用与结果自动配对、token 用量按会话汇总、跨平台全文搜索、prompt 提取、trace 时间线 —— 这些从一份 50MB 的会话日志里手工还原起来非常费劲。
 
 如果你在生产环境构建和运营自己的 agent，请用 tracing 平台；如果你想看清 coding agent 到底干了什么，用 AgentXRay。
 
@@ -29,7 +29,7 @@ LangSmith、Langfuse 这类观测平台面向的是*你自己写的* agent：接
 
 ## 功能特性
 
-- **多平台支持** — 一个界面统一查看 OpenClaw、Codex、Claude Code、Claude Desktop Agent/Cowork、Hermes、OMP、DeepSeek Harness、Gemini CLI、Cursor 和 Doubao 的会话日志（dsh 的多帧 zstd 压缩日志透明解压；Gemini CLI 的 `/rewind` 回滚记录会先折叠，回滚掉的历史不会重复渲染；Cursor 的 agent 转写读自 `~/.cursor/projects`，子代理转写已排除，且记录本身无时间戳、以文件 mtime 为准）
+- **多平台支持** — 一个界面统一查看 OpenClaw、Codex、Claude Code、Claude Desktop Agent/Cowork、Hermes、OMP、DeepSeek Harness、Gemini CLI、Cursor、Doubao、WorkBuddy 和 Trae CN 的会话日志（dsh 的多帧 zstd 压缩日志透明解压；Gemini CLI 的 `/rewind` 回滚记录会先折叠，回滚掉的历史不会重复渲染；Cursor 的 agent 转写读自 `~/.cursor/projects`，子代理转写已排除，且记录本身无时间戳、以文件 mtime 为准）
 - **会话浏览** — 浏览 Agent 列表，搜索/过滤会话，查看消息历史
 - **工具调用检查** — 可展开的工具调用详情，包含参数和返回结果
 - **Trace 视图** — 每轮对话的耗时瀑布图：模型推理（蓝）与工具执行（绿，出错为红）一目了然，点击色条跳转到对应消息
@@ -38,6 +38,7 @@ LangSmith、Langfuse 这类观测平台面向的是*你自己写的* agent：接
 - **Prompt 资产库** — 把值得复用的 prompt 收进 `~/.agentxray/library`，支持标签 / 编辑 / 搜索，一键安装为 Claude Code、Codex、OMP 的原生 slash command（`$ARGUMENTS` 原样保留，在目标 CLI 里 `/名字 参数` 直接可用）
 - **全局搜索** — 一个搜索框同时搜索全部支持的平台，多关键词 AND 匹配，每条结果带平台色标 —— 包含从被 Claude Code 清理掉的会话里恢复出来的 prompt
 - **会话洞察** — 聚合分析面板：工具统计、错误聚类、每日趋势
+- **用量仪表盘** — 按本地日统计跨平台 token 消耗：输入、输出、缓存、Reasoning、估算 token、成本与含子代理的去重会话总数；默认跟随当前平台，也可切换全部平台，并使用设置里的自定义目录
 - **Spawn 追踪** — 检测并导航父子 Agent 之间的调用关系
 - **OMP 子 Agent** — OMP 会话派生的子 Agent 会在摘要区以标签列出，点击即可查看子 Agent 的完整对话
 - **消息时间线** — 可视化对话流程图，不同角色用不同颜色标识
@@ -166,6 +167,8 @@ npm start
 | Gemini CLI  | `~/.gemini/tmp`               |
 | Cursor      | `~/.cursor/projects`          |
 | Doubao      | `~/Library/Application Support/Doubao/Profile 2/.doubao/agent_mode/workspace/.sessions` |
+| WorkBuddy   | `~/.workbuddy/projects`       |
+| Trae CN     | `~/.trae/cli/sessions`       |
 
 ### 自定义目录
 
@@ -183,10 +186,12 @@ OMP_DIR=/custom/path/omp \
 DSH_DIR=/custom/path/dsh/sessions \
 GEMINI_DIR=/custom/path/gemini/tmp \
 DOUBAO_DIR=/custom/path/doubao/.sessions \
+WORKBUDDY_DIR=/custom/path/workbuddy/projects \
+TRAE_DIR=/custom/path/trae/cli/sessions \
 npm start
 ```
 
-**通过 API：** 在任意 API 请求后附加 `?dir=/absolute/path` 参数。
+**通过 API：** 列表和详情接口可附加 `?dir=/absolute/path` 参数；用量接口使用各平台目录参数（如 `?codexDir=/custom/path`）。
 
 ## API
 
@@ -217,6 +222,7 @@ npm start
 | `GET /api/spawn-tree` | 获取完整的分层 spawn 树 |
 | `GET /api/spawn-tree/:sessionId` | 获取以指定会话为根的 spawn 子树及其父节点 |
 | `GET /api/insights` | 聚合分析（工具统计、错误聚类、趋势） |
+| `GET /api/usage/daily` | 每日 token 用量：输入 / 输出 / 缓存 / Reasoning / 估算 token、成本与含子代理的去重会话数（`days=1-90`，`platform=all` 或平台 ID；支持各平台目录覆盖参数） |
 | `GET /api/tools/audit` | 获取工具使用与健康状态汇总 |
 | `GET /api/prompts` | 按目录分组的各 session 真人 prompt |
 | `GET /api/prompts/analyze` | 模板聚类 + 效果归因 + Claude 建议（`?refresh=1` 重算，`?skipLlm=1` 仅聚类） |
@@ -253,14 +259,14 @@ npm start
 | `POST /api/backup` | 执行一次增量备份到 `~/.agentxray/archive` |
 | `GET /api/backup/status` | 归档统计：文件数、总字节数、最近备份时间 |
 
-所有列表和详情接口均支持 `?dir=` 参数来覆盖默认目录。
+所有列表和详情接口均支持 `?dir=` 参数来覆盖默认目录；`/api/usage/daily` 使用各平台目录参数（如 `?codexDir=/custom/path`）。
 
 ## 技术栈
 
 - **后端：** Node.js + Express
 - **前端：** `frontend/` 下的 React + Vite + TypeScript（默认 UI，服务自 `frontend/dist`）
 - **Legacy UI：** `public/` 下的原版 vanilla HTML/CSS/JS 应用，服务于 `/legacy` —— **已冻结，仅接受安全修复**。新功能只进 React 应用；改动 React 渲染器无需触碰 `public/js/`。共享逻辑（格式化、trace 构建、markdown/转义管线）单一源在 `frontend/src/lib/pure.ts` 与 `frontend/src/lib/markdown.ts`,`public/js/pure.js` 由其生成（`npm run build:legacy-pure`,也包含在 `build:ui` 中）。
-- **数据：** 直接从磁盘读取 JSONL 会话文件 / SQLite 数据库
+- **数据：** 直接从磁盘读取 JSONL 会话文件 / SQLite 数据库；每日用量在 `~/.agentxray/usage-index.sqlite` 维护日粒度派生索引，只存 rollup，不存 prompt，且不进入默认会话备份
 - **零外部 CDN** — 完全自包含，离线可用
 
 ## 支持的日志格式
@@ -277,10 +283,12 @@ npm start
 | Gemini CLI | JSONL | `~/.gemini/tmp/{projectHash}/chats/session-*.jsonl` |
 | Cursor | JSONL | `~/.cursor/projects/{project-slug}/agent-transcripts/{id}/{id}.jsonl`（`{id}/subagents/` 下的子代理转写已排除；人类提问包裹在 `<user_query>` 中，记录无时间戳、以 mtime 为准） |
 | Doubao | Chromium IndexedDB + JSONL trajectory | `~/Library/Application Support/Doubao/Profile 2/IndexedDB/chrome_doubao-chat_0.indexeddb.leveldb` + `.sessions/{id}/agents/*/system/trajectory.jsonl` |
+| WorkBuddy | JSONL | `~/.workbuddy/projects/{project}/{sessionId}.jsonl` |
+| Trae CN CLI | JSONL（Codex rollout 同构格式） | `~/.trae/cli/sessions/YYYY/MM/DD/rollout-*.jsonl` |
 
 Doubao 使用 IndexedDB 作为实时项目、会话、消息与模型数据源，并用 trajectory 日志补充历史工具调用和 trace。首次刷新需要 `PATH` 中存在 `dfindexeddb` 或 `uv`；使用 `uv` 时，AgentXRay 会在 `~/.agentxray/cache` 下创建隔离的 Python 3.10 解析环境。
 
-dsh 的 `.jsonl.zstd` 日志是多个独立 Zstandard 帧的串联（每个持久化批次一帧）；AgentXRay 会扫描帧边界并逐帧解压，崩溃残留的尾部不完整帧会被容忍丢弃。读取压缩日志需要 Node.js ≥ 22.15（内置 zstd）；未压缩的 `session.jsonl` 在任何受支持的 Node 上都能读。
+WorkBuddy 的会话日志没有原生 token usage 字段，因此不参与 token 用量估算；Trae CN 只支持 CLI rollout 日志，会读取其中的真实 `token_count`，不支持读取 Trae IDE 的加密 AI 会话库。dsh 的 `.jsonl.zstd` 日志是多个独立 Zstandard 帧的串联（每个持久化批次一帧）；AgentXRay 会扫描帧边界并逐帧解压，崩溃残留的尾部不完整帧会被容忍丢弃。读取压缩日志需要 Node.js ≥ 22.15（内置 zstd）；未压缩的 `session.jsonl` 在任何受支持的 Node 上都能读。
 
 启用「包含已归档」后，还会显示 `.jsonl.reset.*` 和 `.jsonl.deleted.*` 的归档会话。
 
