@@ -9,15 +9,23 @@ import type { ChildAgentSummary, Platform, SessionDetail } from '@/api/types';
 import { PLATFORM_CAPABILITIES } from '@/api/types';
 import { dirForPlatform, useAppStore } from '@/store';
 
-export type ChildPlatform = 'omp' | 'claude-code' | 'codex';
+export type ChildPlatform = 'omp' | 'claude-code' | 'codex' | 'dsh';
 
 /** Platforms whose sessions use the generic children API. OpenClaw spawn maps use separate endpoints. */
 export function hasChildAgents(platform: Platform): platform is ChildPlatform {
   return PLATFORM_CAPABILITIES[platform].spawn && platform !== 'openclaw';
 }
 
-/** Chip/span label: claude-code children carry meta (description/agentType); omp children only a name. */
+/**
+ * Chip/span label: claude-code children carry meta (description/agentType); omp
+ * children only a name; dsh children expose a generated title plus a description
+ * (never show the raw uuid/name when either exists).
+ */
 export function childAgentLabel(c: ChildAgentSummary, platform: Platform): string {
+  if (platform === 'dsh') {
+    const label = (c.description || c.title || c.name).replace(/\s+/g, ' ').trim();
+    return label.length > 56 ? `${label.slice(0, 56)}…` : label;
+  }
   return (platform === 'claude-code' || platform === 'codex' ? c.description || c.agentType : '') || c.name;
 }
 

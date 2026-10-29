@@ -203,7 +203,10 @@ export function CmdkDialog({
       }
       store.setSelectedSessionId(found.id);
       let detail: SessionDetail;
-      if (row.result.childSessionId && (plat === 'codex' || plat === 'claude-code' || plat === 'omp')) {
+      if (
+        row.result.childSessionId &&
+        (plat === 'codex' || plat === 'claude-code' || plat === 'omp' || plat === 'dsh')
+      ) {
         store.setViewingChildAgent(row.result.childSessionId);
         detail = await getSessionChild(
           plat,
