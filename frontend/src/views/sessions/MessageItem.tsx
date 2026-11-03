@@ -4,6 +4,7 @@
 
 import { createContext, useContext } from 'react';
 import type { MessageContentPart, Platform, SessionMessage } from '@/api/types';
+import { DshDiffView } from '@/components/DshDiffView';
 import { Markdown } from '@/components/Markdown';
 import { ToolCallViewer } from '@/components/ToolCallViewer';
 import { formatDurationCompact, getTextContent } from '@/lib/pure';
@@ -231,6 +232,9 @@ function ToolResultBlock({ message }: { message: SessionMessage }) {
       ) : (
         <pre className={PRE_CLASS}>{text}</pre>
       )}
+      {Array.isArray((message.details as { diffs?: unknown[] } | null)?.diffs) ? (
+        <DshDiffView diffs={(message.details as { diffs?: import('@/components/DshDiffView').DshDiff[] }).diffs} />
+      ) : null}
     </Collapse>
   );
 }

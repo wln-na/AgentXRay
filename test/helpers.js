@@ -83,8 +83,17 @@ async function spawnOnce(home, port, extraEnv) {
 }
 
 // Starts a hermetic server instance. Returns { base, home, stop }.
-async function startServer(extraEnv) {
+//
+// `options.prepareHome(home)` runs after the fixture home is copied into the
+// throwaway directory and before the server boots, so tests can add sessions
+// (e.g. dsh v4 logs) to an isolated HOME without touching the shared fixtures
+// or every other suite's counts. Existing `startServer(extraEnv)` calls keep
+// working unchanged.
+async function startServer(extraEnv, options = {}) {
   const home = await makeTmpHome();
+  if (typeof options?.prepareHome === 'function') {
+    await options.prepareHome(home);
+  }
   let child = null;
   let lastError = null;
   let port = 0;

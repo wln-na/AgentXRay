@@ -116,9 +116,9 @@ export function getSessionDetail(
   return fetchJson(withParams(`${base}/${encodeURIComponent(sessionId)}`, { dir: opts.dir }));
 }
 
-/** Spawned sub-agents of a session (omp / claude-code only). */
+/** Spawned sub-agents of a session (omp / claude-code / codex / dsh). */
 export function getSessionChildren(
-  platform: 'omp' | 'claude-code' | 'codex',
+  platform: 'omp' | 'claude-code' | 'codex' | 'dsh',
   sessionId: string,
   dir?: string
 ): Promise<ChildAgentSummary[]> {
@@ -126,7 +126,7 @@ export function getSessionChildren(
 }
 
 export function getSessionChild(
-  platform: 'omp' | 'claude-code' | 'codex',
+  platform: 'omp' | 'claude-code' | 'codex' | 'dsh',
   sessionId: string,
   childName: string,
   dir?: string
