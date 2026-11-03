@@ -11,6 +11,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { formatCost } from '@/lib/pure';
 import { dirForPlatform, useAppStore } from '@/store';
 import { fmtTokens, InsightSection, ScopeChip, StatCard, UsageBar } from './bits';
+import { RegressionSection } from './RegressionSection';
 import { ToolsAuditSection } from './ToolsAuditSection';
 
 /** One error cluster row — click header toggles examples; example links jump to the failing message. */
@@ -231,6 +232,7 @@ export function GlobalInsights() {
       )}
 
       <ToolsAuditSection />
+      <RegressionSection />
     </div>
   );
 }
