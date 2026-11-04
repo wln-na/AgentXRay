@@ -8,6 +8,12 @@ const fsp = require('node:fs/promises');
 const os = require('node:os');
 const path = require('node:path');
 
+const { sweepOnce, HELPERS_TMP_HOME_PREFIX } = require('./support/stale-home');
+
+// Sweep scratch dirs left behind by killed runs (prefix + age rule). Runs once
+// per process and never throws — a sandboxed HOME must not break test startup.
+sweepOnce();
+
 const REPO_ROOT = path.resolve(__dirname, '..');
 const FIXTURE_HOME = path.join(__dirname, 'fixtures', 'home');
 
@@ -20,7 +26,9 @@ function sleep(ms) {
 }
 
 async function makeTmpHome() {
-  const tmpHome = await fsp.mkdtemp(path.join(os.tmpdir(), 'agentxray-test-'));
+  // HELPERS_TMP_HOME_PREFIX is exported by test/support/stale-home.js so the
+  // creation site and the stale-dir sweeper can never drift (audit D3).
+  const tmpHome = await fsp.mkdtemp(path.join(os.tmpdir(), HELPERS_TMP_HOME_PREFIX));
   await fsp.cp(FIXTURE_HOME, tmpHome, { recursive: true });
   return tmpHome;
 }
