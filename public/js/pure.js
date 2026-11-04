@@ -27,22 +27,205 @@ var __axrPure = (() => {
   __export(legacy_pure_exports, {
     buildTraceTurns: () => buildTraceTurns,
     clusterPrefillContent: () => clusterPrefillContent,
+    commonVersionLines: () => commonVersionLines,
+    condenseContextDiff: () => condenseContextDiff,
+    contextTextSignature: () => contextTextSignature,
     detectPatch: () => detectPatch,
+    diffContextLines: () => diffContextLines,
     diffLineSegments: () => diffLineSegments,
     escapeHtml: () => escapeHtml,
     extractEmbeddedPatch: () => extractEmbeddedPatch,
     firstInformativeLine: () => firstInformativeLine,
     flattenSpans: () => flattenSpans,
+    foldContextVersions: () => foldContextVersions,
     formatBytes: () => formatBytes,
     formatCost: () => formatCost,
     formatDurationCompact: () => formatDurationCompact,
     getTextContent: () => getTextContent,
+    normalizeContextText: () => normalizeContextText,
     parseTimestampMs: () => parseTimestampMs,
     parseToolArguments: () => parseToolArguments,
     pickAutoPlatform: () => pickAutoPlatform,
     renderMarkdown: () => renderMarkdown,
     renderMarkdownHtml: () => renderMarkdownHtml
   });
+
+  // frontend/src/lib/contextVersions.ts
+  var MAX_DIFF_LINES = 400;
+  var MAX_DIFF_CELLS = 25e4;
+  function normalizeContextText(text) {
+    return String(text ?? "").replace(/\r\n?/g, "\n").split("\n").map((line) => line.replace(/[ \t]+$/, "")).join("\n").trim();
+  }
+  function splitLines(text) {
+    if (!text) return [];
+    return text.split("\n");
+  }
+  function hashText(text) {
+    let hash = 2166136261;
+    for (let i = 0; i < text.length; i++) {
+      hash ^= text.charCodeAt(i);
+      hash = Math.imul(hash, 16777619) >>> 0;
+    }
+    return hash.toString(16);
+  }
+  function contextTextSignature(text) {
+    return `${text.length}:${hashText(text)}`;
+  }
+  function coarseDiff(prevLines, nextLines) {
+    const out = [];
+    for (const text of prevLines) out.push({ type: "del", text });
+    for (const text of nextLines) out.push({ type: "add", text });
+    return out;
+  }
+  function diffContextLines(prevText, nextText) {
+    const prev = splitLines(prevText);
+    const next = splitLines(nextText);
+    if (prev.length > MAX_DIFF_LINES || next.length > MAX_DIFF_LINES) return coarseDiff(prev, next);
+    let start = 0;
+    while (start < prev.length && start < next.length && prev[start] === next[start]) start++;
+    let endPrev = prev.length - 1;
+    let endNext = next.length - 1;
+    while (endPrev >= start && endNext >= start && prev[endPrev] === next[endNext]) {
+      endPrev--;
+      endNext--;
+    }
+    const midPrev = prev.slice(start, endPrev + 1);
+    const midNext = next.slice(start, endNext + 1);
+    const out = prev.slice(0, start).map((text) => ({ type: "same", text }));
+    if (midPrev.length === 0 || midNext.length === 0 || midPrev.length * midNext.length > MAX_DIFF_CELLS) {
+      out.push(...coarseDiff(midPrev, midNext));
+    } else {
+      const rows = midPrev.length + 1;
+      const cols = midNext.length + 1;
+      const lcs = [];
+      for (let i2 = 0; i2 < rows; i2++) lcs.push(new Uint16Array(cols));
+      for (let i2 = midPrev.length - 1; i2 >= 0; i2--) {
+        for (let j2 = midNext.length - 1; j2 >= 0; j2--) {
+          lcs[i2][j2] = midPrev[i2] === midNext[j2] ? lcs[i2 + 1][j2 + 1] + 1 : Math.max(lcs[i2 + 1][j2], lcs[i2][j2 + 1]);
+        }
+      }
+      let i = 0;
+      let j = 0;
+      while (i < midPrev.length && j < midNext.length) {
+        if (midPrev[i] === midNext[j]) {
+          out.push({ type: "same", text: midPrev[i] });
+          i++;
+          j++;
+        } else if (lcs[i + 1][j] >= lcs[i][j + 1]) {
+          out.push({ type: "del", text: midPrev[i] });
+          i++;
+        } else {
+          out.push({ type: "add", text: midNext[j] });
+          j++;
+        }
+      }
+      while (i < midPrev.length) out.push({ type: "del", text: midPrev[i++] });
+      while (j < midNext.length) out.push({ type: "add", text: midNext[j++] });
+    }
+    out.push(...prev.slice(endPrev + 1).map((text) => ({ type: "same", text })));
+    return out;
+  }
+  function condenseContextDiff(diff, context = 2) {
+    const keep = /* @__PURE__ */ new Set();
+    diff.forEach((line, i2) => {
+      if (line.type === "same") return;
+      for (let offset = -context; offset <= context; offset++) {
+        const target = i2 + offset;
+        if (target >= 0 && target < diff.length) keep.add(target);
+      }
+    });
+    const rows = [];
+    let i = 0;
+    while (i < diff.length) {
+      if (keep.has(i)) {
+        rows.push(diff[i]);
+        i++;
+        continue;
+      }
+      let j = i;
+      while (j < diff.length && !keep.has(j)) j++;
+      rows.push({ type: "gap", text: "", skipped: j - i });
+      i = j;
+    }
+    return rows;
+  }
+  function commonVersionLines(texts) {
+    if (texts.length === 0) return [];
+    const perText = texts.map((text) => {
+      const counts = /* @__PURE__ */ new Map();
+      for (const line of splitLines(text)) counts.set(line, (counts.get(line) ?? 0) + 1);
+      return counts;
+    });
+    const out = [];
+    const used = /* @__PURE__ */ new Map();
+    for (const line of splitLines(texts[0])) {
+      const seen = (used.get(line) ?? 0) + 1;
+      used.set(line, seen);
+      let min = Number.POSITIVE_INFINITY;
+      for (const counts of perText) min = Math.min(min, counts.get(line) ?? 0);
+      if (seen <= min && line.trim()) out.push(line);
+    }
+    return out;
+  }
+  function finalizeVersion(version) {
+    const added = version.diff?.filter((line) => line.type === "add").length ?? 0;
+    const removed = version.diff?.filter((line) => line.type === "del").length ?? 0;
+    return { ...version, addedLines: added, removedLines: removed };
+  }
+  function foldContextVersions(records) {
+    const order = [];
+    const byKind = /* @__PURE__ */ new Map();
+    for (const record of records) {
+      const kind = record.kind || "unknown";
+      const list = byKind.get(kind);
+      if (list) {
+        list.push(record);
+      } else {
+        byKind.set(kind, [record]);
+        order.push(kind);
+      }
+    }
+    const groups = order.map((kind) => {
+      const list = byKind.get(kind) ?? [];
+      const versions = [];
+      for (const record of list) {
+        const text = normalizeContextText(record.text);
+        const last = versions[versions.length - 1];
+        if (last && last.text === text) {
+          last.occurrences += 1;
+          if (record.timestampMs !== null) last.lastTs = record.timestampMs;
+          continue;
+        }
+        const earlier = versions.find((candidate) => candidate.text === text);
+        versions.push(
+          finalizeVersion({
+            index: versions.length + 1,
+            text,
+            occurrences: 1,
+            firstTs: record.timestampMs,
+            lastTs: record.timestampMs,
+            addedLines: 0,
+            removedLines: 0,
+            diff: last ? diffContextLines(last.text, text) : null,
+            repeatOf: earlier ? earlier.index : null
+          })
+        );
+      }
+      const commonLines = versions.length > 1 ? commonVersionLines(versions.map((v) => v.text)) : [];
+      return {
+        kind,
+        records: list.length,
+        versions,
+        commonLines,
+        changedVersions: versions.filter((v) => v.addedLines + v.removedLines > 0).length
+      };
+    });
+    return {
+      groups,
+      totalRecords: records.length,
+      totalVersions: groups.reduce((sum, group) => sum + group.versions.length, 0)
+    };
+  }
 
   // frontend/src/lib/markdown.ts
   function escapeHtml(value) {

@@ -6,6 +6,7 @@ import { useEffect, useRef, useState } from 'react';
 import { watchUrl } from '@/api/client';
 import type { SessionDetail, SessionMessage, SessionMeta } from '@/api/types';
 import { DEMO } from '@/demo/flag';
+import { getTextContent } from '@/lib/pure';
 import { dirForPlatform, useAppStore } from '@/store';
 
 export type SseStatus = 'off' | 'connecting' | 'live' | 'error';
@@ -42,22 +43,34 @@ export function useSessionSse(onNewMessages: (count: number) => void): SseStatus
     es.addEventListener('newMessages', (e) => {
       const payload = JSON.parse((e as MessageEvent).data || '{}') as {
         messages?: SessionMessage[];
+        contextMessages?: SessionMessage[];
         session?: Partial<SessionMeta>;
       };
-      const newMsgs = payload.messages;
-      if (!Array.isArray(newMsgs) || newMsgs.length === 0) return;
+      const newMsgs = Array.isArray(payload.messages) ? payload.messages : [];
+      const newContext = Array.isArray(payload.contextMessages) ? payload.contextMessages : [];
+      if (newMsgs.length === 0 && newContext.length === 0) return;
       // Idempotent append: dedupe against messages already in the cache so a
       // concurrent detail poll (full refetch) can never be double-counted.
+      // Context records have no id on some platforms (codex turn_context), so
+      // their key falls back to kind + text — identical re-injections collapse.
       // No cache yet → skip; the next detail fetch reconciles from the file.
       const keyOf = (m: SessionMessage) => m.id || `${m.timestamp || ''}|${m.role || ''}|${m.toolCallId || ''}`;
+      const contextKeyOf = (m: SessionMessage) =>
+        m.id || `${m.details?.sourceKind || m.role || ''}|${getTextContent(m.content)}`;
       const current = queryClient.getQueryData<SessionDetail>(['session', platform, sessionId]);
       if (!current) return;
       const existing = new Set(current.messages.map(keyOf));
       const fresh = newMsgs.filter((m) => !existing.has(keyOf(m)));
-      if (fresh.length === 0) return;
+      const existingContext = new Set((current.contextMessages || []).map(contextKeyOf));
+      const freshContext = newContext.filter((m) => !existingContext.has(contextKeyOf(m)));
+      if (fresh.length === 0 && freshContext.length === 0) return;
       queryClient.setQueryData<SessionDetail>(['session', platform, sessionId], {
         session: { ...current.session, ...(payload.session || {}) },
-        messages: [...current.messages, ...fresh],
+        messages: fresh.length ? [...current.messages, ...fresh] : current.messages,
+        // Keep the detail shape intact when the session had no context channel.
+        ...(current.contextMessages || freshContext.length
+          ? { contextMessages: [...(current.contextMessages || []), ...freshContext] }
+          : {}),
       });
       onNewRef.current(fresh.length);
       // Refresh sidebar counters (legacy loadSessions(true) on newMessages)
