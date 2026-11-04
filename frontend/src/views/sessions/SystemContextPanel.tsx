@@ -52,6 +52,9 @@ const KIND_LABELS: Record<string, string> = {
   tools: '工具定义',
   model_switch: '模型切换',
   developer: '开发者指令',
+  // Codex user-message injections (provenance=agents_md / harness)
+  'agents-md': '项目指令 (AGENTS.md)',
+  'injected-context': '注入上下文',
 };
 
 const PRE_CLASS =
