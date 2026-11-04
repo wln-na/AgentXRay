@@ -3,6 +3,14 @@
 // exposes every export as a window/global function for the frozen vanilla UI
 // and as module.exports for the node tests.
 
+export {
+  commonVersionLines,
+  condenseContextDiff,
+  contextTextSignature,
+  diffContextLines,
+  foldContextVersions,
+  normalizeContextText,
+} from './contextVersions';
 export { escapeHtml, renderMarkdown, renderMarkdownHtml } from './markdown';
 export {
   buildTraceTurns,

@@ -255,9 +255,10 @@ export interface SessionDetail {
   session: SessionMeta;
   messages: SessionMessage[];
   /**
-   * Machine-injected system context (dsh v4 runtime/time/skill/instruction
-   * events). Kept out of `messages` so the conversation flow stays clean; the
-   * UI renders it in a collapsed panel.
+   * Machine-injected system context: dsh v4 runtime/time/skill/instruction
+   * events, Claude Code attachment reminders (rec.rendered) and Codex developer
+   * context blocks. Kept out of `messages` so the conversation flow stays
+   * clean; the UI renders it in a collapsed, version-folded panel.
    */
   contextMessages?: SessionMessage[] | null;
   /** dsh task/approval/retry timeline (P2). */
