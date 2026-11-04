@@ -19,6 +19,7 @@ import {
 } from '@/lib/pure';
 import { useAppStore } from '@/store';
 import { childAgentLabel, useActiveSessionDetail, useChildrenQuery } from './childAgents';
+import { EvalLoopPanel } from './EvalLoopPanel';
 import { SpanSidebar } from './SpanSidebar';
 
 const BAR_COLORS: Record<TraceSpan['kind'], string> = {
@@ -485,6 +486,12 @@ export function TraceView() {
           <span>{health.segments.length} 轮</span>
           <span>结束</span>
         </div>
+        <EvalLoopPanel
+          platform={platform}
+          sessionId={detail.data?.session?.id ?? ''}
+          viewingChildAgent={!!viewingChildAgent}
+          msgs={msgs ?? []}
+        />
       </div>
 
       {turns.map((turn, i) => (

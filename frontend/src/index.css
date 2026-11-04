@@ -158,6 +158,19 @@
 }
 
 @layer utilities {
+  /* Dialogs are fixed-position and vertically centered, so anything taller
+     than the viewport gets clipped on BOTH ends and cannot be scrolled to.
+     Cap the height and let the content scroll instead. 100dvh keeps mobile
+     browser bars from hiding the footer; 100vh is the fallback. */
+  .max-h-dialog {
+    max-height: calc(100vh - 3rem);
+  }
+  /* 用 @supports 而不是在同一条规则里写两遍 max-height（后者会被 biome 判为重复属性）。 */
+  @supports (height: 100dvh) {
+    .max-h-dialog {
+      max-height: calc(100dvh - 3rem);
+    }
+  }
   .shadow-soft-sm {
     box-shadow: var(--shadow-sm);
   }

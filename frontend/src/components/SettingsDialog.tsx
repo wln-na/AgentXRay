@@ -108,13 +108,15 @@ function LlmSection() {
         value={current.baseUrl}
         onChange={(e) => setDraft({ ...current, baseUrl: e.target.value })}
       />
-      <div className="flex gap-1.5">
+      <div className="flex flex-col gap-1.5 sm:flex-row">
         <Input
+          className="min-w-0"
           placeholder="模型名，如 gpt-4o-mini / qwen2.5"
           value={current.model}
           onChange={(e) => setDraft({ ...current, model: e.target.value })}
         />
         <Input
+          className="min-w-0"
           type="password"
           placeholder={llm.data?.hasApiKey ? 'API Key（已保存，留空保持不变）' : 'API Key（本地端点可留空）'}
           value={current.apiKey}
@@ -166,11 +168,14 @@ export function SettingsDialog({ open, onOpenChange }: { open: boolean; onOpenCh
 
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
-      <DialogContent className="max-w-lg">
-        <DialogHeader>
+      {/* 12 directory fields + LLM + backup easily exceed a laptop viewport:
+          pin the header/footer and scroll only the middle, so the title and
+          the Save/Reset buttons never leave the screen. */}
+      <DialogContent className="flex max-h-dialog w-[calc(100vw-2rem)] max-w-lg flex-col gap-4">
+        <DialogHeader className="shrink-0">
           <DialogTitle>Settings</DialogTitle>
         </DialogHeader>
-        <div className="space-y-3">
+        <div className="-mr-2 min-h-0 flex-1 space-y-3 overflow-y-auto pr-2">
           {DIR_FIELDS.map((field) => (
             <div key={field.key} className="space-y-1.5">
               <label className="text-xs text-muted-foreground" htmlFor={`setting-${field.key}`}>
@@ -187,7 +192,7 @@ export function SettingsDialog({ open, onOpenChange }: { open: boolean; onOpenCh
           <LlmSection />
           <BackupSection />
         </div>
-        <div className="flex justify-end gap-2 pt-2">
+        <div className="flex shrink-0 justify-end gap-2 border-t border-border pt-3">
           <Button variant="ghost" onClick={() => setDraft({ ...EMPTY_SETTINGS })}>
             Reset to Defaults
           </Button>

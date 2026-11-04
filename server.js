@@ -26,6 +26,7 @@ const mountPetRoutes = require('./lib/routes/pet');
 const mountUsageRoutes = require('./lib/routes/usage');
 const mountLlmRoutes = require('./lib/routes/llm');
 const mountContextRoutes = require('./lib/routes/context');
+const mountEvalRoutes = require('./lib/routes/evals');
 
 const app = express();
 const PORT = process.env.PORT || 3800;
@@ -77,6 +78,7 @@ mountPetRoutes(app);
 mountUsageRoutes(app);
 mountLlmRoutes(app);
 mountContextRoutes(app);
+mountEvalRoutes(app);
 
 // API 404s must stay JSON. Without this branch the SPA fallback would return
 // index.html with status 200, and callers would fail while parsing HTML as JSON.

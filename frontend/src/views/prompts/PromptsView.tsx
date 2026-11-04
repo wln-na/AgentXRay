@@ -136,7 +136,7 @@ export function PromptsView() {
           variant="outline"
           size="sm"
           disabled={analyzeMutation.isPending}
-          title="把相似 prompt 聚成模板簇，统计每类平均轮数/错误率，并由 Claude 给出改写建议（约 1-2 分钟）"
+          title="把相似 prompt 聚成模板簇，统计每类平均轮数/错误率，并由配置的 LLM 给出改写建议（约 1-3 分钟）"
           onClick={() => analyzeMutation.mutate(!!(analysis && analysis.platform === platform))}
         >
           {analyzeLabel}
@@ -185,8 +185,8 @@ export function PromptsView() {
         <span className="mr-1 rounded-full border border-border bg-secondary px-2 py-0.5">
           📍 当前平台：{PLATFORM_LABELS[platform] || platform}
         </span>
-        从会话历史自动提取的真人 prompt（已过滤工具输出与系统注入），按目录分组 — 每条可 ⭐ 收藏入库、「优化」用 Claude
-        改写 · {data.totalPrompts} prompts / {data.totalSessions} sessions / {data.groups.length} directories
+        从会话历史自动提取的真人 prompt（已过滤工具输出与系统注入），按目录分组 — 每条可 ⭐ 收藏入库、「优化」用配置的
+        LLM 改写 · {data.totalPrompts} prompts / {data.totalSessions} sessions / {data.groups.length} directories
         {q && filtered ? ` — showing ${filtered.shownPrompts} prompts / ${filtered.shownSessions} sessions` : ''}
         {filtered?.trivialActive && filtered.trivialHidden > 0 && (
           <span className="ml-1 rounded-full border border-border bg-secondary px-2 py-0.5">

@@ -5,6 +5,19 @@ const fs = require('node:fs');
 const fsp = require('node:fs/promises');
 const os = require('node:os');
 
+const { sweepOnce } = require(path.join(__dirname, 'support', 'stale-home'));
+
+// Sweep leftover scratch dirs from killed runs before creating this run's fresh
+// axr-home-* dir (which is seconds old, so the age rule never targets it).
+sweepOnce();
+
+// Hermetic HOME: lib/config.js captures HOME at module load, so this must run
+// before any require('../lib/...') below. Keeps fixtures out of the real $HOME
+// (where mkdir may be sandbox-denied) and removes them on exit.
+const __home = fs.mkdtempSync(path.join(os.tmpdir(), 'axr-home-'));
+process.env.HOME = __home;
+process.on('exit', () => fs.rmSync(__home, { recursive: true, force: true }));
+
 const ROOT = path.join(__dirname, '..');
 const { backupCopy, backupOpenclaw, backupClaudeDesktop, backupDoubao, runFullBackup } = require(
   path.join(ROOT, 'lib', 'backup')

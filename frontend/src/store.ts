@@ -118,7 +118,7 @@ function persist(settings: DirSettings, platform: Platform): void {
   }
 }
 
-export type MainView = 'sessions' | 'insights' | 'usage' | 'prompts' | 'library' | 'help';
+export type MainView = 'sessions' | 'insights' | 'usage' | 'prompts' | 'library' | 'frameworks' | 'help';
 export type InsightsScope = 'global' | 'session';
 export type SessionView = 'messages' | 'trace';
 export type Theme = 'light' | 'dark';

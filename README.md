@@ -43,6 +43,7 @@ If you build and operate your own agent in production, use a tracing platform. I
 
 - **Multi-platform** — Unified view across OpenClaw, Codex, Claude Code, Claude Desktop Agent/Cowork, Hermes, OMP, DeepSeek Harness, Gemini CLI, Cursor, Doubao, WorkBuddy, and Trae CN sessions (dsh supports v0 and v4 `session[.vN].jsonl[.zstd]` logs and decompresses multi-frame zstd transparently; v1–v3 sessions stay listed as unsupported, v5 sessions stay listed with an error, v4 injected context is kept in a collapsed system-context block, subagent sessions are grouped under their parent with a 🌳 child chip, and the detail shows a context-usage card; Gemini CLI's `/rewind` checkpoints are folded so rewound history never renders twice; Cursor agent transcripts are read from `~/.cursor/projects` — subagent transcripts are excluded, and timestamps come from file mtime since Cursor records carry none)
 - **Session browser** — Browse agents, filter/search sessions, view message history
+- **Frameworks guide** — A 框架 tab documenting each framework's agent design and session storage: directory layout, file format, message/event schema, spawn mechanism, and session lifecycle, plus a cross-platform comparison table (maintained by hand from the parser sources in `lib/platforms/`)
 - **Tool call inspection** — Expandable tool calls with arguments and results
 - **Trace view** — Per-turn waterfall of where the time went: model inference (blue) vs tool execution (green, red on error); click any bar to jump to that message
 - **Prompt extraction** — See every real human prompt per session (tool results, slash commands and injected noise filtered out), grouped by working directory, with search / JSON export / copy
@@ -250,7 +251,7 @@ npm start
 | `GET /api/usage/daily` | Daily token usage: input/output/cache/reasoning/estimated tokens, cost, and deduplicated transcript count including sub-agents (`days=1-90`, `platform=all` or a platform id; per-platform directory overrides are supported) |
 | `GET /api/tools/audit` | Aggregate tool usage and health audit |
 | `GET /api/prompts` | Real human prompts per session, grouped by directory |
-| `GET /api/prompts/analyze` | Template clustering + attribution + Claude suggestions (`?refresh=1` to recompute, `?skipLlm=1` for clustering only) |
+| `GET /api/prompts/analyze` | Template clustering + attribution + LLM suggestions (`?refresh=1` to recompute, `?skipLlm=1` for clustering only) |
 | `POST /api/prompts/rewrite` | Rewrite a single prompt via the configured LLM backend (`{ "text": "..." }`; 503 with guidance when no backend is available) |
 | `GET /api/prompts/hidden` | List hidden prompt hashes and previews |
 | `POST /api/prompts/hidden` | Hide one prompt (`text`) or a batch (`texts`) |

@@ -4,10 +4,11 @@
 // failing message via the shared requestScrollToMessage store action.
 
 import { useQuery } from '@tanstack/react-query';
+import { useMemo } from 'react';
 import { getSessionDetail } from '@/api/client';
 import { Badge } from '@/components/ui/badge';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { formatDurationCompact } from '@/lib/pure';
+import { analyzeHealth, buildTraceTurns, formatDurationCompact, healthColor, healthLabel } from '@/lib/pure';
 import { dirForPlatform, useAppStore } from '@/store';
 import { ContextUsageCard } from '@/views/sessions/ContextUsageCard';
 import { fmtTokens, formatNumber, InsightSection, ScopeChip, StatCard, UsageBar } from './bits';
@@ -64,6 +65,9 @@ export function SessionInsights() {
   const session = query.data.session || {};
   const st = computeSessionInsights(msgs);
   const reflection = computeReflectionReport(msgs);
+  // Rule-based health score (same pipeline as the Trace view's health card,
+  // minus sub-agent spans) — surfaced here so the score is findable in both places.
+  const health = useMemo(() => analyzeHealth(buildTraceTurns(msgs, [])), [msgs]);
   const tokenUsage = query.data.tokenUsage || session.tokenUsage;
   const contextUsage = query.data.contextUsage || session.contextUsage;
   const tokenInput = tokenUsage?.input ?? st.totalInputTokens;
@@ -104,6 +108,13 @@ export function SessionInsights() {
         {session.cwd && <Badge variant="secondary">{session.cwd}</Badge>}
         <Badge variant="secondary">
           👤 {st.userCount} &nbsp; 🤖 {st.assistantCount}
+        </Badge>
+        <Badge variant="outline" title={`规则打分（pure.ts scoreHealth）· 完整时间轴在会话详情的 Trace 标签`}>
+          <span
+            className="mr-1 inline-block h-2 w-2 rounded-full align-middle"
+            style={{ backgroundColor: healthColor(health.overall) }}
+          />
+          会话健康度 {health.overall} · {healthLabel(health.overall)}
         </Badge>
       </div>
 
@@ -519,64 +530,68 @@ export function SessionInsights() {
             </div>
           )}
 
-          {/* Best vs Worst prompts */}
+          {/* Best vs Worst prompts (Bottom picks first, so either side may be empty) */}
           <div className="mb-4 grid gap-4 md:grid-cols-2">
-            <div>
-              <div className="mb-2 text-xs font-medium text-[#3fb950]">⭐ 高效 Prompt (Top 3)</div>
-              <div className="flex flex-col gap-2">
-                {st.promptAnalysis.bestPrompts.map((p) => (
-                  <div key={p.index} className="rounded-md border border-[#3fb950]/30 bg-[#3fb950]/5 p-2">
-                    <div className="flex items-center justify-between gap-2">
-                      <span className="truncate text-[13px] font-medium" title={p.text}>
-                        {p.text}
-                      </span>
-                      <span className="shrink-0 rounded-full bg-[#3fb950]/20 px-1.5 py-0.5 text-xs font-mono text-[#3fb950]">
-                        {p.qualityScore}
-                      </span>
-                    </div>
-                    <div className="mt-1 flex flex-wrap gap-1.5 text-[0.65rem] text-muted-foreground">
-                      <span>🔧 {p.toolCalls}次</span>
-                      <span>⏱ {p.durationMs > 0 ? formatDurationCompact(p.durationMs) : '—'}</span>
-                      <span>📝 {p.length}字</span>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-            <div>
-              <div className="mb-2 text-xs font-medium text-[#f85149]">⚠️ 待改进 Prompt (Bottom 3)</div>
-              <div className="flex flex-col gap-2">
-                {st.promptAnalysis.worstPrompts.map((p) => (
-                  <div key={p.index} className="rounded-md border border-[#f85149]/30 bg-[#f85149]/5 p-2">
-                    <div className="flex items-center justify-between gap-2">
-                      <span className="truncate text-[13px] font-medium" title={p.text}>
-                        {p.text}
-                      </span>
-                      <span className="shrink-0 rounded-full bg-[#f85149]/20 px-1.5 py-0.5 text-xs font-mono text-[#f85149]">
-                        {p.qualityScore}
-                      </span>
-                    </div>
-                    <div className="mt-1 flex flex-wrap gap-1.5 text-[0.65rem] text-muted-foreground">
-                      <span>🔧 {p.toolCalls}次</span>
-                      {p.errors > 0 && <span className="text-[#f85149]">❌ {p.errors}错误</span>}
-                      <span>⏱ {p.durationMs > 0 ? formatDurationCompact(p.durationMs) : '—'}</span>
-                    </div>
-                    {p.qualityFactors.filter((f) => f.startsWith('⚠️') || f.startsWith('❌')).length > 0 && (
-                      <div className="mt-1.5 flex flex-col gap-0.5">
-                        {p.qualityFactors
-                          .filter((f) => f.startsWith('⚠️') || f.startsWith('❌'))
-                          .slice(0, 2)
-                          .map((f, i) => (
-                            <div key={i} className="text-[0.65rem] text-[#f85149]">
-                              {f}
-                            </div>
-                          ))}
+            {st.promptAnalysis.bestPrompts.length > 0 && (
+              <div>
+                <div className="mb-2 text-xs font-medium text-[#3fb950]">⭐ 高效 Prompt (Top 3)</div>
+                <div className="flex flex-col gap-2">
+                  {st.promptAnalysis.bestPrompts.map((p) => (
+                    <div key={p.index} className="rounded-md border border-[#3fb950]/30 bg-[#3fb950]/5 p-2">
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="truncate text-[13px] font-medium" title={p.text}>
+                          {p.text}
+                        </span>
+                        <span className="shrink-0 rounded-full bg-[#3fb950]/20 px-1.5 py-0.5 text-xs font-mono text-[#3fb950]">
+                          {p.qualityScore}
+                        </span>
                       </div>
-                    )}
-                  </div>
-                ))}
+                      <div className="mt-1 flex flex-wrap gap-1.5 text-[0.65rem] text-muted-foreground">
+                        <span>🔧 {p.toolCalls}次</span>
+                        <span>⏱ {p.durationMs > 0 ? formatDurationCompact(p.durationMs) : '—'}</span>
+                        <span>📝 {p.length}字</span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
               </div>
-            </div>
+            )}
+            {st.promptAnalysis.worstPrompts.length > 0 && (
+              <div>
+                <div className="mb-2 text-xs font-medium text-[#f85149]">⚠️ 待改进 Prompt (Bottom 3)</div>
+                <div className="flex flex-col gap-2">
+                  {st.promptAnalysis.worstPrompts.map((p) => (
+                    <div key={p.index} className="rounded-md border border-[#f85149]/30 bg-[#f85149]/5 p-2">
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="truncate text-[13px] font-medium" title={p.text}>
+                          {p.text}
+                        </span>
+                        <span className="shrink-0 rounded-full bg-[#f85149]/20 px-1.5 py-0.5 text-xs font-mono text-[#f85149]">
+                          {p.qualityScore}
+                        </span>
+                      </div>
+                      <div className="mt-1 flex flex-wrap gap-1.5 text-[0.65rem] text-muted-foreground">
+                        <span>🔧 {p.toolCalls}次</span>
+                        {p.errors > 0 && <span className="text-[#f85149]">❌ {p.errors}错误</span>}
+                        <span>⏱ {p.durationMs > 0 ? formatDurationCompact(p.durationMs) : '—'}</span>
+                      </div>
+                      {p.qualityFactors.filter((f) => f.startsWith('⚠️') || f.startsWith('❌')).length > 0 && (
+                        <div className="mt-1.5 flex flex-col gap-0.5">
+                          {p.qualityFactors
+                            .filter((f) => f.startsWith('⚠️') || f.startsWith('❌'))
+                            .slice(0, 2)
+                            .map((f, i) => (
+                              <div key={i} className="text-[0.65rem] text-[#f85149]">
+                                {f}
+                              </div>
+                            ))}
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
 
           {/* Length vs efficiency */}
