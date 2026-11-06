@@ -337,9 +337,7 @@ test('codex user injections route to the context channel; real prompts stay as u
   assert.ok(!allText.includes('<turn_aborted>'), 'turn_aborted wrapper should be dropped');
 
   // AGENTS.md text feeds the system context panel
-  const agentsMdComponent = parsed.systemContext.systemComponents.find(
-    (component) => component.type === 'agents-md'
-  );
+  const agentsMdComponent = parsed.systemContext.systemComponents.find((component) => component.type === 'agents-md');
   assert.ok(agentsMdComponent, 'systemComponents should include the agents-md block');
 });
 
@@ -357,8 +355,8 @@ test('codex user injections without provenance metadata fall back to text prefix
 
   const parsed = await parseCodexSessionFile(file);
   assert.equal(parsed.messages.filter((message) => message.role === 'user').length, 1);
+  assert.ok(parsed.contextMessages.some((message) => message.details.sourceKind === 'environment_context'));
   assert.ok(
-    parsed.contextMessages.some((message) => message.details.sourceKind === 'environment_context')
+    !parsed.messages.some((message) => (message.content || []).some((p) => (p.text || '').includes('<turn_aborted>')))
   );
-  assert.ok(!parsed.messages.some((message) => (message.content || []).some((p) => (p.text || '').includes('<turn_aborted>'))));
 });

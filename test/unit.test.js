@@ -706,7 +706,10 @@ test('setInsightsCache evicts oldest keys when exceeding LRU cap', () => {
     setInsightsCache(`key-${i}`, { idx: i });
   }
   assert.equal(insightsCache.size, INSIGHTS_CACHE_MAX);
-  assert.ok(insightsCache.has('key-0'));
+  // Probe via keys(): insightsCache is a true-LRU cache whose has()/get()
+  // refresh recency, so a has() here would move key-0 to the most-recent
+  // end and change which key the overflow eviction drops below.
+  assert.ok([...insightsCache.keys()].includes('key-0'));
 
   // Insert one more → oldest (key-0) should be evicted
   setInsightsCache(`key-${INSIGHTS_CACHE_MAX}`, { idx: INSIGHTS_CACHE_MAX });
