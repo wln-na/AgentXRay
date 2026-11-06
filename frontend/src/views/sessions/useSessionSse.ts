@@ -7,7 +7,7 @@ import { watchUrl } from '@/api/client';
 import type { SessionDetail, SessionMessage, SessionMeta } from '@/api/types';
 import { DEMO } from '@/demo/flag';
 import { getTextContent } from '@/lib/pure';
-import { dirForPlatform, useAppStore } from '@/store';
+import { dirForPlatform, useAppStore, useSessionViewSelectors } from '@/store';
 
 export type SseStatus = 'off' | 'connecting' | 'live' | 'error';
 
@@ -17,10 +17,7 @@ export type SseStatus = 'off' | 'connecting' | 'live' | 'error';
  * cache; `onNewMessages(count)` lets the caller expand pagination / auto-scroll.
  */
 export function useSessionSse(onNewMessages: (count: number) => void): SseStatus {
-  const platform = useAppStore((s) => s.platform);
-  const sessionId = useAppStore((s) => s.selectedSessionId);
-  const agent = useAppStore((s) => s.selectedAgent);
-  const settings = useAppStore((s) => s.settings);
+  const { platform, sessionId, agent, settings } = useSessionViewSelectors();
   const autoRefresh = useAppStore((s) => s.autoRefresh);
   const viewingChildAgent = useAppStore((s) => s.viewingChildAgent);
   const queryClient = useQueryClient();

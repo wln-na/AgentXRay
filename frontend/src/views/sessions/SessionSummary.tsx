@@ -10,7 +10,14 @@ import { DEMO } from '@/demo/flag';
 import { isLive } from '@/lib/live';
 import { formatCost, formatDurationCompact } from '@/lib/pure';
 import { cn } from '@/lib/utils';
-import { dirForPlatform, loadStoredFlag, SUMMARY_COLLAPSED_KEY, saveStoredFlag, useAppStore } from '@/store';
+import {
+  dirForPlatform,
+  loadStoredFlag,
+  SUMMARY_COLLAPSED_KEY,
+  saveStoredFlag,
+  useAppStore,
+  useSessionViewSelectors,
+} from '@/store';
 import { ChildAgentsSection } from '@/views/trace/ChildAgentsSection';
 import { ContextUsageCard } from './ContextUsageCard';
 import type { ExportFormat } from './exports';
@@ -54,10 +61,7 @@ const ACTION_BTN =
   'rounded-full border border-border/70 bg-card px-3 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:border-primary/40 hover:bg-accent hover:text-foreground shadow-soft-sm';
 
 function ExportMenu({ detail }: { detail: SessionDetail }) {
-  const platform = useAppStore((s) => s.platform);
-  const selectedSessionId = useAppStore((s) => s.selectedSessionId);
-  const selectedAgent = useAppStore((s) => s.selectedAgent);
-  const settings = useAppStore((s) => s.settings);
+  const { platform, sessionId: selectedSessionId, agent: selectedAgent, settings } = useSessionViewSelectors();
   const [open, setOpen] = useState(false);
   const [copied, setCopied] = useState(false);
   const timerRef = useRef<number | undefined>(undefined);
@@ -168,10 +172,7 @@ function openTitleFor(platform: string): string {
 }
 
 function OpenButtons() {
-  const platform = useAppStore((s) => s.platform);
-  const selectedSessionId = useAppStore((s) => s.selectedSessionId);
-  const selectedAgent = useAppStore((s) => s.selectedAgent);
-  const settings = useAppStore((s) => s.settings);
+  const { platform, sessionId: selectedSessionId, agent: selectedAgent, settings } = useSessionViewSelectors();
   const [pending, setPending] = useState<'locate' | 'open' | null>(null);
 
   // Demo mode is read-only (the demo router rejects POSTs); the buttons only

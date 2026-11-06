@@ -286,3 +286,17 @@ export const useAppStore = create<AppState>((set, get) => ({
     set({ theme });
   },
 }));
+
+/**
+ * The four store fields every session-scoped query/SSE hook selects. One
+ * definition site keeps the selector tuples identical (and therefore the
+ * re-render behavior identical) across queries.ts, useSessionSse.ts and
+ * trace/childAgents.ts.
+ */
+export function useSessionViewSelectors() {
+  const platform = useAppStore((s) => s.platform);
+  const sessionId = useAppStore((s) => s.selectedSessionId);
+  const agent = useAppStore((s) => s.selectedAgent);
+  const settings = useAppStore((s) => s.settings);
+  return { platform, sessionId, agent, settings };
+}

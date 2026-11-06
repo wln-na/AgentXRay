@@ -5,7 +5,7 @@ import { useQuery } from '@tanstack/react-query';
 import type { DirSettings } from '@/api/client';
 import { getSessionDetail, getSessions } from '@/api/client';
 import type { Platform, SessionDetail, SessionSummary } from '@/api/types';
-import { dirForPlatform, useAppStore } from '@/store';
+import { dirForPlatform, useAppStore, useSessionViewSelectors } from '@/store';
 
 export interface ListScope {
   platform: Platform;
@@ -30,8 +30,7 @@ export function sessionsListOptions(scope: ListScope) {
 }
 
 export function useSessionsList() {
-  const platform = useAppStore((s) => s.platform);
-  const agent = useAppStore((s) => s.selectedAgent);
+  const { platform, agent } = useSessionViewSelectors();
   const includeArchived = useAppStore((s) => s.includeArchived);
   const settings = useAppStore((s) => s.settings);
   const autoRefresh = useAppStore((s) => s.autoRefresh);
@@ -62,10 +61,7 @@ export function sessionDetailOptions(scope: {
 
 /** Parent-session detail (summary always shows the parent, even while viewing a child). */
 export function useSessionDetail() {
-  const platform = useAppStore((s) => s.platform);
-  const sessionId = useAppStore((s) => s.selectedSessionId);
-  const agent = useAppStore((s) => s.selectedAgent);
-  const settings = useAppStore((s) => s.settings);
+  const { platform, sessionId, agent, settings } = useSessionViewSelectors();
   const autoRefresh = useAppStore((s) => s.autoRefresh);
   return useQuery({
     ...sessionDetailOptions({ platform, sessionId, agent, settings }),

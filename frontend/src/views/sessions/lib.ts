@@ -5,6 +5,7 @@ import type {
   MessageUsage,
   Platform,
   SessionMessage,
+  SessionStats,
   SessionSummary,
 } from '@/api/types';
 import { getTextContent, parseTimestampMs } from '@/lib/pure';
@@ -220,20 +221,9 @@ export function sessionCost(messagesData: SessionMessage[]): number {
   }, 0);
 }
 
-export interface SessionStats {
-  userCount: number;
-  assistantCount: number;
-  toolCallCount: number;
-  toolResultCount: number;
-  errorCount: number;
-  spawnCount: number;
-  toolNames: Record<string, number>;
-  skillNames: Record<string, number>;
-  skillFileReads: Record<string, number>;
-  mcpServers: Record<string, number>;
-  totalRetryTools: number;
-  totalRetryAttempts: number;
-}
+// SessionStats type lives in @/api/types (single source, also served by the
+// session detail API); re-exported here for the view-layer imports.
+export type { SessionStats };
 
 export function compactAssistantFragments(messages: SessionMessage[]): SessionMessage[] {
   const compacted: SessionMessage[] = [];
@@ -516,6 +506,19 @@ function mcpServerFromToolName(toolName: string | null | undefined): string | nu
   return raw.slice('mcp__'.length).split('__')[0] || null;
 }
 
+// One tool call → stats counters; shared by the top-level toolCall messages
+// and the content-block toolCall parts (mirrors lib/session-stats.js).
+function countToolCall(stats: SessionStats, toolName: string | null | undefined, call: unknown): void {
+  stats.toolCallCount++;
+  const name = toolName || 'unknown';
+  stats.toolNames[name] = (stats.toolNames[name] || 0) + 1;
+  const usage = skillUsageFromToolCall(toolName, call);
+  for (const skill of usage.loads) stats.skillNames[skill] = (stats.skillNames[skill] || 0) + 1;
+  for (const skill of usage.fileReads) stats.skillFileReads[skill] = (stats.skillFileReads[skill] || 0) + 1;
+  const server = mcpServerFromToolName(name);
+  if (server) stats.mcpServers[server] = (stats.mcpServers[server] || 0) + 1;
+}
+
 // Stats block of legacy renderSummary (counts + per-turn retry tally)
 export function computeSessionStats(msgs: SessionMessage[]): SessionStats {
   const stats: SessionStats = {
@@ -552,25 +555,11 @@ export function computeSessionStats(msgs: SessionMessage[]): SessionStats {
       }
     }
     if (msg.role === 'toolCall') {
-      stats.toolCallCount++;
-      const name = msg.toolName || 'unknown';
-      stats.toolNames[name] = (stats.toolNames[name] || 0) + 1;
-      const usage = skillUsageFromToolCall(msg.toolName, msg.details);
-      for (const skill of usage.loads) stats.skillNames[skill] = (stats.skillNames[skill] || 0) + 1;
-      for (const skill of usage.fileReads) stats.skillFileReads[skill] = (stats.skillFileReads[skill] || 0) + 1;
-      const server = mcpServerFromToolName(name);
-      if (server) stats.mcpServers[server] = (stats.mcpServers[server] || 0) + 1;
+      countToolCall(stats, msg.toolName, msg.details);
     }
     for (const c of msg.content || []) {
       if (c.type === 'toolCall') {
-        stats.toolCallCount++;
-        const name = c.name || 'unknown';
-        stats.toolNames[name] = (stats.toolNames[name] || 0) + 1;
-        const usage = skillUsageFromToolCall(c.name, c);
-        for (const skill of usage.loads) stats.skillNames[skill] = (stats.skillNames[skill] || 0) + 1;
-        for (const skill of usage.fileReads) stats.skillFileReads[skill] = (stats.skillFileReads[skill] || 0) + 1;
-        const server = mcpServerFromToolName(name);
-        if (server) stats.mcpServers[server] = (stats.mcpServers[server] || 0) + 1;
+        countToolCall(stats, c.name, c);
         if (isSpawnPart(c)) stats.spawnCount++;
       }
     }

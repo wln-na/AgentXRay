@@ -7,7 +7,7 @@ import { useQuery } from '@tanstack/react-query';
 import { getSessionChild, getSessionChildren, getSessionDetail } from '@/api/client';
 import type { ChildAgentSummary, Platform, SessionDetail } from '@/api/types';
 import { PLATFORM_CAPABILITIES } from '@/api/types';
-import { dirForPlatform, useAppStore } from '@/store';
+import { dirForPlatform, useAppStore, useSessionViewSelectors } from '@/store';
 
 export type ChildPlatform = 'omp' | 'claude-code' | 'codex' | 'dsh';
 
@@ -31,9 +31,7 @@ export function childAgentLabel(c: ChildAgentSummary, platform: Platform): strin
 
 /** Subagent list of the selected session. Legacy swallows fetch errors → empty list. */
 export function useChildrenQuery(): UseQueryResult<ChildAgentSummary[]> {
-  const platform = useAppStore((s) => s.platform);
-  const sessionId = useAppStore((s) => s.selectedSessionId);
-  const settings = useAppStore((s) => s.settings);
+  const { platform, sessionId, settings } = useSessionViewSelectors();
   const dir = dirForPlatform(settings, platform) || undefined;
   return useQuery({
     queryKey: ['session-children', platform, sessionId],
@@ -44,10 +42,7 @@ export function useChildrenQuery(): UseQueryResult<ChildAgentSummary[]> {
 
 /** The selected (parent) session detail — same key ViewSessions uses, cache is shared. */
 export function useSessionDetailQuery(): UseQueryResult<SessionDetail> {
-  const platform = useAppStore((s) => s.platform);
-  const sessionId = useAppStore((s) => s.selectedSessionId);
-  const agent = useAppStore((s) => s.selectedAgent);
-  const settings = useAppStore((s) => s.settings);
+  const { platform, sessionId, agent, settings } = useSessionViewSelectors();
   const dir = dirForPlatform(settings, platform) || undefined;
   return useQuery({
     queryKey: ['session', platform, sessionId],
@@ -58,10 +53,8 @@ export function useSessionDetailQuery(): UseQueryResult<SessionDetail> {
 
 /** Transcript of the child agent being viewed (viewingChildAgent). */
 export function useChildSessionQuery(): UseQueryResult<SessionDetail> {
-  const platform = useAppStore((s) => s.platform);
-  const sessionId = useAppStore((s) => s.selectedSessionId);
+  const { platform, sessionId, settings } = useSessionViewSelectors();
   const child = useAppStore((s) => s.viewingChildAgent);
-  const settings = useAppStore((s) => s.settings);
   const dir = dirForPlatform(settings, platform) || undefined;
   return useQuery({
     queryKey: ['session-child', platform, sessionId, child],
