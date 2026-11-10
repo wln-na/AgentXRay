@@ -74,7 +74,13 @@ export interface TimingAnalysis {
   visibleMessages: SessionMessage[];
   timingByMessage: Map<SessionMessage, TimingMeta>;
   totalDurationMs: number | null;
-  slowestStep: { deltaMs: number; label: string; messageId: string | null } | null;
+  slowestStep: {
+    deltaMs: number;
+    label: string;
+    anchorId: string | null;
+    assistantCount: number;
+    toolCallCount: number;
+  } | null;
   totalToolDurationMs: number | null;
   toolPairCount: number;
 }
@@ -129,59 +135,96 @@ export function buildTimingAnalysis(messagesData: SessionMessage[] | null | unde
     }
   }
 
-  // Slowest turn: from user message to end of agent work (next user or end)
+  // A Codex request can emit several assistant progress messages before the
+  // next user message. Treat each assistant response plus its following tool
+  // chain as one turn; otherwise one long request is incorrectly reported as
+  // a single multi-dozen-minute turn. Tool results are displayed in the chain
+  // but are not tool calls themselves.
   let slowestTurn: TimingAnalysis['slowestStep'] = null;
-  let turnStart: number | null = null;
-  let turnFirstAgentId: string | null = null;
-  let turnToolCount = 0;
+  let activeTurn: {
+    startTs: number;
+    endTs: number;
+    messageId: string | null;
+    assistantCount: number;
+    toolCount: number;
+    hasAssistant: boolean;
+  } | null = null;
 
-  const checkTurn = (endTs: number, lastAgentMsg: SessionMessage) => {
-    const duration = Math.max(0, endTs - (turnStart as number));
-    if (duration > 0 && (!slowestTurn || duration > slowestTurn.deltaMs)) {
-      const parts = ['assistant'];
-      if (turnToolCount > 0) parts.push(`${turnToolCount} tool calls`);
-      slowestTurn = {
-        deltaMs: duration,
-        label: parts.join(' + '),
-        messageId: turnFirstAgentId || lastAgentMsg.id || lastAgentMsg.toolCallId || null,
-      };
-    }
+  const considerTurn = () => {
+    if (!activeTurn?.hasAssistant) return;
+    const duration = Math.max(0, activeTurn.endTs - activeTurn.startTs);
+    if (duration <= 0 || (slowestTurn && duration <= slowestTurn.deltaMs)) return;
+    const parts = ['assistant'];
+    parts[0] = `assistant ×${activeTurn.assistantCount}`;
+    if (activeTurn.toolCount > 0) parts.push(`${activeTurn.toolCount} tool calls`);
+    slowestTurn = {
+      deltaMs: duration,
+      label: parts.join(' + '),
+      anchorId: activeTurn.messageId,
+      assistantCount: activeTurn.assistantCount,
+      toolCallCount: activeTurn.toolCount,
+    };
   };
 
-  const finalizeTurn = (endIdx: number) => {
-    const endMsg = visibleMessages[endIdx];
-    const endTs = parseTimestampMs(endMsg?.timestamp);
-    if (endTs === null || endMsg.role === 'user') {
-      // Look backwards for last non-user message
-      for (let j = endIdx; j >= 0; j--) {
-        const m = visibleMessages[j];
-        if (m.role !== 'user') {
-          const t = parseTimestampMs(m.timestamp);
-          if (t !== null) {
-            checkTurn(t, m);
-            return;
-          }
-        }
-      }
-      return;
-    }
-    checkTurn(endTs, endMsg);
+  const finishTurn = () => {
+    considerTurn();
+    activeTurn = null;
   };
 
-  for (let i = 0; i < visibleMessages.length; i++) {
-    const msg = visibleMessages[i];
+  for (const msg of visibleMessages) {
     const ts = parseTimestampMs(msg.timestamp);
-    if (msg.role === 'user' && ts !== null) {
-      if (turnStart !== null) finalizeTurn(i - 1);
-      turnStart = ts;
-      turnFirstAgentId = null;
-      turnToolCount = 0;
-    } else if (turnStart !== null && ts !== null) {
-      if (!turnFirstAgentId) turnFirstAgentId = msg.id || msg.toolCallId || null;
-      if (msg.role === 'toolCall' || msg.role === 'toolResult') turnToolCount++;
+    if (ts === null) continue;
+
+    if (msg.role === 'user') {
+      // A user message closes any unfinished agent activity. The user wait
+      // before the next request must never be included in the prior turn.
+      finishTurn();
+      continue;
+    }
+
+    const embeddedToolCalls =
+      msg.role === 'assistant' ? (msg.content || []).filter((part) => part.type === 'toolCall').length : 0;
+
+    if (!activeTurn) {
+      activeTurn = {
+        startTs: ts,
+        endTs: ts,
+        messageId: msg.id || msg.toolCallId || null,
+        assistantCount: msg.role === 'assistant' ? 1 : 0,
+        toolCount: msg.role === 'toolCall' ? 1 : embeddedToolCalls,
+        hasAssistant: msg.role === 'assistant',
+      };
+      continue;
+    }
+
+    if (msg.role === 'assistant' && activeTurn.hasAssistant) {
+      // A new assistant response starts a new execution turn. Reasoning and
+      // tool records between responses stay with the preceding response.
+      finishTurn();
+      activeTurn = {
+        startTs: ts,
+        endTs: ts,
+        messageId: msg.id || msg.toolCallId || null,
+        assistantCount: 1,
+        toolCount: embeddedToolCalls,
+        hasAssistant: true,
+      };
+      continue;
+    }
+
+    activeTurn.endTs = ts;
+    if (msg.role === 'assistant') {
+      // Reasoning/tool activity can precede the first assistant text record;
+      // keep that time in the same turn.
+      activeTurn.hasAssistant = true;
+      activeTurn.messageId = msg.id || msg.toolCallId || activeTurn.messageId;
+      activeTurn.assistantCount++;
+      activeTurn.toolCount += embeddedToolCalls;
+    } else if (msg.role === 'toolCall') {
+      activeTurn.toolCount++;
     }
   }
-  if (turnStart !== null) finalizeTurn(visibleMessages.length - 1);
+  finishTurn();
 
   return {
     visibleMessages,

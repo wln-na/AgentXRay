@@ -48,13 +48,9 @@ export function buildMessageUnits(filtered: SessionMessage[], isCodex: boolean):
           const next = filtered[peek];
           if (next.role === 'toolCall') {
             codexTools.push(next);
-            codexResults.push(next); // include in steps
             peek++;
           } else if (next.role === 'toolResult') {
             codexResults.push(next);
-            peek++;
-          } else if (next.role === 'reasoning') {
-            // reasoning between assistant and tools, skip
             peek++;
           } else {
             break;

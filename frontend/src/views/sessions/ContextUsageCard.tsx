@@ -22,7 +22,9 @@ export function ContextUsageCard({
 
   return (
     <div className="rounded-md border border-border/70 p-2.5" data-testid="context-usage">
-      <div className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">上下文用量</div>
+      <div className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+        上下文用量（最近一次请求）
+      </div>
       {used !== null ? (
         <>
           <div className="text-lg font-semibold text-foreground">

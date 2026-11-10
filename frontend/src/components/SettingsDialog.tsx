@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useState } from 'react';
-import type { DirSettings } from '@/api/client';
+import { useEffect, useState } from 'react';
+import type { DirSettings, LlmProfileInput, LlmPurpose } from '@/api/client';
 import { getBackupStatus, getLlmSettings, runBackup, saveLlmSettings } from '@/api/client';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
@@ -65,67 +65,202 @@ function BackupSection() {
   );
 }
 
-// LLM 后端配置 (#14): OpenAI 兼容端点,存服务端 ~/.agentxray/llm.json。
-// 显式配置优先于本机 claude CLI;两者都没有时 prompt 优化按钮会给出指引。
+const LLM_PURPOSES: { key: LlmPurpose; label: string }[] = [
+  { key: 'sessionTasks', label: '会话任务归类' },
+  { key: 'promptRewrite', label: 'Prompt 改写' },
+  { key: 'promptAnalysis', label: 'Prompt 分析' },
+  { key: 'libraryName', label: '资产库命名' },
+];
+
+type DraftLlmProfile = LlmProfileInput & { clearApiKey?: boolean };
+
+function blankProfile(): DraftLlmProfile {
+  return { type: 'openai-compatible', baseUrl: '', model: '', apiKey: '', clearApiKey: false };
+}
+
 function LlmSection() {
   const queryClient = useQueryClient();
   const llm = useQuery({ queryKey: ['llm-settings'], queryFn: getLlmSettings });
-  const [draft, setDraft] = useState<{ baseUrl: string; model: string; apiKey: string } | null>(null);
-  const current = draft ?? {
-    baseUrl: llm.data?.baseUrl ?? '',
-    model: llm.data?.model ?? '',
-    apiKey: '',
+  const [draftProfiles, setDraftProfiles] = useState<Record<string, DraftLlmProfile>>({});
+  const [activeProfile, setActiveProfile] = useState('');
+  const [routes, setRoutes] = useState<Partial<Record<LlmPurpose, string | null>>>({});
+  const [selectedProfile, setSelectedProfile] = useState('');
+  const [newProfileName, setNewProfileName] = useState('');
+
+  useEffect(() => {
+    if (!llm.data) return;
+    const profiles = Object.fromEntries(
+      Object.entries(llm.data.profiles).map(([name, profile]) => [name, { ...profile, apiKey: '', clearApiKey: false }])
+    );
+    setDraftProfiles(profiles);
+    setActiveProfile(llm.data.activeProfile);
+    setRoutes(llm.data.routes);
+    setSelectedProfile(llm.data.activeProfile || Object.keys(profiles)[0] || '');
+  }, [llm.data]);
+
+  const profileNames = Object.keys(draftProfiles);
+  const current = draftProfiles[selectedProfile] || blankProfile();
+  const updateCurrent = (patch: Partial<DraftLlmProfile>) => {
+    if (!selectedProfile) return;
+    setDraftProfiles((profiles) => ({
+      ...profiles,
+      [selectedProfile]: { ...profiles[selectedProfile], ...patch },
+    }));
+  };
+
+  const addProfile = () => {
+    const name = newProfileName.trim();
+    if (!name || draftProfiles[name]) return;
+    setDraftProfiles((profiles) => ({ ...profiles, [name]: blankProfile() }));
+    setSelectedProfile(name);
+    setNewProfileName('');
+  };
+
+  const removeProfile = () => {
+    if (!selectedProfile) return;
+    const next = { ...draftProfiles };
+    delete next[selectedProfile];
+    const nextSelected = Object.keys(next)[0] || '';
+    setDraftProfiles(next);
+    setSelectedProfile(nextSelected);
+    if (activeProfile === selectedProfile) setActiveProfile(nextSelected);
+    setRoutes((currentRoutes) =>
+      Object.fromEntries(Object.entries(currentRoutes).filter(([, target]) => target !== selectedProfile))
+    );
   };
 
   const save = useMutation({
-    mutationFn: () =>
-      saveLlmSettings({
-        baseUrl: current.baseUrl.trim(),
-        model: current.model.trim(),
-        // Untouched key field keeps the stored key (undefined = keep)
-        apiKey: draft && draft.apiKey !== '' ? draft.apiKey : current.baseUrl.trim() ? undefined : '',
-      }),
+    mutationFn: () => saveLlmSettings({ activeProfile, profiles: draftProfiles, routes }),
     onSuccess: () => {
-      setDraft(null);
       queryClient.invalidateQueries({ queryKey: ['llm-settings'] });
     },
   });
 
   const backendLabel =
     llm.data?.backend === 'openai'
-      ? `OpenAI 兼容端点（${llm.data.model}）`
+      ? 'OpenAI 兼容端点'
       : llm.data?.backend === 'claude-cli'
         ? '本机 claude CLI'
-        : '未配置 — prompt 优化不可用';
+        : '未配置';
 
   return (
     <div className="space-y-1.5 border-t border-border pt-3">
       <p className="text-xs text-muted-foreground">
-        LLM 接口（prompt 优化 / 聚类建议 / 命名建议）— 当前后端：{backendLabel}
+        LLM 后端（本地配置，不会提交到仓库）— 当前 active profile：{activeProfile || '未配置'}（{backendLabel}）
       </p>
-      <Input
-        placeholder="Base URL，如 https://api.openai.com/v1 或 http://localhost:11434/v1"
-        value={current.baseUrl}
-        onChange={(e) => setDraft({ ...current, baseUrl: e.target.value })}
-      />
       <div className="flex gap-1.5">
+        <select
+          className="h-9 min-w-0 flex-1 rounded-md border border-input bg-background px-2 text-sm"
+          value={selectedProfile}
+          onChange={(e) => setSelectedProfile(e.target.value)}
+        >
+          {profileNames.length ? (
+            profileNames.map((name) => (
+              <option key={name} value={name}>
+                {name}
+              </option>
+            ))
+          ) : (
+            <option value="">无 profile</option>
+          )}
+        </select>
         <Input
-          placeholder="模型名，如 gpt-4o-mini / qwen2.5"
-          value={current.model}
-          onChange={(e) => setDraft({ ...current, model: e.target.value })}
+          className="max-w-36"
+          placeholder="新 profile 名"
+          value={newProfileName}
+          onChange={(e) => setNewProfileName(e.target.value)}
+          onKeyDown={(e) => e.key === 'Enter' && addProfile()}
         />
-        <Input
-          type="password"
-          placeholder={llm.data?.hasApiKey ? 'API Key（已保存，留空保持不变）' : 'API Key（本地端点可留空）'}
-          value={current.apiKey}
-          onChange={(e) => setDraft({ ...current, apiKey: e.target.value })}
-        />
+        <Button variant="outline" size="sm" onClick={addProfile} disabled={!newProfileName.trim()}>
+          新增
+        </Button>
+        <Button variant="outline" size="sm" onClick={removeProfile} disabled={!selectedProfile}>
+          删除
+        </Button>
+      </div>
+      {selectedProfile ? (
+        <>
+          <select
+            className="h-9 w-full rounded-md border border-input bg-background px-2 text-sm"
+            value={current.type}
+            onChange={(e) => updateCurrent({ type: e.target.value as DraftLlmProfile['type'] })}
+          >
+            <option value="openai-compatible">OpenAI-compatible / Ollama</option>
+            <option value="claude-cli">本机 claude CLI</option>
+          </select>
+          {current.type === 'openai-compatible' ? (
+            <>
+              <Input
+                placeholder="Base URL，如 https://api.openai.com/v1 或 http://localhost:11434/v1"
+                value={current.baseUrl}
+                onChange={(e) => updateCurrent({ baseUrl: e.target.value })}
+              />
+              <div className="flex gap-1.5">
+                <Input
+                  placeholder="模型名，如 gpt-4o-mini / qwen2.5"
+                  value={current.model}
+                  onChange={(e) => updateCurrent({ model: e.target.value })}
+                />
+                <Input
+                  type="password"
+                  placeholder={
+                    llm.data?.profiles[selectedProfile]?.hasApiKey
+                      ? 'API Key（已保存，留空保持不变）'
+                      : 'API Key（本地端点可留空）'
+                  }
+                  value={current.apiKey || ''}
+                  onChange={(e) => updateCurrent({ apiKey: e.target.value, clearApiKey: false })}
+                />
+              </div>
+              <label className="flex items-center gap-2 text-xs text-muted-foreground">
+                <input
+                  type="checkbox"
+                  checked={current.clearApiKey === true}
+                  onChange={(e) => updateCurrent({ clearApiKey: e.target.checked, apiKey: '' })}
+                />
+                清除已保存的 API Key
+              </label>
+            </>
+          ) : (
+            <p className="text-xs text-muted-foreground">使用服务器 PATH 中可执行的 `claude` 命令。</p>
+          )}
+          <label className="flex items-center gap-2 text-xs text-muted-foreground">
+            <input
+              type="radio"
+              name="active-llm-profile"
+              checked={activeProfile === selectedProfile}
+              onChange={() => setActiveProfile(selectedProfile)}
+            />
+            设为默认 profile
+          </label>
+        </>
+      ) : null}
+      <div className="space-y-1">
+        <div className="text-xs font-medium">按功能路由</div>
+        {LLM_PURPOSES.map(({ key, label }) => (
+          <label key={key} className="flex items-center gap-2 text-xs text-muted-foreground">
+            <span className="w-24 shrink-0">{label}</span>
+            <select
+              className="h-8 min-w-0 flex-1 rounded-md border border-input bg-background px-2"
+              value={routes[key] || ''}
+              onChange={(e) => setRoutes((currentRoutes) => ({ ...currentRoutes, [key]: e.target.value || null }))}
+            >
+              <option value="">跟随默认 profile</option>
+              <option value="claude-cli">本机 claude CLI</option>
+              {profileNames.map((name) => (
+                <option key={name} value={name}>
+                  {name}
+                </option>
+              ))}
+            </select>
+          </label>
+        ))}
       </div>
       <div className="flex items-center gap-2.5">
         <Button variant="outline" size="sm" disabled={save.isPending} onClick={() => save.mutate()}>
           {save.isPending ? '保存中…' : '保存 LLM 配置'}
         </Button>
-        <span className="text-xs text-muted-foreground">留空 Base URL 并保存 = 回退到本机 claude CLI 探测</span>
+        <span className="text-xs text-muted-foreground">配置保存在 ~/.agentxray/llm.json</span>
       </div>
       {save.error && <div className="text-xs text-danger">保存失败: {(save.error as Error).message}</div>}
     </div>

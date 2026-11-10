@@ -3,11 +3,12 @@
 // Behavior ported from public/js/app.js (childrenEndpoint/childAgentLabel/getSessionChildren).
 
 import type { UseQueryResult } from '@tanstack/react-query';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { getSessionChild, getSessionChildren, getSessionDetail } from '@/api/client';
 import type { ChildAgentSummary, Platform, SessionDetail } from '@/api/types';
 import { PLATFORM_CAPABILITIES } from '@/api/types';
 import { dirForPlatform, useAppStore, useSessionViewSelectors } from '@/store';
+import { mergeSessionDetailPages } from '@/views/sessions/queries';
 
 export type ChildPlatform = 'omp' | 'claude-code' | 'codex' | 'dsh';
 
@@ -44,10 +45,19 @@ export function useChildrenQuery(): UseQueryResult<ChildAgentSummary[]> {
 export function useSessionDetailQuery(): UseQueryResult<SessionDetail> {
   const { platform, sessionId, agent, settings } = useSessionViewSelectors();
   const dir = dirForPlatform(settings, platform) || undefined;
+  const queryClient = useQueryClient();
+  const queryKey = ['session', platform, sessionId] as const;
   return useQuery({
-    queryKey: ['session', platform, sessionId],
+    queryKey,
     enabled: !!sessionId && (platform !== 'openclaw' || !!agent),
-    queryFn: () => getSessionDetail(platform, sessionId, { agent: agent || undefined, dir }),
+    queryFn: async () => {
+      const next = await getSessionDetail(platform, sessionId, {
+        agent: agent || undefined,
+        dir,
+        limit: 60,
+      });
+      return mergeSessionDetailPages(queryClient.getQueryData<SessionDetail>(queryKey), next);
+    },
   });
 }
 
@@ -56,10 +66,15 @@ export function useChildSessionQuery(): UseQueryResult<SessionDetail> {
   const { platform, sessionId, settings } = useSessionViewSelectors();
   const child = useAppStore((s) => s.viewingChildAgent);
   const dir = dirForPlatform(settings, platform) || undefined;
+  const queryClient = useQueryClient();
+  const queryKey = ['session-child', platform, sessionId, child] as const;
   return useQuery({
-    queryKey: ['session-child', platform, sessionId, child],
+    queryKey,
     enabled: hasChildAgents(platform) && !!sessionId && !!child,
-    queryFn: () => getSessionChild(platform as ChildPlatform, sessionId, child as string, dir),
+    queryFn: async () => {
+      const next = await getSessionChild(platform as ChildPlatform, sessionId, child as string, dir, { limit: 60 });
+      return mergeSessionDetailPages(queryClient.getQueryData<SessionDetail>(queryKey), next);
+    },
   });
 }
 
