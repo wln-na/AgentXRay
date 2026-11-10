@@ -12,11 +12,12 @@ import { parseTimestampMs } from '@/lib/pure';
 import { cn } from '@/lib/utils';
 import { useAppStore } from '@/store';
 import { filterSessionList, formatDate } from './lib';
-import { useSessionsList } from './queries';
+import { useSessionsInfinite } from './queries';
 
 const VIRT_THRESHOLD = 200; // below this many sessions, render everything
 const VIRT_OVERSCAN = 10; // extra cards above/below the visible range
 const VIRT_ESTIMATE = 96; // estimated card height incl. gap
+const EMPTY_SESSIONS: SessionSummary[] = [];
 
 type SessionChip = {
   kind: 'user' | 'assistant' | 'tool' | 'spawn' | 'model';
@@ -47,9 +48,12 @@ const CHIP_CLASSES: Record<SessionChip['kind'], string> = {
 
 const LiveChip = memo(function LiveChip() {
   return (
-    <span className="flex items-center gap-1 rounded border border-green-500/40 bg-green-500/10 px-1 py-px text-[10px] font-medium text-green-700 dark:text-green-300">
+    <span
+      className="flex items-center gap-1 rounded border border-green-500/40 bg-green-500/10 px-1 py-px text-[10px] font-medium text-green-700 dark:text-green-300"
+      title="根据最近活动时间判断：近 3 分钟内有记录更新，不代表进程仍在运行"
+    >
       <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-green-500" />
-      活跃中
+      近3分钟有活动
     </span>
   );
 });
@@ -331,8 +335,12 @@ export function SessionList({
     onSessionSelected?.();
   };
 
-  const { data, isLoading, error, refetch } = useSessionsList();
-  const sessions = data ?? [];
+  const { data, isLoading, error, refetch, fetchNextPage, hasNextPage, isFetchingNextPage } = useSessionsInfinite();
+  // Cursor pagination: `data.pages` holds the newest page plus every older page
+  // the user explicitly loaded, in order. Flatten for the existing list pipeline
+  // (filter/search/group/virtualize) so none of that logic changes.
+  const sessions = useMemo(() => data?.pages.flatMap((page) => page.sessions) ?? EMPTY_SESSIONS, [data]);
+  const totalCount = data?.pages[0]?.page.total ?? sessions.length;
   const [selectedProject, setSelectedProject] = useState(ALL_PROJECTS);
   const [selectedYear, setSelectedYear] = useState(ALL_PERIODS);
   const [selectedMonth, setSelectedMonth] = useState(ALL_PERIODS);
@@ -439,13 +447,17 @@ export function SessionList({
     useAnimationFrameWithResizeObserver: true,
   });
 
-  // Auto-select first session when nothing valid is selected (legacy loadSessions)
+  // Auto-select first session when nothing valid is selected (legacy loadSessions).
+  // With cursor pagination only the first page is loaded, so a selection that is
+  // missing from `sessions` may simply live on an older, not-yet-loaded page —
+  // never clear it while `hasNextPage` is still true.
   useEffect(() => {
     if (!data) return;
-    if (!data.some((s) => s.id === useAppStore.getState().selectedSessionId)) {
-      setSelectedSessionId(data[0]?.id || '');
-    }
-  }, [data, setSelectedSessionId]);
+    const current = useAppStore.getState().selectedSessionId;
+    if (sessions.some((session) => session.id === current)) return;
+    if (current && hasNextPage) return;
+    setSelectedSessionId(sessions[0]?.id || '');
+  }, [data, sessions, hasNextPage, setSelectedSessionId]);
 
   // ↑↓ keyboard navigation over the filtered list (legacy document keydown)
   useEffect(() => {
@@ -503,6 +515,23 @@ export function SessionList({
     setSelectedYear(ALL_PERIODS);
     setSelectedMonth(ALL_PERIODS);
   };
+
+  // "Load older sessions" footer (mirrors MessageList's #loadMoreBar). With cursor
+  // pagination nothing older is fetched until the user asks: the first page is the
+  // cheapest possible sidebar load, older pages are opt-in.
+  const loadMoreBar = hasNextPage ? (
+    <div className="flex justify-center py-2" id="sessionLoadMoreBar">
+      <button
+        type="button"
+        onClick={() => void fetchNextPage()}
+        disabled={isFetchingNextPage}
+        title={`已加载 ${sessions.length} / 共 ${totalCount} 个会话`}
+        className="rounded-md border border-border px-3 py-1.5 text-xs text-muted-foreground hover:border-primary/50 hover:text-foreground disabled:cursor-default disabled:opacity-60"
+      >
+        {isFetchingNextPage ? '正在加载更早的会话…' : '▼ 加载更早的会话'}
+      </button>
+    </div>
+  ) : null;
 
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-2">
@@ -602,6 +631,8 @@ export function SessionList({
               清除项目和年月筛选
             </button>
           ) : null}
+          {/* The matching session may be on an older, not-yet-loaded page. */}
+          {loadMoreBar}
         </div>
       ) : (
         <div ref={parentRef} className="min-h-0 flex-1 overflow-y-auto pr-1" data-testid="session-list">
@@ -641,6 +672,7 @@ export function SessionList({
               ))}
             </div>
           )}
+          {loadMoreBar}
         </div>
       )}
     </div>

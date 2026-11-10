@@ -3,7 +3,8 @@
 // lightweight history summary. Full message history is intentionally NOT
 // re-rendered here (it's already visible in the main message stream).
 
-import { useEffect, useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
+import { useState } from 'react';
 import { getSessionContext } from '@/api/client';
 import type { ContextSnapshot, Platform, SessionMessage } from '@/api/types';
 import { DEMO } from '@/demo/flag';
@@ -92,29 +93,30 @@ export function ContextPanel({
   messageId?: string;
   dir?: string;
 }) {
-  const [snapshot, setSnapshot] = useState<ContextSnapshot | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    if (DEMO) return;
-    let cancelled = false;
-    setLoading(true);
-    setError(null);
-    getSessionContext(platform, sessionId, { messageIndex, messageId, dir })
-      .then((data) => {
-        if (!cancelled) setSnapshot(data);
-      })
-      .catch((err) => {
-        if (!cancelled) setError(err.message || '加载失败');
-      })
-      .finally(() => {
-        if (!cancelled) setLoading(false);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [platform, sessionId, messageIndex, messageId, dir]);
+  // WHY TanStack Query instead of a mount effect: this panel used to fetch
+  // unconditionally in a useEffect with no cache. Every collapsed <details>
+  // in the message list still mounts its children, so one session open fired
+  // one /context request per user turn (N requests, tens of MB, each re-parsing
+  // the whole session log on the server and stalling every other request).
+  // The query is now created only when the fold is actually opened (lazy mount
+  // in MessageItem.tsx) and the immutable snapshot is cached per anchor, so
+  // re-opening a fold, switching tabs, or remounting the view costs zero requests.
+  const hasAnchor = messageId !== undefined || messageIndex !== undefined;
+  const {
+    data: snapshot,
+    isLoading,
+    error,
+  } = useQuery({
+    queryKey: ['session-context', platform, sessionId, messageId ?? null, messageIndex ?? null, dir ?? null],
+    queryFn: () => getSessionContext(platform, sessionId, { messageIndex, messageId, dir }),
+    // A reconstructed snapshot never changes for a fixed (session, turn) anchor:
+    // it is derived from the persisted log. Keep it fresh long enough that the
+    // 5s session poll and fold re-opens never trigger another reconstruction.
+    staleTime: 5 * 60_000,
+    // The API requires an anchor (400 otherwise) and DEMO has no backend at all,
+    // so do not even create the query in those cases.
+    enabled: !DEMO && hasAnchor,
+  });
 
   if (DEMO) {
     return (
@@ -125,14 +127,14 @@ export function ContextPanel({
     );
   }
 
-  if (loading) {
+  if (isLoading) {
     return <div className="px-2 py-3 text-center text-[11px] text-muted-foreground">正在重建上下文…</div>;
   }
 
   if (error) {
     return (
       <div className="rounded border border-destructive/40 bg-destructive/5 px-2 py-2 text-[11px] text-destructive">
-        上下文重建失败：{error}
+        上下文重建失败：{error.message || '加载失败'}
       </div>
     );
   }

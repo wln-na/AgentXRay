@@ -194,9 +194,17 @@ export function CmdkDialog({
     if (agent && agent !== useAppStore.getState().selectedAgent) store.setSelectedAgent(agent);
     store.setView('sessions');
     try {
-      const scope = { platform: plat, agent, includeArchived: store.includeArchived, settings: store.settings };
+      // Ask for a large first page: the jump target can be any session, and the
+      // list endpoint is paginated now, so an unbounded default page would miss it.
+      const scope = {
+        platform: plat,
+        agent,
+        includeArchived: store.includeArchived,
+        settings: store.settings,
+        limit: 500,
+      };
       const list = await queryClient.fetchQuery(sessionsListOptions(scope));
-      const found = list.find((s) => s.id === row.result.sessionId);
+      const found = list.sessions.find((s) => s.id === row.result.sessionId);
       if (!found) {
         toast.error('会话不在当前列表中（可能已归档或被清理）');
         return;

@@ -4,7 +4,7 @@
 // failing message via the shared requestScrollToMessage store action.
 
 import { useQuery } from '@tanstack/react-query';
-import { getSessionDetail } from '@/api/client';
+import { getSessionFull } from '@/api/client';
 import { Badge } from '@/components/ui/badge';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { formatDurationCompact } from '@/lib/pure';
@@ -38,12 +38,21 @@ export function SessionInsights() {
   const settings = useAppStore((s) => s.settings);
   const requestScrollToMessage = useAppStore((s) => s.requestScrollToMessage);
 
-  // Shared cache with the sessions view — same key + queryFn opts (contract).
+  // A separate endpoint (…/full) and a separate cache key: session analytics need
+  // every message, the sessions view needs one window. Previously both used one
+  // URL differing only by ?limit, so they shared a cache entry and the 13-15 MB
+  // full payload leaked into the transcript render.
+  // NOTE: this deliberately does NOT reuse the sessions view's ['session', …] key.
+  // Session insights need the WHOLE transcript, while the sessions view pages in
+  // `limit=60`. Sharing one cache entry meant this view's full payload (13–15 MB on
+  // large codex/workbuddy sessions) overwrote the paged one, and the sessions view
+  // then rendered every message of it (measured: 45 410 DOM nodes / 5.25 MB markup,
+  // re-rendered on every poll). Separate keys keep the two payload shapes apart.
   const query = useQuery({
-    queryKey: ['session', platform, selectedSessionId],
+    queryKey: ['session-full', platform, selectedSessionId],
     enabled: !!selectedSessionId,
     queryFn: () =>
-      getSessionDetail(platform, selectedSessionId, {
+      getSessionFull(platform, selectedSessionId, {
         agent: selectedAgent || undefined,
         dir: dirForPlatform(settings, platform) || undefined,
       }),

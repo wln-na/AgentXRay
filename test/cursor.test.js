@@ -169,7 +169,7 @@ test('cursor is registered with file-based capabilities and open=true', () => {
 test('cursor routes list and read sessions', async () => {
   const srv = await startServer();
   try {
-    const list = await getJson(srv.base, '/api/cursor/sessions');
+    const { sessions: list } = await getJson(srv.base, '/api/cursor/sessions');
     assert.equal(list.length, 2);
     const detail = await getJson(srv.base, `/api/cursor/sessions/${SESSION_A}`);
     assert.equal(detail.session.id, SESSION_A);

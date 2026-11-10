@@ -2,13 +2,13 @@
 // persisted collapse (axr-summary-collapsed), stat filter badges, retry jump,
 // child-agent chips, resume-command copy, export menu — legacy renderSummary.
 
-import { useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { toast } from 'sonner';
 import { openSession } from '@/api/client';
 import type { OpenSessionResult, SessionDetail } from '@/api/types';
 import { DEMO } from '@/demo/flag';
 import { isLive } from '@/lib/live';
-import { formatCost, formatDurationCompact } from '@/lib/pure';
+import { formatCost, formatDurationCompact, parseTimestampMs } from '@/lib/pure';
 import { cn } from '@/lib/utils';
 import {
   dirForPlatform,
@@ -24,7 +24,7 @@ import type { ExportFormat } from './exports';
 import { runExport } from './exports';
 import type { MsgFilter, TimingAnalysis } from './lib';
 import { computeSessionStats, formatDate, formatNumber, resumeCommand, sessionCost, summarizeTokens } from './lib';
-import { useSessionsList } from './queries';
+import { useSessionSummaries } from './queries';
 
 function FilterBadge({
   active,
@@ -266,9 +266,15 @@ export function SessionSummary({
   const selectedSessionId = useAppStore((s) => s.selectedSessionId);
   const msgOrder = useAppStore((s) => s.msgOrder);
   const setMsgOrder = useAppStore((s) => s.setMsgOrder);
-  const { data: sessions } = useSessionsList();
+  const { data: sessions } = useSessionSummaries();
   const [collapsed, setCollapsed] = useState(() => loadStoredFlag(SUMMARY_COLLAPSED_KEY, true));
   const [pathCopied, setPathCopied] = useState(false);
+  const [clockNow, setClockNow] = useState(Date.now());
+
+  useEffect(() => {
+    const timer = window.setInterval(() => setClockNow(Date.now()), 30_000);
+    return () => window.clearInterval(timer);
+  }, []);
 
   const selectedSummary = sessions?.find((s) => s.id === selectedSessionId);
   const sessionFile = selectedSummary?.file;
@@ -295,6 +301,23 @@ export function SessionSummary({
   const tokenSummary = useMemo(() => summarizeTokens(msgs, tokenUsage), [msgs, tokenUsage]);
   const cost = useMemo(() => sessionCost(msgs), [msgs]);
   const listModel = selectedSummary?.model || detail.session?.model;
+  const rawLastActivity = detail.session?.lastActivity;
+  const lastActivity =
+    typeof rawLastActivity === 'string' || typeof rawLastActivity === 'number' ? rawLastActivity : null;
+  const live = isLive(lastActivity);
+  const sessionDurationMs = timing.totalDurationMs;
+  const lastActivityAt = parseTimestampMs(lastActivity);
+  const activityAge = lastActivityAt === null ? null : Math.max(0, clockNow - lastActivityAt);
+  const activityLabel =
+    activityAge === null
+      ? null
+      : activityAge < 60_000
+        ? `${Math.floor(activityAge / 1000)} 秒前`
+        : activityAge < 3_600_000
+          ? `${Math.floor(activityAge / 60_000)} 分钟前`
+          : activityAge < 86_400_000
+            ? `${Math.floor(activityAge / 3_600_000)} 小时前`
+            : formatDate(lastActivity);
 
   const total = timing.totalDurationMs;
   const toolMs = timing.totalToolDurationMs || 0;
@@ -315,6 +338,11 @@ export function SessionSummary({
     .slice(0, 8);
   const toolCallCount = stats.toolCallCount || selectedSummary?.toolCallCount || 0;
   const toolResultCount = stats.toolResultCount || selectedSummary?.toolResultCount || 0;
+  const visibleUserCount = timing.visibleMessages.filter((message) => message.role === 'user').length;
+  const visibleAssistantCount = timing.visibleMessages.filter((message) => message.role === 'assistant').length;
+  const conversationCount = visibleUserCount + visibleAssistantCount;
+  const reasoningCount = timing.visibleMessages.filter((message) => message.role === 'reasoning').length;
+  const totalItemCount = timing.visibleMessages.length;
 
   const toggleCollapsed = () => {
     setCollapsed((prev) => {
@@ -337,10 +365,28 @@ export function SessionSummary({
             <span className="rounded-full bg-secondary/80 px-2 py-0.5 font-medium">
               {formatDate(detail.session?.timestamp)}
             </span>
-            {isLive(detail.session?.lastActivity) ? (
-              <span className="flex items-center gap-1 rounded-full bg-green-500/10 px-2 py-0.5 font-medium text-green-600 dark:text-green-300">
-                <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-green-500" />
-                活跃中
+            {live ? (
+              <span
+                className="flex items-center gap-1 rounded-full bg-green-500/10 px-2 py-0.5 font-medium text-green-600 dark:text-green-300"
+                title="根据会话最近活动时间判断：近 3 分钟内有记录更新，不代表进程仍在运行"
+              >
+                <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-green-500" />近 3 分钟有活动
+              </span>
+            ) : null}
+            {sessionDurationMs !== null ? (
+              <span
+                className="rounded-full bg-secondary/80 px-2 py-0.5 font-medium"
+                title="按首条至末条有效消息的时间跨度计算，不包含末次活动后的空闲时间"
+              >
+                会话时长：{formatDurationCompact(sessionDurationMs)}
+              </span>
+            ) : null}
+            {activityLabel ? (
+              <span
+                className="rounded-full bg-secondary/80 px-2 py-0.5 font-medium"
+                title={lastActivity ? String(lastActivity) : undefined}
+              >
+                最近活动：{activityLabel}
               </span>
             ) : null}
             {selectedSummary?.projectName || detail.session?.projectName || detail.session?.cwd ? (
@@ -354,7 +400,12 @@ export function SessionSummary({
             {listModel ? (
               <span className="rounded-full bg-secondary/80 px-2 py-0.5 font-medium">模型：{listModel}</span>
             ) : null}
-            <span className="rounded-full bg-secondary/80 px-2 py-0.5 font-medium">消息：{msgs.length}</span>
+            <span
+              className="rounded-full bg-secondary/80 px-2 py-0.5 font-medium"
+              title="只统计 User 和 Assistant 消息；Reasoning、工具调用和工具结果单独统计"
+            >
+              Conversation：{conversationCount}
+            </span>
             <span className="rounded-full bg-secondary/80 px-2 py-0.5 font-medium">{toolCallCount} 次工具调用</span>
             {selectedSummary?.archived || detail.session?.archived ? (
               <span className="rounded-full bg-amber-500/10 px-2 py-0.5 font-medium text-amber-700 dark:text-amber-300">
@@ -400,7 +451,6 @@ export function SessionSummary({
             <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
               <span>会话 ID：{detail.session?.id || selectedSessionId}</span>
               {detail.session?.dataSource ? <span>来源：{detail.session.dataSource}</span> : null}
-              {total !== null ? <span>总耗时：{formatDurationCompact(total)}</span> : null}
               {total !== null && timing.totalToolDurationMs !== null && total > 0 ? (
                 <span>
                   工具执行：{formatDurationCompact(toolMs)}（{Math.round((toolMs / total) * 100)}%） · 模型：
@@ -411,8 +461,12 @@ export function SessionSummary({
                 <button
                   type="button"
                   className="text-[#b7791f] hover:underline"
-                  title="跳转到耗时最长的一轮"
-                  onClick={() => timing.slowestStep?.messageId && onScrollToMessage(timing.slowestStep.messageId)}
+                  title={
+                    timing.slowestStep.anchorId
+                      ? `跳转到耗时最长的一轮（锚点：message-${timing.slowestStep.anchorId}）`
+                      : '跳转到耗时最长的一轮'
+                  }
+                  onClick={() => timing.slowestStep?.anchorId && onScrollToMessage(timing.slowestStep.anchorId)}
                 >
                   最慢一轮：{formatDurationCompact(timing.slowestStep.deltaMs)}（{timing.slowestStep.label}）
                 </button>
@@ -454,22 +508,40 @@ export function SessionSummary({
                   onClick={() => setMsgFilter('user')}
                   title="Click to show only user messages"
                 >
-                  👤 User: {stats.userCount}
+                  👤 User: {visibleUserCount}
                 </FilterBadge>
                 <FilterBadge
                   active={msgFilter === 'assistant'}
                   onClick={() => setMsgFilter('assistant')}
                   title="Click to show only assistant messages"
                 >
-                  🤖 Assistant: {stats.assistantCount}
+                  🤖 Assistant: {visibleAssistantCount}
                 </FilterBadge>
-                <FilterBadge
-                  active={msgFilter === null}
-                  onClick={() => setMsgFilter(null)}
-                  title="Click to show all messages"
+                <span
+                  className="rounded-full bg-secondary/70 px-2.5 py-1 text-[11px] font-medium text-muted-foreground"
+                  title="User and assistant messages combined"
                 >
-                  💬 Total: {msgs.length}
-                </FilterBadge>
+                  💬 Conversation: {conversationCount}
+                </span>
+              </div>
+            </div>
+            <div className="rounded-md border border-border/70 p-2.5">
+              <div className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                Activity
+              </div>
+              <div className="flex flex-wrap gap-1">
+                <span
+                  className="rounded-full bg-secondary/70 px-2.5 py-1 text-[11px] font-medium text-muted-foreground"
+                  title="Model reasoning records"
+                >
+                  🧠 Reasoning: {reasoningCount}
+                </span>
+                <span
+                  className="rounded-full bg-secondary/70 px-2.5 py-1 text-[11px] font-medium text-muted-foreground"
+                  title="All normalized transcript items, including conversation, reasoning, and tool records"
+                >
+                  📊 Total Items: {totalItemCount}
+                </span>
               </div>
             </div>
             <div className="rounded-md border border-border/70 p-2.5">
@@ -610,29 +682,32 @@ export function SessionSummary({
               }
             />
             <div className="rounded-md border border-border/70 p-2.5">
-              <div className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Tokens</div>
+              <div className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                Tokens（会话累计）
+              </div>
               <div className="flex flex-wrap gap-1">
                 {Object.keys(tokenSummary).length ? (
-                  Object.entries(tokenSummary).map(([key, value]) => {
-                    const label =
-                      {
-                        input: 'Input',
-                        output: 'Output',
-                        cacheRead: 'Cache Read',
-                        cacheWrite: 'Cache Write',
-                        reasoning: 'Reasoning',
-                        totalTokens: 'Total',
-                        contextWindow: 'Context Window',
-                      }[key] || key;
-                    return (
-                      <span
-                        key={key}
-                        className="rounded border border-border px-1.5 py-0.5 text-[11px] text-muted-foreground"
-                      >
-                        {label}: {formatNumber(value)}
-                      </span>
-                    );
-                  })
+                  Object.entries(tokenSummary)
+                    .filter(([key]) => key !== 'contextWindow')
+                    .map(([key, value]) => {
+                      const label =
+                        {
+                          input: 'Input',
+                          output: 'Output',
+                          cacheRead: 'Cache Read',
+                          cacheWrite: 'Cache Write',
+                          reasoning: 'Reasoning',
+                          totalTokens: 'Total',
+                        }[key] || key;
+                      return (
+                        <span
+                          key={key}
+                          className="rounded border border-border px-1.5 py-0.5 text-[11px] text-muted-foreground"
+                        >
+                          {label}: {formatNumber(value)}
+                        </span>
+                      );
+                    })
                 ) : (
                   <span className="rounded border border-border px-1.5 py-0.5 text-[11px] text-muted-foreground">
                     No token data

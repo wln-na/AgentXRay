@@ -159,7 +159,7 @@ describe('sessions: dsh', () => {
   });
 
   it('lists plain and zstd sessions newest-first with metadata and title', async () => {
-    const sessions = await getJson(srv.base, '/api/dsh/sessions');
+    const { sessions } = await getJson(srv.base, '/api/dsh/sessions');
     assert.equal(sessions.length, 2);
     assert.deepEqual(
       sessions.map((s) => s.id),

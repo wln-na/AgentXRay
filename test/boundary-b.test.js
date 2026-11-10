@@ -892,7 +892,7 @@ describe('Batch B: SSE reconnect and cache', () => {
     const srv = await startServer();
     try {
       // The fixture home has a .hermes/state.db. Connect to a hermes session.
-      const hermesSessions = await getJson(srv.base, '/api/hermes/sessions');
+      const { sessions: hermesSessions } = await getJson(srv.base, '/api/hermes/sessions');
       if (hermesSessions.length === 0) {
         // No hermes fixture — skip gracefully
         return;

@@ -54,8 +54,10 @@ describe('AgentXRay API', () => {
 
   describe('sessions: codex', () => {
     it('lists sessions newest-first with metadata', async () => {
-      const sessions = await getJson(srv.base, '/api/codex/sessions');
+      const { sessions, page } = await getJson(srv.base, '/api/codex/sessions');
       assert.equal(sessions.length, 4);
+      assert.equal(page.total, 4);
+      assert.equal(page.hasMore, false);
       assert.deepEqual(
         sessions.map((s) => s.id),
         [CODEX3, CODEX2, CODEX1, CODEX_ARCHIVED]
@@ -188,7 +190,7 @@ describe('AgentXRay API', () => {
 
   describe('sessions: claude-code', () => {
     it('lists sessions without leaking subagent transcripts', async () => {
-      const sessions = await getJson(srv.base, '/api/claude-code/sessions');
+      const { sessions } = await getJson(srv.base, '/api/claude-code/sessions');
       assert.equal(sessions.length, 3);
       assert.deepEqual(
         sessions.map((s) => s.id),
@@ -292,7 +294,7 @@ describe('AgentXRay API', () => {
 
   describe('sessions: claude-desktop', () => {
     it('lists only metadata-linked Desktop Agent/Cowork sessions', async () => {
-      const sessions = await getJson(srv.base, '/api/claude-desktop/sessions');
+      const { sessions } = await getJson(srv.base, '/api/claude-desktop/sessions');
       assert.equal(sessions.length, 1);
       const session = sessions[0];
       assert.equal(session.id, CLAUDE_DESKTOP);
@@ -350,13 +352,16 @@ describe('AgentXRay API', () => {
     it('attaches trajectory prompt context by transcript leaf without listing trajectory as a session', async () => {
       const agents = await getJson(srv.base, '/api/agents');
       assert.ok(agents.includes('fixture-agent'));
-      const sessions = await getJson(srv.base, '/api/agents/fixture-agent/sessions');
+      const { sessions } = await getJson(srv.base, '/api/openclaw/sessions?agent=fixture-agent');
       assert.deepEqual(
         sessions.map((session) => session.id),
         ['openclaw-context-fixture']
       );
 
-      const { messages } = await getJson(srv.base, '/api/agents/fixture-agent/sessions/openclaw-context-fixture');
+      const { messages } = await getJson(
+        srv.base,
+        '/api/openclaw/sessions/openclaw-context-fixture?agent=fixture-agent'
+      );
       const firstUser = messages.find((message) => message.id === 'openclaw-user-1');
       assert.ok(firstUser.content.some((part) => part.text?.includes('Conversation info (untrusted metadata)')));
       assert.equal(
@@ -371,7 +376,7 @@ describe('AgentXRay API', () => {
 
   describe('sessions: omp', () => {
     it('lists sessions with title, cost-bearing usage and tool counts', async () => {
-      const sessions = await getJson(srv.base, '/api/omp/sessions');
+      const { sessions } = await getJson(srv.base, '/api/omp/sessions');
       assert.equal(sessions.length, 2);
       assert.deepEqual(
         sessions.map((s) => s.id),

@@ -18,11 +18,18 @@ export function usePlatformProbe() {
       const entries = await Promise.all(
         PLATFORMS.map(async (p) => {
           try {
-            const list =
-              p === 'openclaw'
-                ? await getAgents(settings.openclawDir || undefined)
-                : await getSessions(p, { dir: dirForPlatform(settings, p) || undefined });
-            return [p, Array.isArray(list) ? list.length : 0] as const;
+            // Only the COUNT is needed to draw the platform tabs (#13). Asking
+            // for one row + reading page.total keeps boot cheap: this probe used
+            // to download every session of every platform (~1 MB of JSON).
+            if (p === 'openclaw') {
+              const agents = await getAgents(settings.openclawDir || undefined);
+              return [p, Array.isArray(agents) ? agents.length : 0] as const;
+            }
+            const page = await getSessions(p, {
+              dir: dirForPlatform(settings, p) || undefined,
+              limit: 1,
+            });
+            return [p, page?.page?.total ?? 0] as const;
           } catch {
             return [p, 0] as const; // unreachable = treat as empty
           }

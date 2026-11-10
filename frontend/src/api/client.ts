@@ -7,6 +7,7 @@ import type {
   BackupResult,
   BackupStatus,
   ChildAgentSummary,
+  ContextBatch,
   ContextSnapshot,
   DailyUsage,
   FabricPatternsData,
@@ -28,7 +29,11 @@ import type {
   RewriteResult,
   SearchResult,
   SessionDetail,
-  SessionSummary,
+  SessionFull,
+  SessionMessage,
+  SessionMessagePage,
+  SessionsPage,
+  SessionTaskAnalysis,
   SpawnLink,
   SpawnTreeResult,
   SuggestNameResult,
@@ -88,32 +93,98 @@ export function getAgents(dir?: string): Promise<string[]> {
   return fetchJson(withParams('/api/agents', { dir }));
 }
 
-/** List sessions. openclaw requires `agent`; the other platforms ignore it. */
+// One URL shape for every platform: `agent` is a query parameter, not a path
+// segment. OpenClaw used to get its own `/api/agents/:name/sessions/...` family,
+// which forced every fetcher here to branch and leaked `agent` into the whole
+// state layer. `/api/:platform/sessions/:id/export` already worked this way, so
+// the rest of the API now matches it.
+function sessionBase(platform: Platform): string {
+  return `/api/${encodeURIComponent(platform)}/sessions`;
+}
+
+/**
+ * List sessions, one cursor page at a time.
+ *
+ * Lists page like messages (`limit` + `before`) so the sidebar never downloads
+ * every session of a platform just to draw the first screen, and so the boot
+ * probe can ask for `limit=1` and read `page.total`.
+ */
 export function getSessions(
   platform: Platform,
-  opts: { agent?: string; includeArchived?: boolean; dir?: string } = {}
-): Promise<SessionSummary[]> {
-  if (platform === 'openclaw') {
-    return fetchJson(
-      withParams(`/api/agents/${encodeURIComponent(opts.agent || '')}/sessions`, {
-        include_archived: opts.includeArchived,
-        dir: opts.dir,
-      })
-    );
-  }
-  return fetchJson(withParams(`/api/${platform}/sessions`, { dir: opts.dir }));
+  opts: { agent?: string; includeArchived?: boolean; dir?: string; limit?: number; before?: string | null } = {}
+): Promise<SessionsPage> {
+  return fetchJson(
+    withParams(sessionBase(platform), {
+      agent: opts.agent,
+      include_archived: opts.includeArchived,
+      dir: opts.dir,
+      limit: opts.limit,
+      before: opts.before,
+    })
+  );
 }
 
 export function getSessionDetail(
   platform: Platform,
   sessionId: string,
-  opts: { agent?: string; dir?: string } = {}
+  opts: { agent?: string; dir?: string; limit?: number; before?: string | null } = {}
 ): Promise<SessionDetail> {
-  const base =
-    platform === 'openclaw'
-      ? `/api/agents/${encodeURIComponent(opts.agent || '')}/sessions`
-      : `/api/${platform}/sessions`;
-  return fetchJson(withParams(`${base}/${encodeURIComponent(sessionId)}`, { dir: opts.dir }));
+  return fetchJson(
+    withParams(`${sessionBase(platform)}/${encodeURIComponent(sessionId)}`, {
+      agent: opts.agent,
+      dir: opts.dir,
+      limit: opts.limit,
+      before: opts.before,
+    })
+  );
+}
+
+/**
+ * The COMPLETE transcript, from its own endpoint. Deliberately separate from
+ * `getSessionDetail`: asking for "everything" is an explicit, different request
+ * with a different payload shape, so it can never be confused with (or poison
+ * the cache of) the paged window.
+ */
+export function getSessionFull(
+  platform: Platform,
+  sessionId: string,
+  opts: { agent?: string; dir?: string } = {}
+): Promise<SessionFull> {
+  return fetchJson(
+    withParams(`${sessionBase(platform)}/${encodeURIComponent(sessionId)}/full`, {
+      agent: opts.agent,
+      dir: opts.dir,
+    })
+  );
+}
+
+export function getSessionMessages(
+  platform: Platform,
+  sessionId: string,
+  opts: { agent?: string; dir?: string; limit?: number; before?: string | null } = {}
+): Promise<{ messages: SessionMessage[]; messagePage: SessionMessagePage }> {
+  return fetchJson(
+    withParams(`${sessionBase(platform)}/${encodeURIComponent(sessionId)}/messages`, {
+      agent: opts.agent,
+      dir: opts.dir,
+      limit: opts.limit,
+      before: opts.before,
+    })
+  );
+}
+
+export function getSessionTaskAnalysis(
+  platform: Platform,
+  sessionId: string,
+  opts: { agent?: string; dir?: string; refresh?: boolean } = {}
+): Promise<SessionTaskAnalysis> {
+  return fetchJson(
+    withParams(`${sessionBase(platform)}/${encodeURIComponent(sessionId)}/tasks`, {
+      agent: opts.agent,
+      dir: opts.dir,
+      refresh: opts.refresh,
+    })
+  );
 }
 
 /** Spawned sub-agents of a session (omp / claude-code / codex / dsh). */
@@ -129,11 +200,14 @@ export function getSessionChild(
   platform: 'omp' | 'claude-code' | 'codex' | 'dsh',
   sessionId: string,
   childName: string,
-  dir?: string
+  dir?: string,
+  opts: { limit?: number; before?: string | null } = {}
 ): Promise<SessionDetail> {
   return fetchJson(
     withParams(`/api/${platform}/sessions/${encodeURIComponent(sessionId)}/children/${encodeURIComponent(childName)}`, {
       dir,
+      limit: opts.limit,
+      before: opts.before,
     })
   );
 }
@@ -151,14 +225,11 @@ export function openSession(
   action: 'locate' | 'open',
   opts: { agent?: string; dir?: string } = {}
 ): Promise<OpenSessionResult> {
-  const base =
-    platform === 'openclaw'
-      ? `/api/agents/${encodeURIComponent(opts.agent || '')}/sessions`
-      : `/api/${platform}/sessions`;
-  return requestJson(withParams(`${base}/${encodeURIComponent(sessionId)}/open`, { dir: opts.dir }), 'POST', {
-    action,
-    agent: opts.agent,
-  });
+  return requestJson(
+    withParams(`${sessionBase(platform)}/${encodeURIComponent(sessionId)}/open`, { dir: opts.dir, agent: opts.agent }),
+    'POST',
+    { action }
+  );
 }
 
 // ---------- Spawn map / tree ----------
@@ -370,13 +441,26 @@ export function getVersion(): Promise<VersionInfo> {
 
 // ---------- LLM backend settings (#14) ----------
 
-/** GET/PUT /api/settings/llm — OpenAI-compatible endpoint config, persisted server-side. */
-export interface LlmSettings {
+/** GET/PUT /api/settings/llm — local LLM profiles and per-feature routing. */
+export interface LlmProfileSummary {
+  type: 'openai-compatible' | 'claude-cli';
   baseUrl: string;
   model: string;
-  /** true when an API key is stored (the key itself never leaves the server) */
   hasApiKey: boolean;
-  /** which backend prompt tooling would use right now */
+}
+
+export type LlmPurpose = 'sessionTasks' | 'promptRewrite' | 'promptAnalysis' | 'libraryName';
+
+export interface LlmSettings {
+  version: number;
+  activeProfile: string;
+  profiles: Record<string, LlmProfileSummary>;
+  routes: Partial<Record<LlmPurpose, string>>;
+  routeBackends: Partial<Record<LlmPurpose, 'openai' | 'claude-cli' | null>>;
+  // Compatibility fields for older clients.
+  baseUrl: string;
+  model: string;
+  hasApiKey: boolean;
   backend: 'openai' | 'claude-cli' | null;
 }
 
@@ -384,8 +468,19 @@ export function getLlmSettings(): Promise<LlmSettings> {
   return fetchJson('/api/settings/llm');
 }
 
-/** apiKey semantics: undefined = keep the stored key, '' = clear it, else replace. */
-export function saveLlmSettings(body: { baseUrl: string; model: string; apiKey?: string }): Promise<LlmSettings> {
+export interface LlmProfileInput {
+  type: 'openai-compatible' | 'claude-cli';
+  baseUrl: string;
+  model: string;
+  apiKey?: string;
+  clearApiKey?: boolean;
+}
+
+export function saveLlmSettings(body: {
+  activeProfile: string;
+  profiles: Record<string, LlmProfileInput>;
+  routes: Partial<Record<LlmPurpose, string | null>>;
+}): Promise<LlmSettings> {
   return requestJson('/api/settings/llm', 'PUT', body);
 }
 
@@ -396,7 +491,7 @@ export function exportUrl(
   format: 'md' | 'html',
   opts: { agent?: string; dir?: string } = {}
 ): string {
-  return withParams(`/api/${encodeURIComponent(platform)}/sessions/${encodeURIComponent(sessionId)}/export`, {
+  return withParams(`${sessionBase(platform)}/${encodeURIComponent(sessionId)}/export`, {
     format,
     agent: opts.agent,
     dir: opts.dir,
@@ -442,13 +537,34 @@ export function getPetState(opts: { window?: number } = {}): Promise<PetState> {
 export function getSessionContext(
   platform: Platform,
   sessionId: string,
-  target: { messageIndex?: number; messageId?: string; dir?: string }
+  target: { messageIndex?: number; messageId?: string; dir?: string; agent?: string }
 ): Promise<ContextSnapshot> {
   return fetchJson(
-    withParams(`/api/${encodeURIComponent(platform)}/sessions/${encodeURIComponent(sessionId)}/context`, {
+    withParams(`${sessionBase(platform)}/${encodeURIComponent(sessionId)}/context`, {
       messageIndex: target.messageIndex,
       messageId: target.messageId,
       dir: target.dir,
+      agent: target.agent,
+    })
+  );
+}
+
+/**
+ * Reconstruct several turns' context in ONE round trip. The server resolves every
+ * anchor from a single session read, and reports per-anchor failures in `errors`
+ * instead of failing the whole batch.
+ */
+export function getSessionContextBatch(
+  platform: Platform,
+  sessionId: string,
+  messageIds: string[],
+  opts: { dir?: string; agent?: string } = {}
+): Promise<ContextBatch> {
+  return fetchJson(
+    withParams(`${sessionBase(platform)}/${encodeURIComponent(sessionId)}/context`, {
+      messageIds: messageIds.join(','),
+      dir: opts.dir,
+      agent: opts.agent,
     })
   );
 }

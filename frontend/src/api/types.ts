@@ -1,6 +1,7 @@
 // API response types for the AgentXRay backend (server.js on :3800).
-// Typed from real responses sampled via curl + the legacy UI's field usage
-// (public/js/app.js). Open/evolving shapes carry index signatures.
+// Typed from real responses sampled via curl. Open/evolving shapes carry index
+// signatures. (The legacy vanilla UI that originally anchored these field names
+// has been retired; the React app is now the only consumer.)
 
 import platformCapabilities from '../../../lib/platforms/capabilities.json';
 
@@ -160,6 +161,8 @@ export interface SessionMessage {
   toolName: string | null;
   details: Record<string, unknown> | null;
   isError: boolean;
+  /** Codex response-item turn identifier, when the source log provides one. */
+  turnId?: string | null;
   /** some platforms attach reasoning text directly on the assistant record */
   reasoning?: string | null;
   [key: string]: unknown;
@@ -255,6 +258,13 @@ export interface SessionDetail {
   session: SessionMeta;
   messages: SessionMessage[];
   /**
+   * Pagination metadata. Always present on the paged detail endpoint: one URL
+   * (`/api/:platform/sessions/:id`) can only ever return ONE payload shape, so
+   * the transcript is always a window and the complete transcript lives at
+   * `/api/:platform/sessions/:id/full` (`SessionFull`).
+   */
+  messagePage?: SessionMessagePage | null;
+  /**
    * Machine-injected system context: dsh v4 runtime/time/skill/instruction
    * events, Claude Code attachment reminders (rec.rendered) and Codex developer
    * context blocks. Kept out of `messages` so the conversation flow stays
@@ -266,6 +276,70 @@ export interface SessionDetail {
   tokenUsage?: MessageUsage | null;
   contextUsage?: ContextUsage | null;
   stats?: SessionStats | null;
+}
+
+/** The complete transcript (`/api/:platform/sessions/:id/full`). */
+export interface SessionFull extends Omit<SessionDetail, 'messagePage'> {
+  messagePage?: null;
+  /** Discriminator: this payload contains every message, not a window. */
+  complete: true;
+}
+
+/** One cursor page of the session list (`/api/:platform/sessions`). */
+export interface SessionsPage {
+  sessions: SessionSummary[];
+  page: ListPage;
+}
+
+export interface ListPage {
+  total: number;
+  limit: number;
+  start: number;
+  end: number;
+  hasMore: boolean;
+  nextBefore: string | null;
+}
+
+/** Batch context reconstruction (`?messageIds=a,b,c`). */
+export interface ContextBatch {
+  snapshots: ContextSnapshot[];
+  errors: { messageId: string; error: string }[];
+}
+
+export interface SessionMessagePage {
+  total: number;
+  limit: number;
+  start: number;
+  end: number;
+  loadedCount: number;
+  hasMoreBefore: boolean;
+  nextBefore: string | null;
+}
+
+export interface SessionTaskRecord {
+  key: string;
+  title: string;
+  summary?: string | null;
+  status: 'pending' | 'in_progress' | 'completed';
+  source: 'explicit' | 'llm' | 'inferred' | 'unavailable';
+  confidence: 'high' | 'medium' | 'low';
+  createdAt: string | null;
+  startedAt: string | null;
+  completedAt: string | null;
+  statusMessageId: string | null;
+  unitIds?: string[];
+  evidenceMessageIds?: string[];
+}
+
+export interface SessionTaskAnalysis {
+  version: number;
+  platform: string;
+  sessionId: string;
+  generatedAt: string;
+  source: 'llm' | 'inferred' | 'unavailable';
+  tasks: SessionTaskRecord[];
+  llmError?: string | null;
+  classificationPending?: boolean;
 }
 
 /** POST /api/<platform>/sessions/:id/open — one-click locate/open a session. */
