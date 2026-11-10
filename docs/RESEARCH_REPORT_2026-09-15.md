@@ -4,6 +4,10 @@
 > 调研范围：GitHub 12 个开源项目 + 字节内部 9 个平台/工具 + 全量代码审查（~23k 行）+ 五角色圆桌会议
 > 项目定位：local-first 离线 AI Agent 会话 X 光透视工具
 
+> **状态：历史文档（2026-11 注）。** 本报告讨论的 legacy vanilla UI（`public/js/app.js` + `public/index.html`，`/legacy`）
+> 已按报告建议退役：相关文件已删除、`/legacy` 不再提供服务，现在只有 `frontend/` 下的 React 单前端。
+> 报告中关于「双 UI / legacy-pure.ts 漂移」的现状描述保留为历史记录，其建议已落地。
+
 ---
 
 ## 目录

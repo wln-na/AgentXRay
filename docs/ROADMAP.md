@@ -33,7 +33,7 @@ From a product review (2026-08-21) — funnel and retention fixes around the npm
 Structural cleanups surfaced by a code review — not features, but they lower the cost of every future one:
 
 - [x] Extract a unified PLATFORMS registry to collapse seven copy-pasted adapter skeletons (#8)
-- [x] Decide the legacy UI's fate and eliminate the markdown/pure double-write (#9)
+- [x] Retire the legacy vanilla UI and eliminate the markdown/pure double-write (#9) — `public/js/app.js` + `public/index.html` removed, `/legacy` is no longer served; `public/js/pure.js` remains only as the generated bundle the Node tests require
 - [x] Split server.js into route modules and lib/ business logic (#10)
 
 ## Non-goals (for now)
