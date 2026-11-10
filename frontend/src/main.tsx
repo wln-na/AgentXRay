@@ -7,7 +7,15 @@ import './index.css';
 
 const queryClient = new QueryClient({
   defaultOptions: {
-    queries: { retry: 1, refetchOnWindowFocus: false },
+    queries: {
+      retry: 1,
+      refetchOnWindowFocus: false,
+      // Without a staleTime every observer mount was stale, so tab and platform
+      // switches re-fetched (and re-parsed) payloads that had just loaded. The
+      // session list/detail still poll every 5 s while mounted and the live tail is
+      // driven by SSE, so a short staleTime only removes redundant refetches.
+      staleTime: 30_000,
+    },
   },
 });
 

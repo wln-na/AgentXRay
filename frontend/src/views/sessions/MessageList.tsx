@@ -1,7 +1,7 @@
 // Messages area: unit grouping, turn-group folds, retry annotations, and
 // newest-first pagination (>200 msgs → first 60 + load more) — legacy renderMessages.
 
-import { useMemo } from 'react';
+import { memo, useMemo } from 'react';
 import type { Platform, SessionMessage } from '@/api/types';
 import { formatDurationCompact, getTextContent, parseTimestampMs } from '@/lib/pure';
 import { cn } from '@/lib/utils';
@@ -51,7 +51,11 @@ function Chip({ className, title, children }: { className?: string; title?: stri
   );
 }
 
-function TurnGroup({
+// memo: a turn group holds a whole tool chain (often dozens of MessageBubbles and
+// a lot of <pre> text). Its props are stable across the 5 s detail poll as long as
+// `timing` and `unit` keep their identities, which SessionsView now guarantees by
+// memoising buildTimingAnalysis on the messages array.
+const TurnGroup = memo(function TurnGroup({
   unit,
   timing,
   isCodex,
@@ -106,7 +110,11 @@ function TurnGroup({
   const assistantText = getTextContent(unit.assistant.content);
 
   return (
-    <div className="flex gap-2" id={`row-${messageAnchorId(unit.assistant) || ''}`}>
+    <div
+      className="flex gap-2"
+      id={`row-${messageAnchorId(unit.assistant) || ''}`}
+      data-message-anchor={messageAnchorId(unit.assistant) || undefined}
+    >
       <GraphLane message={unit.assistant} />
       <div className="min-w-0 flex-1">
         {assistantText ? (
@@ -189,7 +197,7 @@ function TurnGroup({
       </div>
     </div>
   );
-}
+});
 
 export function MessageList({
   messages,
@@ -200,6 +208,8 @@ export function MessageList({
   timing,
   visibleUnitCount,
   onLoadMore,
+  hasMoreBefore,
+  loadingMore,
 }: {
   messages: SessionMessage[];
   platform: Platform;
@@ -209,6 +219,8 @@ export function MessageList({
   timing: TimingAnalysis;
   visibleUnitCount: number;
   onLoadMore: () => void;
+  hasMoreBefore?: boolean;
+  loadingMore?: boolean;
 }) {
   const isCodex = platform === 'codex' || platform === 'omp' || platform === 'dsh' || platform === 'gemini';
   const msgOrder = useAppStore((s) => s.msgOrder);
@@ -263,14 +275,19 @@ export function MessageList({
           />
         )
       )}
-      {remaining > 0 ? (
+      {remaining > 0 || hasMoreBefore ? (
         <div className="flex justify-center py-2" id="loadMoreBar">
           <button
             type="button"
             onClick={onLoadMore}
+            disabled={loadingMore}
             className="rounded-md border border-border px-3 py-1.5 text-xs text-muted-foreground hover:border-primary/50 hover:text-foreground"
           >
-            ▼ Load {Math.min(remaining, MSG_BATCH_SIZE)} earlier messages ({remaining} hidden)
+            {loadingMore
+              ? '正在加载更早消息…'
+              : remaining > 0
+                ? `▼ Load ${Math.min(remaining, MSG_BATCH_SIZE)} earlier messages (${remaining} hidden)`
+                : '▼ 加载更早消息'}
           </button>
         </div>
       ) : null}

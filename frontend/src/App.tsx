@@ -75,6 +75,21 @@ export default function App() {
   const [sidebarWidth, setSidebarWidth] = useState(loadSidebarWidth);
   const [isResizingSidebar, setIsResizingSidebar] = useState(false);
 
+  // Keep-alive: a view that has been visited once stays mounted, and
+  // <TabsContent forceMount> merely hides it (Radix sets the `hidden` attribute).
+  //
+  // Why: views used to be rendered conditionally (`view === 'x' ? <TabsContent/> : null`),
+  // so every tab switch unmounted the previous view. Coming back re-ran its queries and
+  // re-rendered the transcript from scratch, and returning to 会话 also re-fired one
+  // context-reconstruction request per message bubble. Keeping the visited views alive
+  // makes switching a pure show/hide.
+  // Views still mount lazily on first visit, so the expensive insights/prompts scans do
+  // not run at boot.
+  const [mountedViews, setMountedViews] = useState<ReadonlySet<MainView>>(() => new Set<MainView>([view]));
+  useEffect(() => {
+    setMountedViews((prev) => (prev.has(view) ? prev : new Set(prev).add(view)));
+  }, [view]);
+
   const resizeSidebarTo = (width: number) => {
     const next = clampSidebarWidth(width);
     setSidebarWidth(next);
@@ -228,33 +243,41 @@ export default function App() {
               </div>
             ) : (
               <Tabs value={view} onValueChange={(v) => setView(v as MainView)} className="flex min-h-0 flex-1 flex-col">
-                <Suspense fallback={<ViewFallback />}>
-                  {view === 'sessions' ? (
-                    <TabsContent value="sessions" forceMount className="mt-0 min-h-0 flex-1 overflow-auto p-2 sm:p-4">
+                {mountedViews.has('sessions') ? (
+                  <TabsContent value="sessions" forceMount className="mt-0 min-h-0 flex-1 overflow-auto p-2 sm:p-4">
+                    <Suspense fallback={<ViewFallback />}>
                       <SessionsView />
-                    </TabsContent>
-                  ) : null}
-                  {view === 'insights' ? (
-                    <TabsContent value="insights" forceMount className="mt-0 min-h-0 flex-1 overflow-auto p-4">
+                    </Suspense>
+                  </TabsContent>
+                ) : null}
+                {mountedViews.has('insights') ? (
+                  <TabsContent value="insights" forceMount className="mt-0 min-h-0 flex-1 overflow-auto p-4">
+                    <Suspense fallback={<ViewFallback />}>
                       <InsightsView />
-                    </TabsContent>
-                  ) : null}
-                  {view === 'prompts' ? (
-                    <TabsContent value="prompts" forceMount className="mt-0 min-h-0 flex-1 overflow-auto p-4">
+                    </Suspense>
+                  </TabsContent>
+                ) : null}
+                {mountedViews.has('prompts') ? (
+                  <TabsContent value="prompts" forceMount className="mt-0 min-h-0 flex-1 overflow-auto p-4">
+                    <Suspense fallback={<ViewFallback />}>
                       <PromptsView />
-                    </TabsContent>
-                  ) : null}
-                  {view === 'library' ? (
-                    <TabsContent value="library" forceMount className="mt-0 min-h-0 flex-1 overflow-auto p-4">
+                    </Suspense>
+                  </TabsContent>
+                ) : null}
+                {mountedViews.has('library') ? (
+                  <TabsContent value="library" forceMount className="mt-0 min-h-0 flex-1 overflow-auto p-4">
+                    <Suspense fallback={<ViewFallback />}>
                       <LibraryView />
-                    </TabsContent>
-                  ) : null}
-                  {view === 'help' ? (
-                    <TabsContent value="help" forceMount className="mt-0 min-h-0 flex-1 overflow-auto p-3 sm:p-4">
+                    </Suspense>
+                  </TabsContent>
+                ) : null}
+                {mountedViews.has('help') ? (
+                  <TabsContent value="help" forceMount className="mt-0 min-h-0 flex-1 overflow-auto p-3 sm:p-4">
+                    <Suspense fallback={<ViewFallback />}>
                       <HelpView />
-                    </TabsContent>
-                  ) : null}
-                </Suspense>
+                    </Suspense>
+                  </TabsContent>
+                ) : null}
               </Tabs>
             )}
           </main>
