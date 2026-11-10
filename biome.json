@@ -10,8 +10,7 @@
       "public/js/**",
       "test/**/*.js",
       "desktop/**",
-      "!public/js/pure.js",
-      "!public/js/app.js"
+      "!public/js/pure.js"
     ]
   },
   "formatter": {
