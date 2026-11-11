@@ -17,6 +17,21 @@ test('createConfig 默认值：HOST/PORT 与后端 server.js 默认一致', () =
   assert.equal(c.DEBUG, false);
 });
 
+test('截屏保护默认开启，AGENTXRAY_PET_SCREENSHOT_VISIBLE=1 才允许被截到', () => {
+  assert.equal(config.createConfig({ HOME: '/h' }).SCREENSHOT_PROTECT, true);
+  assert.equal(config.createConfig({ HOME: '/h', AGENTXRAY_PET_SCREENSHOT_VISIBLE: '1' }).SCREENSHOT_PROTECT, false);
+  // 只有严格 '1' 才关闭保护，其它值一律保持保护。
+  assert.equal(config.createConfig({ HOME: '/h', AGENTXRAY_PET_SCREENSHOT_VISIBLE: 'true' }).SCREENSHOT_PROTECT, true);
+});
+
+test('显示/隐藏快捷键：默认、自定义、显式关闭', () => {
+  assert.equal(config.createConfig({ HOME: '/h' }).HOTKEY, 'CommandOrControl+Shift+H');
+  assert.equal(config.createConfig({ HOME: '/h', AGENTXRAY_PET_HOTKEY: ' Alt+Command+P ' }).HOTKEY, 'Alt+Command+P');
+  assert.equal(config.createConfig({ HOME: '/h', AGENTXRAY_PET_HOTKEY: '' }).HOTKEY, '');
+  assert.equal(config.createConfig({ HOME: '/h', AGENTXRAY_PET_HOTKEY: 'off' }).HOTKEY, '');
+  assert.equal(config.createConfig({ HOME: '/h', AGENTXRAY_PET_HOTKEY: 'NONE' }).HOTKEY, '');
+});
+
 test('createConfig 全部路径基于 HOME（~/.agentxray/ 约定）', () => {
   const home = '/Users/tester';
   const c = config.createConfig({ HOME: home });

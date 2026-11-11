@@ -75,8 +75,8 @@ export function PromptsAnalysis({
       <section className="rounded-lg border border-border bg-card p-3">
         <h3 className="mb-2 text-sm font-semibold">📊 Prompt 画像</h3>
         <div className="text-sm text-muted-foreground">
-          Claude 分析中… 已耗时 <span className="text-foreground">{elapsed}s</span> · 约 1-2 分钟(聚类 → 归因 → 主题标注
-          → LLM 建议)
+          LLM 分析中… 已耗时 <span className="text-foreground">{elapsed}s</span> · 约 1-3 分钟(聚类 → 归因 → 主题标注 →
+          LLM 建议)
           <br />
           <span className="text-xs">结果会自动保存，可离开此页稍后回来看</span>
         </div>

@@ -26,6 +26,9 @@ const PromptsView = lazy(() =>
 const SessionsView = lazy(() =>
   import('@/views/sessions/SessionsView').then((module) => ({ default: module.SessionsView }))
 );
+const FrameworksView = lazy(() =>
+  import('@/views/frameworks/FrameworksView').then((module) => ({ default: module.FrameworksView }))
+);
 
 const SIDEBAR_WIDTH_KEY = 'agent-xray-sidebar-width';
 const SIDEBAR_DEFAULT_WIDTH = 280;
@@ -62,6 +65,11 @@ const TABS: { view: MainView; label: string; title: string }[] = [
   { view: 'insights', label: '分析', title: '聚合统计：工具调用、错误聚类、token 消耗、按日趋势' },
   { view: 'prompts', label: 'Prompts', title: '自动提取历史里所有真人 prompt：搜索、收藏、聚类分析与改写' },
   { view: 'library', label: '资产库', title: 'Prompt 资产库：标签管理，一键安装为各工具的 slash command' },
+  {
+    view: 'frameworks',
+    label: '框架',
+    title: '各框架 Agent 设计与会话存储方式：目录结构、文件格式、消息 schema 与 spawn 机制',
+  },
 ];
 
 export default function App() {
@@ -69,8 +77,9 @@ export default function App() {
   const view = useAppStore((s) => s.view);
   const setView = useAppStore((s) => s.setView);
   const isUsage = view === 'usage';
-  // 「用量」是整页仪表盘，收起侧栏把宽度让出来。
-  const hideSidebar = isUsage;
+  // 「用量」与「框架」是整页视图，收起侧栏把宽度让出来。
+  const isFrameworks = view === 'frameworks';
+  const isFullWidth = isUsage || isFrameworks;
   const [helpOpen, setHelpOpen] = useState(false);
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
   const [sidebarWidth, setSidebarWidth] = useState(loadSidebarWidth);
@@ -176,11 +185,11 @@ export default function App() {
         <div
           className={cn(
             'grid min-h-0 flex-1 grid-cols-1 lg:grid-cols-[var(--sidebar-width)_minmax(0,1fr)]',
-            hideSidebar && 'lg:grid-cols-1'
+            isFullWidth && 'lg:grid-cols-1'
           )}
           style={{ '--sidebar-width': `${sidebarWidth}px` } as CSSProperties}
         >
-          {!hideSidebar && (
+          {!isFullWidth && (
             <div className="contents lg:relative lg:block lg:h-full lg:min-h-0">
               <Sidebar mobileOpen={mobileSidebarOpen} onMobileOpenChange={setMobileSidebarOpen} />
               <hr
@@ -245,11 +254,9 @@ export default function App() {
               </button>
             </div>
 
-            {isUsage ? (
+            {isFullWidth ? (
               <div className="min-h-0 flex-1 overflow-auto p-4">
-                <Suspense fallback={<ViewFallback />}>
-                  <UsageView />
-                </Suspense>
+                <Suspense fallback={<ViewFallback />}>{isUsage ? <UsageView /> : <FrameworksView />}</Suspense>
               </div>
             ) : (
               <Tabs value={view} onValueChange={(v) => setView(v as MainView)} className="flex min-h-0 flex-1 flex-col">

@@ -6,7 +6,7 @@
 //
 // 日志前缀统一 [pet:main] / [pet:state] / [pet:watchdog] / [pet:fullscreen] / [pet:launchagent] / [pet:sprite]。
 
-const { app, BrowserWindow, Tray, Menu, ipcMain, screen, clipboard, nativeImage } = require('electron');
+const { app, BrowserWindow, Tray, Menu, ipcMain, screen, clipboard, nativeImage, globalShortcut } = require('electron');
 const path = require('node:path');
 const fs = require('node:fs');
 const http = require('node:http');
@@ -18,7 +18,7 @@ const config = require('./lib/config');
 const { createStateClient } = require('./lib/sse');
 const { decideWatchdog } = require('./lib/watchdog');
 const { createFullscreenProbe, decideHidden } = require('./lib/fullscreen');
-const { verticalBounds } = require('./lib/window-geometry');
+const { clampAcrossDisplays } = require('./lib/window-geometry');
 const {
   buildPlist,
   resolveProgramArgs,
@@ -29,6 +29,7 @@ const { createOpenClient } = require('./lib/open-client');
 const { scanPacks, selectPack, listStateFrames } = require('./lib/sprite');
 const { resolveNodeExec } = require('./lib/node-exec');
 const { expandedWindowHeight } = require('./lib/bubble-layout');
+const { resolveVisibility, nextUserHidden, needsApply } = require('./lib/visibility');
 
 // 平台门控：点击穿透（forward:true 的 mousemove 转发）是 macOS 特有语义。
 const IS_MAC = process.platform === 'darwin';
@@ -87,9 +88,15 @@ let watchdogStopped = false;
 
 let interactive = false;
 let lastPointerAt = 0;
+// 可见性：windowHidden 是**实际应用**到窗口的隐藏态；userHidden / fullscreenHidden 是两个
+// 独立来源（见 lib/visibility.js），任一为真即隐藏，某个来源解除不会抢回另一个来源的隐藏。
 let windowHidden = false;
+let userHidden = false;
+let fullscreenHidden = false;
 let lastFullscreenAt = null;
 let warnedProbeError = false;
+// 截屏内容保护：true = 窗口不进系统截屏/录屏（NSWindowSharingNone）。
+let screenshotProtect = config.SCREENSHOT_PROTECT;
 
 let serverOutStream = null;
 let serverErrStream = null;
@@ -98,6 +105,8 @@ let serverLogLines = 0;
 let dragTimer = null;
 let dragStartCursor = null;
 let dragStartBounds = null;
+// 拖动开始时的显示器快照：16ms/tick 的夹紧不必每次都同步查询显示器（跨屏拖动仍按并集仲裁）。
+let dragDisplays = null;
 // 当前长高方向：false = 向上生长（默认，宠物贴窗口底部），true = 向下生长（宠物贴屏幕顶时）。
 let tallBelow = false;
 let windowStateSaveTimer = null;
@@ -118,6 +127,23 @@ function markLiveness() {
 
 // ---------- 窗口位置持久化 ----------
 // 记录 x/y/h：窗口高度会随气泡内容伸缩（底边锚定），还原时按底边对齐换算回收起态 y。
+/** 所有显示器的几何快照，供 lib/window-geometry.js 的纯函数仲裁（不依赖 Electron 全局）。 */
+function displayDescriptors() {
+  return screen.getAllDisplays().map((d) => ({ bounds: d.bounds, workArea: d.workArea }));
+}
+
+// 夹紧到「所有屏」而不是主屏：这样宠物可以被拖到副屏，重开也留在副屏；
+// 副屏被拔掉/改分辨率时退回最近的一块屏，不会落到屏幕外「隐身」。
+function clampWindowPosition(desired) {
+  return clampAcrossDisplays({
+    desired,
+    windowSize: { w: WINDOW.w, h: WINDOW.h },
+    displays: displayDescriptors(),
+    // 桌宠窗口是最高层级（screen-saver），允许盖住菜单栏/Dock 贴到屏幕最顶端。
+    allowLargerThanScreen: true,
+  });
+}
+
 function loadWindowState() {
   try {
     const raw = require('node:fs').readFileSync(config.WINDOW_STATE, 'utf8');
@@ -125,24 +151,12 @@ function loadWindowState() {
     if (parsed && Number.isFinite(parsed.x) && Number.isFinite(parsed.y)) {
       const savedH = Number.isFinite(parsed.h) ? parsed.h : WINDOW.h;
       // 底边对齐：还原为收起态高度，保证宠物脚底停在用户上次放置的位置。
-      // 夹紧回显示器物理边界（与拖动夹紧一致，可贴到最顶端）：历史状态可能在展开态
-      // 保存，底边换算后可能整窗落到屏幕外（宠物“隐身”且无法拖回）。
-      const display = screen.getPrimaryDisplay();
-      const vertical = verticalBounds({
-        displayBounds: display.bounds,
-        workArea: display.workArea,
-        windowHeight: WINDOW.h,
-        allowLargerThanScreen: true,
+      // 历史状态可能在展开态保存，底边换算后可能整窗落到屏幕外（宠物“隐身”且无法拖回），
+      // 所以统一交给 clampWindowPosition 夹紧。
+      return clampWindowPosition({
+        x: Math.round(parsed.x),
+        y: Math.round(parsed.y + savedH - WINDOW.h),
       });
-      const x = Math.round(parsed.x);
-      const y = Math.round(parsed.y + savedH - WINDOW.h);
-      return {
-        x: Math.min(
-          Math.max(x, display.bounds.x),
-          Math.max(display.bounds.x, display.bounds.x + display.bounds.width - WINDOW.w)
-        ),
-        y: Math.min(Math.max(y, vertical.min), vertical.max),
-      };
     }
   } catch {
     // 无状态文件 → 用默认位置。
@@ -215,24 +229,111 @@ function startInteractiveSafety() {
   }, 1000);
 }
 
+// ---------- 显示 / 隐藏（用户主动） + 截屏保护 ----------
+// 窗口的实际可见性由 lib/visibility.js 仲裁（用户隐藏 × 全屏自动隐藏），这里只做应用。
+function syncWindowVisibility(reason) {
+  if (!mainWindow || mainWindow.isDestroyed()) return;
+  const { hidden, visible } = resolveVisibility({ userHidden, fullscreenHidden });
+  if (!needsApply(windowHidden, hidden)) return;
+  windowHidden = hidden;
+  if (visible) {
+    mainWindow.showInactive();
+    log('main', `显示宠物（${reason}）`);
+  } else {
+    forcePassThrough(reason); // 收起前把窗口恢复穿透，避免下次显示时卡在可交互态
+    mainWindow.hide();
+    log('main', `隐藏宠物（${reason}）`);
+  }
+  send('pet:visible', { visible, reason });
+  refreshTrayMenu();
+}
+
+/**
+ * 用户态显示/隐藏：由宠物上的按钮、托盘菜单、全局快捷键共用。
+ *
+ * @param {boolean} [explicitVisible] true = 显示，false = 隐藏；省略 = 取反
+ * @returns {{visible: boolean, userHidden: boolean}} visible 为**实际**可见性
+ */
+function setUserVisible(explicitVisible) {
+  userHidden = nextUserHidden(userHidden, explicitVisible);
+  syncWindowVisibility('user'); // 可见性真的变化时，内部会重建托盘菜单（标签跟着改）
+  return { visible: !windowHidden, userHidden };
+}
+
+function toggleWindow(source = 'tray') {
+  if (!mainWindow || mainWindow.isDestroyed()) return;
+  // 以「实际可见性」决定方向：可见 → 收起；已隐藏 → 显示。
+  // 全屏自动隐藏期间「显示」不会生效（别人正在全屏，宠物不该跳出来），属预期行为。
+  log('main', `切换可见性（${source}）`);
+  setUserVisible(windowHidden);
+}
+
+/**
+ * 截屏内容保护：win.setContentProtection(true) 在 macOS 上等价 NSWindowSharingNone，
+ * 窗口不进系统截屏（⌘⇧3/4/5）、录屏与屏幕共享画面——下层桌面照常被拍到。
+ *
+ * @param {boolean} on
+ * @param {{silent?: boolean}} [opts]
+ */
+function applyContentProtection(on, opts = {}) {
+  screenshotProtect = !!on;
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    try {
+      mainWindow.setContentProtection(screenshotProtect);
+    } catch (err) {
+      log('main', '截屏保护设置失败：', err?.message ? err.message : err);
+    }
+  }
+  if (!opts.silent) {
+    log('main', screenshotProtect ? '截屏保护：开（截屏/录屏里看不到宠物）' : '截屏保护：关（宠物会被截到）');
+  }
+  return screenshotProtect;
+}
+
+// 全局快捷键：宠物被收起后窗口点不到，除托盘外再留一条键盘通道。
+// 注册失败（常被其他 App 占用）只打日志，托盘菜单仍然可用。
+function setupHotkey() {
+  if (!config.HOTKEY) {
+    log('main', '未启用显示/隐藏快捷键（AGENTXRAY_PET_HOTKEY 为空或 off）');
+    return;
+  }
+  try {
+    const ok = globalShortcut.register(config.HOTKEY, () => toggleWindow('hotkey'));
+    if (ok) log('main', `显示/隐藏快捷键：${config.HOTKEY}`);
+    else log('main', `快捷键 ${config.HOTKEY} 注册失败（可能被其他 App 占用），请改用托盘菜单`);
+  } catch (err) {
+    log('main', '快捷键注册异常：', err?.message ? err.message : err);
+  }
+}
+
 // ---------- 拖拽移动（⌘ / 右键）：用屏幕光标增量移动窗口 ----------
-// 结束拖拽：按光标最终位置落点。macOS 默认按 workArea 约束窗口，
+// 拖动期间的落点 = 拖拽起点 + 光标位移，再交给 lib/window-geometry.js 做**跨屏**仲裁：
+// 允许骑在两块屏中间（所以跨副屏拖动是连续的），但窗口过半面积必须落在某块屏上，
+// 否则吸附回最近的屏——不会出现「拖到 L 形空隙里看不见也拖不回来」。
 // enableLargerThanScreen 开启后允许窗口覆盖菜单栏区域，顶边可落到 display.bounds.y。
-function finishDrag() {
-  if (!mainWindow || mainWindow.isDestroyed() || !dragStartBounds || !dragStartCursor) return;
+function dragTargetPosition() {
+  if (!dragStartBounds || !dragStartCursor) return null;
   const cur = screen.getCursorScreenPoint();
-  const display = screen.getDisplayMatching(dragStartBounds);
-  const disp = display.bounds;
-  const vertical = verticalBounds({
-    displayBounds: disp,
-    workArea: display.workArea,
-    windowHeight: WINDOW.h,
+  return {
+    x: dragStartBounds.x + (cur.x - dragStartCursor.x),
+    y: dragStartBounds.y + (cur.y - dragStartCursor.y),
+  };
+}
+
+function applyDragPosition(desired) {
+  if (!mainWindow || mainWindow.isDestroyed() || !desired) return;
+  const clamped = clampAcrossDisplays({
+    desired,
+    windowSize: { w: WINDOW.w, h: WINDOW.h },
+    displays: dragDisplays || displayDescriptors(),
     allowLargerThanScreen: true,
   });
-  const clamp = (v, min, max) => Math.min(Math.max(v, min), Math.max(min, max));
-  const x = clamp(dragStartBounds.x + (cur.x - dragStartCursor.x), disp.x, disp.x + disp.width - WINDOW.w);
-  const y = clamp(dragStartBounds.y + (cur.y - dragStartCursor.y), vertical.min, vertical.max);
-  mainWindow.setBounds({ x, y, width: WINDOW.w, height: WINDOW.h });
+  mainWindow.setBounds({ x: clamped.x, y: clamped.y, width: WINDOW.w, height: WINDOW.h });
+}
+
+function finishDrag() {
+  if (!mainWindow || mainWindow.isDestroyed() || !dragStartBounds || !dragStartCursor) return;
+  applyDragPosition(dragTargetPosition());
 }
 
 function handleDrag(payload) {
@@ -253,6 +354,7 @@ function handleDrag(payload) {
       dragStartBounds = mainWindow.getBounds();
     }
     dragStartCursor = screen.getCursorScreenPoint();
+    dragDisplays = displayDescriptors();
     dragTimer = setInterval(() => {
       if (!mainWindow || mainWindow.isDestroyed()) return;
       const cur = screen.getCursorScreenPoint();
@@ -266,28 +368,17 @@ function handleDrag(payload) {
         clearInterval(dragTimer);
         dragTimer = null;
         finishDrag();
+        dragDisplays = null;
         send('pet:drag-cancel', {});
         scheduleWindowStateSave();
         log('main', '结束拖拽（光标离开窗口）');
         return;
       }
-      // 夹紧到窗口所在显示器的物理边界：宠物可以贴到屏幕最顶端（覆盖菜单栏区域）、
-      // 底边和左右边缘——桌宠窗口本身是最高层级（screen-saver），盖在菜单栏/Dock 上
-      // 是预期行为；同时保证永远不会被拖出屏幕外“隐身”。
-      const display = screen.getDisplayMatching(dragStartBounds);
-      const wa = display.bounds;
-      const vertical = verticalBounds({
-        displayBounds: wa,
-        workArea: display.workArea,
-        windowHeight: WINDOW.h,
-        allowLargerThanScreen: true,
-      });
-      const clamp = (v, min, max) => Math.min(Math.max(v, min), Math.max(min, max));
-      mainWindow.setBounds({
-        x: clamp(dragStartBounds.x + (cur.x - dragStartCursor.x), wa.x, wa.x + wa.width - WINDOW.w),
-        y: clamp(dragStartBounds.y + (cur.y - dragStartCursor.y), vertical.min, vertical.max),
-        width: WINDOW.w,
-        height: WINDOW.h,
+      // 先把窗口移到光标处，再夹紧（跨屏时窗口会跟着光标连续跨过去）。
+      // 夹紧规则见 clampWindowPosition：并集内自由移动，过半面积必须在某块屏上。
+      applyDragPosition({
+        x: dragStartBounds.x + (cur.x - dragStartCursor.x),
+        y: dragStartBounds.y + (cur.y - dragStartCursor.y),
       });
     }, 16);
     log('main', '开始拖拽');
@@ -297,6 +388,7 @@ function handleDrag(payload) {
       dragTimer = null;
     }
     finishDrag();
+    dragDisplays = null;
     scheduleWindowStateSave();
     log('main', '结束拖拽');
   }
@@ -605,16 +697,12 @@ function startFullscreenPoll() {
       warnedProbeError = true;
       log('fullscreen', 'probe 不可用（可能未授权「辅助功能」），退化为不隐藏：', pr.error);
     }
-    const { hidden } = decideHidden({ probeResult: pr, now, lastFullscreenAt, prevHidden: windowHidden });
-    if (hidden !== windowHidden) {
-      windowHidden = hidden;
-      if (!mainWindow || mainWindow.isDestroyed()) return;
-      if (hidden) {
-        forcePassThrough('fullscreen-hide');
-        mainWindow.hide();
-      } else {
-        mainWindow.showInactive();
-      }
+    const { hidden } = decideHidden({ probeResult: pr, now, lastFullscreenAt, prevHidden: fullscreenHidden });
+    if (hidden !== fullscreenHidden) {
+      fullscreenHidden = hidden;
+      syncWindowVisibility(hidden ? 'fullscreen' : 'fullscreen-exit');
+      // 渲染层据此暂停/恢复动画；窗口是否真的出现仍由 syncWindowVisibility 决定
+      // （用户主动隐藏时，退出全屏也不会把宠物放回来）。
       send('pet:fullscreen', { hidden });
       log('fullscreen', hidden ? '进入全屏 → 隐藏宠物' : '退出全屏 → 恢复宠物');
     }
@@ -628,10 +716,36 @@ function trayReachable(ok) {
   }
 }
 
-function toggleWindow() {
-  if (!mainWindow || mainWindow.isDestroyed()) return;
-  if (mainWindow.isVisible()) mainWindow.hide();
-  else mainWindow.showInactive();
+// 菜单标签随可见性/截屏保护状态重建（托盘菜单是隐藏后唯一常驻入口，必须反映当前状态）。
+function buildTrayMenu() {
+  return Menu.buildFromTemplate([
+    { label: windowHidden ? '显示宠物' : '隐藏宠物', click: () => toggleWindow('tray') },
+    { label: `快捷键：${config.HOTKEY || '未启用'}`, enabled: false },
+    { label: '定位当前会话', click: () => locateCurrentSession() },
+    { type: 'separator' },
+    {
+      label: '截屏/录屏时不拍到宠物',
+      type: 'checkbox',
+      checked: screenshotProtect,
+      click: (item) => applyContentProtection(item.checked),
+    },
+    { type: 'separator' },
+    { label: '安装开机自启（LaunchAgent）', click: () => trayInstallAgent() },
+    { label: '卸载开机自启', click: () => trayUninstallAgent() },
+    { type: 'separator' },
+    {
+      label: '退出',
+      click: () => {
+        app.isQuitting = true;
+        app.quit();
+      },
+    },
+  ]);
+}
+
+function refreshTrayMenu() {
+  if (!tray || tray.isDestroyed()) return;
+  tray.setContextMenu(buildTrayMenu());
 }
 
 async function locateCurrentSession() {
@@ -685,23 +799,8 @@ function setupTray() {
   const icon = nativeImage.createFromDataURL(`data:image/png;base64,${TRAY_ICON_PNG_BASE64}`);
   tray = new Tray(icon);
   tray.setToolTip('AgentXRay Pet');
-  const menu = Menu.buildFromTemplate([
-    { label: '显示 / 隐藏宠物', click: toggleWindow },
-    { label: '定位当前会话', click: () => locateCurrentSession() },
-    { type: 'separator' },
-    { label: '安装开机自启（LaunchAgent）', click: () => trayInstallAgent() },
-    { label: '卸载开机自启', click: () => trayUninstallAgent() },
-    { type: 'separator' },
-    {
-      label: '退出',
-      click: () => {
-        app.isQuitting = true;
-        app.quit();
-      },
-    },
-  ]);
-  tray.setContextMenu(menu);
-  tray.on('click', toggleWindow);
+  refreshTrayMenu();
+  tray.on('click', () => toggleWindow('tray-click'));
 }
 
 // ---------- IPC ----------
@@ -729,6 +828,11 @@ function setupIpc() {
     handleDrag(payload);
     return true;
   });
+
+  // 宠物上的「隐藏」按钮：window.pet.toggleVisible()（Toggle）或 toggleVisible(false)（收起）。
+  ipcMain.handle('pet:toggle-visible', (_event, value) =>
+    setUserVisible(typeof value === 'boolean' ? value : undefined)
+  );
 
   // 展开/收起会话卡片列表：底边锚定，向上生长/收回，并把新几何推给渲染层。
   ipcMain.handle('pet:set-expanded', (_event, value) => {
@@ -786,6 +890,9 @@ function createWindow() {
   });
 
   mainWindow.setAlwaysOnTop(true, 'screen-saver');
+  // 截屏/录屏不可见：必须在窗口创建后立即设置（macOS: NSWindowSharingNone）。
+  applyContentProtection(screenshotProtect, { silent: true });
+  log('main', screenshotProtect ? '截屏保护：开（系统截屏/录屏拍不到宠物）' : '截屏保护：关（宠物会被截到）');
   if (IS_MAC) {
     // 默认穿透；forward:true 让窗口仍能收到 mousemove（热区仍可点的关键）。
     mainWindow.setIgnoreMouseEvents(true, { forward: true });
@@ -798,6 +905,7 @@ function createWindow() {
   mainWindow.loadFile(path.join(__dirname, 'renderer', 'index.html'));
 
   mainWindow.once('ready-to-show', () => {
+    if (windowHidden) return; // 用户此前已收起（重建窗口时），不要自己冒出来
     mainWindow.showInactive();
   });
 
@@ -821,6 +929,7 @@ async function bootstrap() {
   setupIpc();
   createWindow();
   setupTray();
+  setupHotkey();
 
   openClient = createOpenClient({ host: config.HOST, port: config.PORT, httpRequest: http.request });
 
@@ -847,6 +956,7 @@ function cleanup() {
   dragTimer = null;
   windowStateSaveTimer = null;
   if (stateClient) stateClient.stop();
+  globalShortcut.unregisterAll();
   if (mode === 'own-server' && serverChild && serverChild.exitCode === null) {
     try {
       serverChild.kill('SIGTERM');
@@ -863,6 +973,7 @@ if (!gotLock) {
 } else {
   app.on('second-instance', () => {
     if (mainWindow) {
+      setUserVisible(true); // 再次启动 = 用户想看到宠物（即使之前收起来了）
       mainWindow.showInactive();
       mainWindow.focus();
     }
@@ -871,6 +982,7 @@ if (!gotLock) {
   app.whenReady().then(bootstrap);
   app.on('activate', () => {
     if (!mainWindow) createWindow();
+    else setUserVisible(true);
   });
   app.on('window-all-closed', () => {
     // 托盘常驻，不随窗口关闭退出。

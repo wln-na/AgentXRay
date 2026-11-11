@@ -29,6 +29,9 @@ const { buildPlist, resolveProgramArgs } = load('launchagent');
 const { parseManifest, resolveFrame, selectPack } = load('sprite');
 const { resolveNodeExec } = load('node-exec');
 const { buildOpenRequest } = load('open-client');
+const { resolveVisibility, nextUserHidden } = load('visibility');
+const { hideButtonCenter, badgeCenter } = load('bubble-layout');
+const { clampAcrossDisplays } = load('window-geometry');
 
 check('config 默认值（HOST/PORT/PET_STATES）', () => {
   const c = config.createConfig({ HOME: '/tmp/home' });
@@ -37,6 +40,62 @@ check('config 默认值（HOST/PORT/PET_STATES）', () => {
   assert.equal(c.PET_DIR, '/tmp/home/.agentxray/pet');
   assert.equal(config.PET_STATES.length, 6);
   assert.ok(Object.isFrozen(config.PET_STATES));
+});
+
+check('可见性仲裁：用户隐藏 × 全屏隐藏互不覆盖', () => {
+  assert.equal(resolveVisibility({}).visible, true);
+  assert.equal(resolveVisibility({ userHidden: true }).visible, false);
+  assert.equal(resolveVisibility({ fullscreenHidden: true }).visible, false);
+  // 用户先收起 → 进出全屏 → 仍然隐藏
+  assert.equal(resolveVisibility({ userHidden: true, fullscreenHidden: false }).visible, false);
+  assert.equal(nextUserHidden(false), true);
+  assert.equal(nextUserHidden(true, true), false);
+  // 严格布尔：脏值不得把宠物藏起来
+  assert.equal(resolveVisibility({ userHidden: 'true' }).visible, true);
+});
+
+check('截屏保护默认开、快捷键有默认值', () => {
+  const c = config.createConfig({ HOME: '/tmp/home' });
+  assert.equal(c.SCREENSHOT_PROTECT, true);
+  assert.equal(c.HOTKEY, 'CommandOrControl+Shift+H');
+  assert.equal(
+    config.createConfig({ HOME: '/tmp/home', AGENTXRAY_PET_SCREENSHOT_VISIBLE: '1' }).SCREENSHOT_PROTECT,
+    false
+  );
+  assert.equal(config.createConfig({ HOME: '/tmp/home', AGENTXRAY_PET_HOTKEY: 'off' }).HOTKEY, '');
+});
+
+check('跨屏仲裁：并集内可骑缝、空隙吸附、重启保留副屏位置', () => {
+  const primary = {
+    bounds: { x: 0, y: 0, width: 1470, height: 956 },
+    workArea: { x: 0, y: 38, width: 1470, height: 866 },
+  };
+  const secondary = { bounds: { x: 1470, y: 0, width: 1920, height: 1080 } };
+  const size = { w: 300, h: 128 };
+  const single = clampAcrossDisplays({
+    desired: { x: 9999, y: 9999 },
+    windowSize: size,
+    displays: [primary],
+    allowLargerThanScreen: true, // 桌宠始终开启 enableLargerThanScreen（可贴菜单栏）
+  });
+  assert.deepEqual(single, { x: 1170, y: 828 });
+  const dual = [primary, secondary];
+  // 跨屏中间态（骑缝）不被单屏边界卡住
+  assert.deepEqual(clampAcrossDisplays({ desired: { x: 1320, y: 200 }, windowSize: size, displays: dual }), {
+    x: 1320,
+    y: 200,
+  });
+  // 副屏位置重启后保留
+  assert.deepEqual(clampAcrossDisplays({ desired: { x: 2000, y: 300 }, windowSize: size, displays: dual }), {
+    x: 2000,
+    y: 300,
+  });
+});
+
+check('隐藏按钮与活跃徽标左右对称', () => {
+  const geom = { width: 300, petHeight: 128, height: 128, bubbleBelow: false };
+  assert.equal(hideButtonCenter(geom).y, badgeCenter(geom).y);
+  assert.equal(hideButtonCenter(geom).x + badgeCenter(geom).x, 300);
 });
 
 check('SseParser 分帧', () => {

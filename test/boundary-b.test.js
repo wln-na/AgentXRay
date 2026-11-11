@@ -12,6 +12,20 @@ const os = require('node:os');
 const path = require('node:path');
 const { createRequire } = require('node:module');
 
+const { sweepOnce } = require(path.join(__dirname, 'support', 'stale-home'));
+
+// Sweep leftover scratch dirs from killed runs before creating this run's fresh
+// axr-home-* dir (which is seconds old, so the age rule never targets it).
+sweepOnce();
+
+// Hermetic HOME: this harness must not depend on writability of the real $HOME
+// (the file sandbox denies mkdir under it). lib/config.js captures HOME at
+// module load and resolveDir() rejects paths outside HOME, so redirect HOME
+// before the lib requires below.
+const __home = fs.mkdtempSync(path.join(os.tmpdir(), 'axr-home-'));
+process.env.HOME = __home;
+process.on('exit', () => fs.rmSync(__home, { recursive: true, force: true }));
+
 const ROOT = path.join(__dirname, '..');
 const { parseCodexSessionFile, parseCodexSessionMetadata } = require(path.join(ROOT, 'lib', 'platforms', 'codex'));
 const { parseClaudeCodeSessionFile } = require(path.join(ROOT, 'lib', 'platforms', 'claude'));

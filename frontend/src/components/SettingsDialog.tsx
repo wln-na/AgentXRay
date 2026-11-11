@@ -270,11 +270,13 @@ export function SettingsDialog({ open, onOpenChange }: { open: boolean; onOpenCh
 
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
-      <DialogContent className="max-h-[85vh] max-w-lg overflow-y-auto">
-        <DialogHeader>
+      {/* 12 个目录 + LLM + 备份会超出笔记本视口：固定头尾，只让中间滚动，
+          保存按钮始终可见。 */}
+      <DialogContent className="flex max-h-dialog w-[calc(100vw-2rem)] max-w-lg flex-col gap-4">
+        <DialogHeader className="shrink-0">
           <DialogTitle>Settings</DialogTitle>
         </DialogHeader>
-        <div className="space-y-3">
+        <div className="-mr-2 min-h-0 flex-1 space-y-3 overflow-y-auto pr-2">
           {DIR_FIELDS.map((field) => (
             <div key={field.key} className="space-y-1.5">
               <label className="text-xs text-muted-foreground" htmlFor={`setting-${field.key}`}>
@@ -291,7 +293,7 @@ export function SettingsDialog({ open, onOpenChange }: { open: boolean; onOpenCh
           <LlmSection />
           <BackupSection />
         </div>
-        <div className="flex justify-end gap-2 pt-2">
+        <div className="flex shrink-0 justify-end gap-2 border-t border-border pt-3">
           <Button variant="ghost" onClick={() => setDraft({ ...EMPTY_SETTINGS })}>
             Reset to Defaults
           </Button>

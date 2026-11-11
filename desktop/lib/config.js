@@ -25,6 +25,7 @@ const PET_STATES = Object.freeze(['idle', 'thinking', 'working', 'done', 'waitin
  *   HOME: string, HOST: string, PORT: number,
  *   PET_DIR: string, PETS_DIR: string, PACK: string, EXEC: string, NODE: string,
  *   NO_WATCHDOG: boolean, DEBUG: boolean,
+ *   SCREENSHOT_PROTECT: boolean, HOTKEY: string,
  *   PET_LOG: string, PET_ERR_LOG: string, WINDOW_STATE: string, PLIST_PATH: string
  * }}
  */
@@ -41,6 +42,19 @@ function createConfig(env = process.env) {
   const NODE = env.AGENTXRAY_PET_NODE || '';
   const NO_WATCHDOG = env.AGENTXRAY_PET_NO_WATCHDOG === '1';
   const DEBUG = env.AGENTXRAY_PET_DEBUG === '1';
+  // 截屏保护：默认开（窗口用 NSWindowSharingNone，不进系统截屏/录屏）。
+  // AGENTXRAY_PET_SCREENSHOT_VISIBLE=1 → 允许被截到（显式关闭保护）。
+  const SCREENSHOT_PROTECT = env.AGENTXRAY_PET_SCREENSHOT_VISIBLE !== '1';
+  // 显示/隐藏全局快捷键：未设置 → 默认 CommandOrControl+Shift+H；
+  // 设为空串或 off/none → 不注册（只保留托盘菜单与宠物上的按钮）。
+  const HOTKEY_RAW = env.AGENTXRAY_PET_HOTKEY;
+  const HOTKEY_DEFAULT = 'CommandOrControl+Shift+H';
+  const HOTKEY =
+    HOTKEY_RAW === undefined
+      ? HOTKEY_DEFAULT
+      : ['off', 'none'].includes(String(HOTKEY_RAW).trim().toLowerCase())
+        ? ''
+        : String(HOTKEY_RAW).trim();
   const PET_LOG = path.join(PET_DIR, 'pet.log');
   const PET_ERR_LOG = path.join(PET_DIR, 'pet.err.log');
   const WINDOW_STATE = path.join(PET_DIR, 'window-state.json');
@@ -57,6 +71,8 @@ function createConfig(env = process.env) {
     NODE,
     NO_WATCHDOG,
     DEBUG,
+    SCREENSHOT_PROTECT,
+    HOTKEY,
     PET_LOG,
     PET_ERR_LOG,
     WINDOW_STATE,

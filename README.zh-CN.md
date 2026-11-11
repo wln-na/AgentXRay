@@ -31,10 +31,11 @@ LangSmith、Langfuse 这类观测平台面向的是*你自己写的* agent：接
 
 - **多平台支持** — 一个界面统一查看 OpenClaw、Codex、Claude Code、Claude Desktop Agent/Cowork、Hermes、OMP、DeepSeek Harness、Gemini CLI、Cursor、Doubao、WorkBuddy 和 Trae CN 的会话日志（dsh 支持 v0 与 v4 的 `session[.vN].jsonl[.zstd]` 日志，多帧 zstd 透明解压；v1–v3 会标注为不支持，v5 会带错误保留在列表里，v4 的注入消息默认收进可展开的系统上下文区块，子代理会话挂在父会话的 🌳 chip 下，详情还带上下文占用卡；Gemini CLI 的 `/rewind` 回滚记录会先折叠，回滚掉的历史不会重复渲染；Cursor 的 agent 转写读自 `~/.cursor/projects`，子代理转写已排除，且记录本身无时间戳、以文件 mtime 为准）
 - **会话浏览** — 浏览 Agent 列表，搜索/过滤会话，查看消息历史
+- **框架说明页** — 「框架」标签页介绍各框架的 Agent 设计与会话存储方式：目录结构、文件格式、消息 schema、spawn 机制与会话生命周期，附跨平台对比总览（内容依据 `lib/platforms/` 解析器源码手工整理）
 - **工具调用检查** — 可展开的工具调用详情，包含参数和返回结果
 - **Trace 视图** — 每轮对话的耗时瀑布图：模型推理（蓝）与工具执行（绿，出错为红）一目了然，点击色条跳转到对应消息
 - **Prompt 提取** — 按 session 提取全部真人 prompt（自动过滤工具结果、斜杠命令、系统注入等噪音），按工作目录分组，支持搜索 / JSON 导出 / 复制
-- **Prompt 优化** — 相似 prompt 自动聚类成模板，结合 session 效果归因（轮次、工具调用、错误率），通过本机 `claude` CLI 生成改写建议
+- **Prompt 优化** — 相似 prompt 自动聚类成模板，结合 session 效果归因（轮次、工具调用、错误率），通过配置的 LLM 后端（设置里的 OpenAI 兼容端点，或本机 `claude` CLI 兜底）生成改写建议
 - **Prompt 资产库** — 把值得复用的 prompt 收进 `~/.agentxray/library`，支持标签 / 编辑 / 搜索，一键安装为 Claude Code、Codex、OMP 的原生 slash command（`$ARGUMENTS` 原样保留，在目标 CLI 里 `/名字 参数` 直接可用）
 - **全局搜索** — 一个搜索框同时搜索全部支持的平台，多关键词 AND 匹配，每条结果带平台色标 —— 包含从被 Claude Code 清理掉的会话里恢复出来的 prompt
 - **会话洞察** — 聚合分析面板：工具统计、错误聚类、每日趋势
@@ -213,8 +214,8 @@ kill <ssh-pid>
 - **预览与展开** — 每个 session 行内直接预览首条 prompt，点击展开完整列表（markdown 渲染）
 - **搜索** — 实时过滤 prompt / 目录 / session
 - **Export JSON** — 导出全部提取的 prompt 用于离线处理
-- **分析优化** — 相似 prompt 聚类成模板，结合每个模板的 session 效果归因（平均轮次、工具调用、错误率），由 Claude 生成模板改写建议。需要服务器 PATH 中有 [`claude` CLI](https://claude.com/claude-code)；没有时聚类和归因表格仍可用
-- **优化单条** — 悬停任意 prompt 点击「优化」，内联生成 Claude 改写版本
+- **分析优化** — 相似 prompt 聚类成模板，结合每个模板的 session 效果归因（平均轮次、工具调用、错误率），由配置的 LLM 生成模板改写建议。在设置里配 OpenAI 兼容端点（或本机 [`claude` CLI](https://claude.com/claude-code) 兜底）；两者都没有时聚类和归因表格仍可用
+- **优化单条** — 悬停任意 prompt 点击「优化」，内联生成 LLM 改写版本
 
 ### 键盘快捷键
 
@@ -306,7 +307,7 @@ npm start
 | `GET /api/usage/daily` | 每日 token 用量：输入 / 输出 / 缓存 / Reasoning / 估算 token、成本与含子代理的去重会话数（`days=1-90`，`platform=all` 或平台 ID；支持各平台目录覆盖参数） |
 | `GET /api/tools/audit` | 获取工具使用与健康状态汇总 |
 | `GET /api/prompts` | 按目录分组的各 session 真人 prompt |
-| `GET /api/prompts/analyze` | 模板聚类 + 效果归因 + Claude 建议（`?refresh=1` 重算，`?skipLlm=1` 仅聚类） |
+| `GET /api/prompts/analyze` | 模板聚类 + 效果归因 + LLM 建议（`?refresh=1` 重算，`?skipLlm=1` 仅聚类） |
 | `POST /api/prompts/rewrite` | 通过配置的 LLM 后端改写单条 prompt（`{ "text": "..." }`；无可用后端时返回 503 及配置指引） |
 | `GET /api/prompts/hidden` | 获取已隐藏 prompt 的 hash 与预览 |
 | `POST /api/prompts/hidden` | 隐藏单条 prompt（`text`）或批量 prompt（`texts`） |

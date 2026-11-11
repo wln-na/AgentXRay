@@ -716,8 +716,12 @@ export function computeSessionInsights(msgs: SessionMessage[]): SessionInsightsS
     promptItems.length > 0 ? Math.round(promptItems.reduce((s, p) => s + p.qualityScore, 0) / promptItems.length) : 0;
 
   const sortedByQuality = [...promptItems].sort((a, b) => b.qualityScore - a.qualityScore);
-  const bestPrompts = sortedByQuality.slice(0, 3);
-  const worstPrompts = sortedByQuality.slice(-3).reverse();
+  // Bottom wins: 待改进 is the actionable list, so it picks the worst first;
+  // Top then excludes anything already shown in Bottom (few prompts would
+  // otherwise repeat the same items on both sides).
+  const worstPrompts = [...sortedByQuality].slice(-3).reverse();
+  const worstSet = new Set(worstPrompts.map((p) => p.index));
+  const bestPrompts = sortedByQuality.filter((p) => !worstSet.has(p.index)).slice(0, 3);
 
   // Length efficiency: group prompts by length range and compute avg tool calls
   const lengthRanges = [

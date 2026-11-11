@@ -6,6 +6,19 @@ const _fsp = require('node:fs/promises');
 const os = require('node:os');
 const { createRequire } = require('node:module');
 
+const { sweepOnce } = require(path.join(__dirname, 'support', 'stale-home'));
+
+// Sweep leftover scratch dirs from killed runs before creating this run's fresh
+// axr-home-* dir (which is seconds old, so the age rule never targets it).
+sweepOnce();
+
+// Hermetic HOME bootstrap: must run before the lib/ requires below, because
+// lib/config.js captures process.env.HOME at module load. Keeps the codex
+// scratch dir (makeTempCodexDir) under os.tmpdir() instead of the real $HOME.
+const __axrHome = fs.mkdtempSync(path.join(os.tmpdir(), 'axr-home-'));
+process.env.HOME = __axrHome;
+process.on('exit', () => fs.rmSync(__axrHome, { recursive: true, force: true }));
+
 const ROOT = path.join(__dirname, '..');
 const textUtils = require(path.join(ROOT, 'lib', 'text-utils'));
 const llmJson = require(path.join(ROOT, 'lib', 'llm-json'));

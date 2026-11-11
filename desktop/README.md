@@ -12,8 +12,11 @@ waiting_input / error）。点击宠物 = 跳回原会话（复用现有 `open-s
 | 目录 | 是否 `require('electron')` | 是否可 `node --test` |
 |---|---|---|
 | `lib/*.js` | 否（纯逻辑） | 是 |
-| `main.js` / `preload.js` | 是（Electron 胶水） | 否（GUI 手动验收） |
+| `main.js` / `preload.js` | 是（Electron 胶水） | 否（GUI 手动验收）；**桥接契约**由 `test/pet-shell-bridge.test.js` 静态校验 |
 | `renderer/*` | 否（只用 `window.pet` + Canvas） | 否（DOM 手工验收） |
+
+可见性仲裁是纯逻辑（`lib/visibility.js`）：`userHidden`（用户收起）× `fullscreenHidden`
+（全屏让位）任一为真即隐藏，互不覆盖。
 
 ## 安装
 
@@ -55,6 +58,8 @@ npm start        # = electron .（需要已成功安装 electron）
 | `AGENTXRAY_PET_NODE` | 空 | own-server 模式下 spawn `server.js` 用的 node 可执行（**最高优先级**候选，见下节）。原生模块 ABI 不匹配时指向系统 node |
 | `AGENTXRAY_PET_NO_WATCHDOG` | 空 | `1` 时关闭看门狗（调试） |
 | `AGENTXRAY_PET_DEBUG` | 空 | `1` 时调快全屏轮询并输出详细日志 |
+| `AGENTXRAY_PET_SCREENSHOT_VISIBLE` | 空（=保护开） | `1` 时**允许被截到**（关闭截屏内容保护） |
+| `AGENTXRAY_PET_HOTKEY` | `CommandOrControl+Shift+H` | 显示/隐藏宠物的全局快捷键；置空或 `off` 则不注册 |
 
 ### own-server 模式的 node 解析顺序（`lib/node-exec.js`）
 
@@ -144,13 +149,15 @@ renderer（`file://`，`contextIsolation:true` / `nodeIntegration:false` / `sand
 | `openSession({platform,sessionId,agent})` | renderer → 主（invoke） | `OpenSessionResult`（`{ok,action,detail}` 或 `{ok:false,error,fallback}`） |
 | `setInteractive(bool)` | renderer → 主（invoke） | pointer 是否在热区；主进程去抖后调 `setIgnoreMouseEvents` |
 | `drag({phase:'start'\|'end'})` | renderer → 主（invoke） | 拖动移动窗口（主进程按屏幕光标增量 `setBounds`） |
+| `toggleVisible(visible?)` | renderer → 主（invoke） | `{visible,userHidden}`；宠物上的「隐藏」按钮用，省略参数 = 取反 |
 | `onState(cb)` | 主 → renderer（`pet:state`） | `{state,platform,sessionId,agent,bubble,updatedAt}` |
 | `onStatus(cb)` | 主 → renderer（`pet:status`） | `{connected}` |
-| `onFullscreen(cb)` | 主 → renderer（`pet:fullscreen`） | `{hidden}` |
+| `onFullscreen(cb)` | 主 → renderer（`pet:fullscreen`） | `{hidden}`（全屏让位，动画循环暂停） |
+| `onVisible(cb)` | 主 → renderer（`pet:visible`） | `{visible,reason}`（用户主动隐藏/显示） |
 | `onOpenResult(cb)` | 主 → renderer（`pet:open-result`） | `OpenSessionResult`（短暂气泡反馈） |
 
-IPC 通道命名：`ipcMain.handle` = `pet:get-info` / `pet:open-session` / `pet:set-interactive` / `pet:drag`；
-`webContents.send` = `pet:state` / `pet:status` / `pet:fullscreen` / `pet:open-result`。
+IPC 通道命名：`ipcMain.handle` = `pet:get-info` / `pet:open-session` / `pet:set-interactive` / `pet:drag` / `pet:toggle-visible`；
+`webContents.send` = `pet:state` / `pet:status` / `pet:fullscreen` / `pet:visible` / `pet:open-result`。
 **主进程不接受 renderer 传入的任意 URL/命令**（`open-session` 只接受 `{platform,sessionId,agent}`，路径由 `buildOpenRequest` 组装）。
 
 ## 后端两种模式（看门狗）
@@ -162,6 +169,35 @@ IPC 通道命名：`ipcMain.handle` = `pet:get-info` / `pet:open-session` / `pet
   `childAlive` = 子进程未退出。崩溃/假死/启动即崩 → 退避重启，连杀到 `maxRestarts=5` → giveup（托盘提示）。
 - `AGENTXRAY_PET_NO_WATCHDOG=1` 可整体关闭看门狗。renderer 进程崩溃**不走**看门狗：`render-process-gone` 直接重载窗口。
 
+## 显示 / 隐藏宠物（含截屏保护）
+
+宠物窗有两个**互不覆盖**的隐藏来源，由纯模块 `lib/visibility.js` 仲裁
+（`resolveVisibility({userHidden, fullscreenHidden})`）：任一为真即隐藏，某个来源解除只解除自己那一票。
+
+| 入口 | 行为 |
+|---|---|
+| 宠物左脚边的圆钮（鼠标进入窗口时淡入，「眼睛+斜杠」图标） | 收起宠物；动画循环同时停掉 |
+| 托盘菜单「隐藏宠物 / 显示宠物」 | 同左，标签随当前状态切换（macOS 点托盘图标先弹这个菜单） |
+| 托盘图标单击 | 直接切换（macOS 上通常被菜单接管，以菜单为准） |
+| 全局快捷键 `CommandOrControl+Shift+H` | 切换可见性；注册失败只打日志，托盘仍可用 |
+| 全屏自动隐藏（`lib/fullscreen.js` 判定） | 进全屏让位；**用户此前主动收起的，退出全屏也不抢回来** |
+
+- 收起后窗口点不到，靠**托盘菜单**或**快捷键**叫回来（`AGENTXRAY_PET_HOTKEY` 可自定义或置空）。
+- 「显示」在全屏自动隐藏期间不会生效（别人在全屏，宠物不该跳出来），属预期。
+
+### 截屏 / 录屏不拍到宠物
+
+窗口创建后立即 `win.setContentProtection(true)`（macOS 即 `NSWindowSharingNone`）：
+**⌘⇧3 / ⌘⇧4 / ⌘⇧5 截屏、录屏、屏幕共享画面里都不会出现宠物**，下层桌面照常被拍到。
+默认开启，三条通道可改：
+
+- 托盘菜单勾选项「截屏/录屏时不拍到宠物」（运行时切换）；
+- `AGENTXRAY_PET_SCREENSHOT_VISIBLE=1` 启动即关闭保护（宠物会被截到）；
+- 代码里 `main.js` 的 `applyContentProtection()`。
+
+> 边界：这是「窗口不参与系统合成」的礼貌约定，绝大多数截屏/录屏工具（含系统自带的）都遵守；
+> 少数走私有 API 的应用（如某些远控、部分游戏 overlay）可能绕过，无法 100% 保证。
+
 ## 桌面壳 GUI 手动验收清单（需有人机环境执行）
 
 本仓库 CI / 沙箱**无 GUI、装不了 Electron**，以下行为只能由有桌面环境（macOS）的一方手动执行。
@@ -171,7 +207,8 @@ IPC 通道命名：`ipcMain.handle` = `pet:get-info` / `pet:open-session` / `pet
 - **步骤**：`cd desktop && npm i && npm start`；把任意 App 窗口拖到宠物下方。
 - **期望**：出现无边框、背景透明的小窗；宠物像素可见，其**透明区域**能透出下层应用；
   窗口始终浮于其它窗口之上（`alwaysOnTop('screen-saver')`）；Dock 无图标（后台应用，仅托盘）。
-  关掉/重开仍在原位置（持久化于 `~/.agentxray/pet/window-state.json`）。
+  关掉/重开仍在原位置（持久化于 `~/.agentxray/pet/window-state.json`）。**接了副屏时，位置按
+  保存时的屏幕还原**（副屏被拔掉才会退回最近的一块屏）。
 
 ### 2. 点击穿透 + 热区可点（**仅 macOS**）
 - **前置**：`forward:true` 的 mousemove 转发是 **macOS 特有语义**。非 macOS 一律**不做穿透**，
@@ -180,27 +217,41 @@ IPC 通道命名：`ipcMain.handle` = `pet:get-info` / `pet:open-session` / `pet
 - **步骤 A**：把鼠标移到宠物**本体之外**的透明区域，点击。
 - **期望 A**：点击**穿透**到下层应用（下层响应），宠物不拦截。
 - **步骤 B**：把鼠标移到宠物本体（或气泡）上，点击。
-- **期望 B**：宠物被点中（触发「跳回会话」，见第 4 条）；鼠标移开即恢复穿透。
+- **期望 B**：宠物被点中（触发「跳回会话」，见第 5 条）；鼠标移开即恢复穿透。
 - **步骤 C（安全阀）**：① **先点击宠物使其获得焦点**，再按 `Esc`；② 点其它窗口使宠物失焦；
   ③ 静置满 5s 后再点。
 - **期望 C**：三者都会强制恢复穿透（点回下层应用），不会卡在可交互态。
   Esc 走 **renderer 本地 keydown**（非全局快捷键）——必须窗口已获焦点才生效，因此要先点一下宠物。
 - **步骤 D（拖动）**：按住鼠标**左键**拖动宠物（位移超过 5px 才进入拖拽；原地松开 = 点击跳回会话）。
-- **期望 D**：窗口跟随移动；松手后位置持久化。
+- **期望 D**：窗口跟随移动；松手后位置持久化；**可以拖到副屏**（跨屏过程连续、不会卡在主屏边缘），
+  重开仍留在副屏。
+- **坐标说明**：`x` 上限是**「屏宽 − 300」**而不是屏宽——Electron 的窗口坐标是逻辑点（Retina 上
+  物理像素是它的 2 倍），且 300pt 宽的窗口必须整个落在屏内。本机实测屏宽 1470pt，所以 x ∈ [0, 1170]。
 
-### 3. 全屏自动隐藏
+### 3. 显示 / 隐藏按钮 + 截屏保护（新增）
+- **步骤 A**：鼠标移进宠物窗（不必点到宠物本体）→ 宠物**左脚边**淡入一个圆形按钮（眼睛+斜杠）；点它。
+- **期望 A**：宠物窗消失，动画循环停止（日志 `[pet:main] 隐藏宠物（user）`）；宠物**不再被点开**。
+- **步骤 B**：点托盘图标 → 菜单首项变成「显示宠物」；点它（或按 `⌘⇧H`）。
+- **期望 B**：宠物回到原位；日志 `[pet:main] 显示宠物（user）`。收起期间按一下宠物原位置的透明区**不应**有任何反应。
+- **步骤 C（互不覆盖）**：先按隐藏按钮收起宠物 → 进入一个全屏 App → 退出全屏。
+- **期望 C**：退出全屏后宠物**仍然隐藏**（不会自己冒出来）；再从托盘「显示宠物」才出现。
+- **步骤 D（截屏）**：宠物可见时按 `⌘⇧4` 框选宠物所在区域（或 `⌘⇧3` 全屏），看截图。
+- **期望 D**：截图里**没有宠物**，宠物原来的位置显示的是下层桌面/窗口；勾掉托盘里的
+  「截屏/录屏时不拍到宠物」后重截，宠物会出现在图里。
+
+### 4. 全屏自动隐藏
 - **步骤**：先在「系统设置 → 隐私与安全性 → 辅助功能/自动化」给本 App 授权；进入任一全屏应用；再退出全屏。
 - **期望**：进入全屏 → 宠物**自动隐藏**；退出全屏后**约 1.5s 恢复**（恢复去抖）。
 - **未授权时**：**不隐藏、控制台仅首次告警一条**，主功能（穿透/跳回）不受影响。
 
-### 4. 点击跳回终端 / App
+### 5. 点击跳回终端 / App
 - **步骤**：先让后端进入 `waiting_input`/`working`（如在 Claude Code 里制造一次等待确认）；点宠物本体。
 - **期望**：CLI 平台 → 新开 iTerm2/Terminal 窗口并 `resume` 该会话；GUI 平台 → 深链/唤起对应 App。
   若失败且后端返回 `fallback`，则把 `path`/`command` **复制到剪贴板**并短暂提示。
   **任何时候都不向 agent 发送任何回复（N1）。**
 - openclaw 会话会走 `/api/agents/:agent/sessions/:id/open`（与前端一致）。
 
-### 5. 看门狗自拉（含「启动即崩」）
+### 6. 看门狗自拉（含「启动即崩」）
 - **步骤 A（external 模式）**：先在根目录起后端（`node server.js`），再 `npm start` 起宠物；
   观察日志 `[pet:main] 检测到后端已在运行`。然后 `kill` 掉后端再重启它。
 - **期望 A**：宠物不崩；自动重建 SSE；后端恢复后宠物继续更新。
@@ -213,7 +264,7 @@ IPC 通道命名：`ipcMain.handle` = `pet:get-info` / `pet:open-session` / `pet
 - **步骤 C（启动即崩回归）**：让被监督的 server 一启动就退出（或以 `AGENTXRAY_PET_EXEC` 指向一个立刻退出的脚本做等价验证）。
 - **期望 C**：**首次 liveness 之前就崩**也会被判为 `child-exited` 并重启——不会永久静默（这是本批修复点）。
 
-### 6. LaunchAgent 安装与卸载
+### 7. LaunchAgent 安装与卸载
 - **步骤**：`npm run agent:install`（等价 `npm run install-agent`）；看 `ls -l ~/Library/LaunchAgents/com.agentxray.pet.plist`
   与 `launchctl list | grep com.agentxray.pet`；登出再登入。随后 `npm run agent:uninstall`。
 - **期望**：plist 写出、`launchctl load -w` 成功、重登后自动拉起宠物；卸载后 plist 被删除、`launchctl list` 无该标签。

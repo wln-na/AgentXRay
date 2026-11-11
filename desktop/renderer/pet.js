@@ -6,6 +6,8 @@
 // · 点击 → window.pet.openSession()（N1：只跳转，永不回复 agent）。
 // · 鼠标左键按住拖拽 → window.pet.drag({phase})（移动窗口由主进程按屏幕光标增量完成；
 //   位移超阈值才算拖拽，原地点击仍是「跳回会话」）。
+// · 宠物左脚边的「隐藏」按钮（鼠标进入窗口时淡入）→ window.pet.toggleVisible(false)；
+//   收起后窗口由主进程隐藏，再用托盘菜单或全局快捷键叫回来。
 //
 // 无 Node、无 electron、无网络、无 require（只经 window.pet 与 DOM/Canvas）。
 
@@ -21,6 +23,10 @@
 
   let dpr = window.devicePixelRatio || 1;
   let running = true;
+  // 可见性：visibleState = 用户是否收起了宠物（主进程 pet:visible）；fullscreenPaused = 全屏自动隐藏。
+  // 两者任一为真就停掉动画循环，省电也让隐藏真正「安静」。
+  let visibleState = true;
+  let fullscreenPaused = false;
   let currentState = 'idle';
   let stateChangedAt = performance.now();
   let petState = {
@@ -46,6 +52,9 @@
   let cardRects = []; // { x, y, w, h, session }
   let dismissRects = []; // 展开态每张卡片的「×」忽略按钮命中区 { x, y, w, h, session }
   let expandButtonRect = null; // { x, y, w, h }
+  // 隐藏按钮：鼠标进入窗口时淡入，命中区随透明度设置（不可见时不可点，避免误触）。
+  let hideButtonRect = null; // { x, y, w, h, cx, cy }
+  let hideButtonAlpha = 0;
   let geomLockUntil = 0; // 收到 pet:geom 后锁定高度自愈的截止时间（避开 setBounds 后的 innerHeight 滞后）
 
   function applyGeom(geom, grid) {
@@ -313,11 +322,78 @@
     return !!r && p.x >= r.x && p.x <= r.x + r.w && p.y >= r.y && p.y <= r.y + r.h;
   }
 
+  // 隐藏按钮：宠物左脚边的小圆钮，「眼睛 + 斜杠」= 收起宠物。
+  // 只在鼠标进入窗口时淡入——常驻会压住宠物身体，也容易误触；淡入期间不给命中区。
+  function drawHideButton() {
+    hideButtonRect = null;
+    const layout = window.PetBubbleLayout;
+    const L = layout.BUBBLE_LAYOUT;
+    const pointerInside = pointer.x >= 0 && pointer.y >= 0 && pointer.x <= GEOM.w && pointer.y <= GEOM.h;
+    hideButtonAlpha = Math.max(
+      0,
+      Math.min(1, hideButtonAlpha + (pointerInside ? L.hideButtonFadeStep : -L.hideButtonFadeStep))
+    );
+    if (hideButtonAlpha <= 0.02) return;
+
+    const center = layout.hideButtonCenter({
+      width: GEOM.w,
+      petHeight: GEOM.petH || GEOM.h,
+      height: GEOM.h,
+      bubbleBelow: GEOM.bubbleBelow,
+    });
+    const r = L.hideButtonRadius;
+    const cx = center.x;
+    const cy = center.y;
+    const hovered =
+      pointerInside && hideButtonAlpha >= L.hideButtonHitAlpha && inRect(pointer, layout.circleRect(center, r));
+
+    ctx.save();
+    ctx.globalAlpha = hideButtonAlpha;
+    ctx.shadowColor = 'rgba(15, 23, 42, 0.22)';
+    ctx.shadowBlur = 6;
+    ctx.shadowOffsetY = 1;
+    ctx.beginPath();
+    ctx.arc(cx, cy, r, 0, Math.PI * 2);
+    ctx.fillStyle = hovered ? 'rgba(241, 245, 249, 1)' : 'rgba(255, 255, 255, 0.95)';
+    ctx.fill();
+    ctx.restore();
+
+    ctx.save();
+    ctx.globalAlpha = hideButtonAlpha;
+    ctx.beginPath();
+    ctx.arc(cx, cy, r, 0, Math.PI * 2);
+    ctx.strokeStyle = hovered ? 'rgba(55, 65, 81, 0.9)' : 'rgba(107, 114, 128, 0.55)';
+    ctx.lineWidth = hovered ? 1.6 : 1;
+    ctx.stroke();
+
+    // 眼睛 + 斜杠
+    ctx.strokeStyle = '#4b5563';
+    ctx.lineWidth = 1.5;
+    ctx.lineCap = 'round';
+    ctx.beginPath();
+    ctx.ellipse(cx, cy, 5.2, 3.6, 0, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.arc(cx, cy, 1.5, 0, Math.PI * 2);
+    ctx.fillStyle = '#4b5563';
+    ctx.fill();
+    ctx.beginPath();
+    ctx.moveTo(cx - 6, cy + 6);
+    ctx.lineTo(cx + 6, cy - 6);
+    ctx.stroke();
+    ctx.restore();
+
+    if (hideButtonAlpha >= L.hideButtonHitAlpha) {
+      hideButtonRect = { ...layout.circleRect(center, r), cx, cy };
+    }
+  }
+
   // 指针是否悬在卡片/按钮上（用于请求鼠标穿透开关）。
   function overBubbleUi() {
     if (cardRects.some((r) => inRect(pointer, r))) return true;
     if (dismissRects.some((r) => inRect(pointer, r))) return true;
-    return inRect(pointer, expandButtonRect);
+    if (inRect(pointer, expandButtonRect)) return true;
+    return inRect(pointer, hideButtonRect);
   }
 
   // 活跃会话数徽标：绿色圆牌白字，挂在右脚边（类 Codex 桌宠）。
@@ -356,6 +432,15 @@
     ctx.textBaseline = 'middle';
     ctx.fillText(label, cx, cy + 0.5);
     ctx.textAlign = 'left';
+  }
+
+  // 动画循环开关：用户收起（visibleState=false）或全屏让位（fullscreenPaused）时停掉 RAF。
+  // 「重新显示」只启动一次循环（syncRunning 去重），避免重复 requestAnimationFrame 叠加。
+  function syncRunning() {
+    const shouldRun = visibleState && !fullscreenPaused;
+    if (shouldRun === running) return;
+    running = shouldRun;
+    if (running) requestAnimationFrame(frame);
   }
 
   function frame(now) {
@@ -440,6 +525,7 @@
 
     drawBubbles(bubbleX, bubbleAnchorY, now);
     drawExpandButton();
+    drawHideButton();
     drawBadge(petState.activeCount);
 
     if (!dragging) {
@@ -496,12 +582,22 @@
     geomLockUntil = performance.now() + 200;
   });
   window.pet.onFullscreen(({ hidden }) => {
-    if (hidden && running) {
-      running = false;
-    } else if (!hidden && !running) {
-      running = true;
-      requestAnimationFrame(frame);
+    fullscreenPaused = !!hidden;
+    syncRunning();
+  });
+  // 用户收起/显示宠物：收起后窗口被主进程藏起来，这里停掉动画循环（省电、也不再有 hover 副作用）。
+  window.pet.onVisible(({ visible }) => {
+    visibleState = visible !== false;
+    if (!visibleState) {
+      // 清空指针与按压状态：否则重新显示时第一帧会误判 hover，或残留 press 导致误触发拖拽。
+      pointer.x = -9999;
+      pointer.y = -9999;
+      press = null;
+      dragging = false;
+      wantInteractive = false;
+      hideButtonAlpha = 0;
     }
+    syncRunning();
   });
   window.pet.onOpenResult((result) => {
     const text = result?.ok ? result.detail || '已跳转会话' : result?.error || '跳转失败';
@@ -594,6 +690,14 @@
 
   canvas.addEventListener('click', () => {
     if (performance.now() < suppressClickUntil) return;
+    // 隐藏按钮：收起宠物（主进程 hide 窗口；托盘菜单/快捷键可再叫回来）。必须排在最前，
+    // 否则这枚按钮落在宠物热区里，点击会变成「跳回会话」。
+    if (hideButtonRect && inRect(pointer, hideButtonRect)) {
+      hideButtonRect = null;
+      hideButtonAlpha = 0;
+      window.pet.toggleVisible(false);
+      return;
+    }
     // 展开按钮：切换展开/收起布局（窗口高度由 frame 仲裁，有内容时保持高个）。
     if (inRect(pointer, expandButtonRect)) {
       expanded = !expanded;

@@ -85,7 +85,7 @@ function EmptyState() {
         <p>
           <b className="text-foreground">Prompts</b> — 自动提取你在所有会话里输入过的真人
           prompt（滤掉工具输出和系统注入），按目录分组。每条可 <b className="text-foreground">⭐ 收藏</b>入库、
-          <b className="text-foreground">优化</b>（Claude 改写）、<b className="text-foreground">🗑 隐藏</b>
+          <b className="text-foreground">优化</b>（LLM 改写）、<b className="text-foreground">🗑 隐藏</b>
           （可恢复）；「🧮 聚类分析」把相似 prompt 聚成模板并统计效果。
         </p>
         <p>

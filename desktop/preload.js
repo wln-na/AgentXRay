@@ -9,9 +9,11 @@
 //   ignoreSession({platform,sessionId,agent,durationMs?}) → Promise        // 忽略该会话（气泡不再提醒）
 //   setInteractive(bool)       → Promise<true>                             // pointer 是否在热区
 //   drag({phase:'start'|'end'})→ Promise<true>                             // ⌘/右键拖动移动窗口
+//   toggleVisible(visible?)    → Promise<{visible, userHidden}>              // 宠物上的隐藏按钮（省略参数 = 取反）
 //   onState(cb)                → off()   // 主进程推送 pet:state
 //   onStatus(cb)               → off()   // pet:status {connected}
 //   onFullscreen(cb)           → off()   // pet:fullscreen {hidden}
+//   onVisible(cb)              → off()   // pet:visible {visible, reason}（用户主动隐藏/显示）
 //   onOpenResult(cb)           → off()   // pet:open-result（短暂气泡反馈）
 
 const { contextBridge, ipcRenderer } = require('electron');
@@ -20,6 +22,7 @@ const ALLOWED_PUSH = new Set([
   'pet:state',
   'pet:status',
   'pet:fullscreen',
+  'pet:visible',
   'pet:open-result',
   'pet:geom',
   'pet:drag-cancel',
@@ -39,10 +42,12 @@ contextBridge.exposeInMainWorld('pet', {
   setInteractive: (value) => ipcRenderer.invoke('pet:set-interactive', !!value),
   drag: (payload) => ipcRenderer.invoke('pet:drag', payload),
   setExpanded: (value) => ipcRenderer.invoke('pet:set-expanded', !!value),
+  toggleVisible: (value) => ipcRenderer.invoke('pet:toggle-visible', typeof value === 'boolean' ? value : undefined),
   onState: (cb) => subscribe('pet:state', cb),
   onGeom: (cb) => subscribe('pet:geom', cb),
   onDragCancel: (cb) => subscribe('pet:drag-cancel', cb),
   onStatus: (cb) => subscribe('pet:status', cb),
   onFullscreen: (cb) => subscribe('pet:fullscreen', cb),
+  onVisible: (cb) => subscribe('pet:visible', cb),
   onOpenResult: (cb) => subscribe('pet:open-result', cb),
 });

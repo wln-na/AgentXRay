@@ -726,3 +726,108 @@ runtime dependencies:
 1. **点击穿透在非 macOS 退化**：`setIgnoreMouseEvents(true,{forward:true})` 的 mousemove 转发是 macOS 语义；Windows/Linux 上「热区驱动开关」不可靠，需接受「非 macOS 不穿透/实验」的产品取舍（摆在用户面前，见 §9.4）。
 2. **全屏 probe 依赖 macOS 辅助功能授权**：System Events 取窗口尺寸需授权，未授权时全屏隐藏功能失效（设计已降级为「不隐藏、不报错」）；且与 `lib/open-session.js` 的 osascript 同源权限风险，需在文档与首次运行引导中讲清。
 3. **沙箱无法做 GUI 验收**：透明/穿透/全屏/跳回四项验收只能在有桌面环境处手动执行；本沙箱仅能保证纯逻辑与装配契约（`npm test` + `desktop/bin/verify.js`）。若工程师把逻辑误写进 `main.js`（而非纯模块），CI 将无法覆盖——需在 T03 起就用「纯模块先行、main.js 只装配」的顺序强约束。
+
+---
+
+# 附：增量 —— 「显示/隐藏按钮」+「截屏不拍到宠物」
+
+> 来源需求：*桌面宠物需要增加隐藏显示按钮，电脑截屏的时候不要截取到它*。
+> 本节只描述相对上文 P0–P4 的**增量**，不改动原有契约（N1 只读跳回、N4 Electron 只在子包、
+> 纯逻辑下沉 / main.js 只装配）。
+
+## A1. 核心难点：两个「隐藏来源」不能互相覆盖
+
+原实现里 `windowHidden` 只有全屏一个来源，直接 `hide()`/`showInactive()`。加入用户主动隐藏后，
+若仍是单一布尔量，会出现两个 bug：
+
+1. 用户收起宠物 → 有 App 进全屏 → 退出全屏 → **宠物自己冒出来**（全屏恢复逻辑把用户意图覆盖掉）；
+2. 用户在全屏期间点「显示」→ 宠物**盖在别人的全屏上**。
+
+因此把判定提成纯模块 `desktop/lib/visibility.js`：
+
+```js
+resolveVisibility({ userHidden, fullscreenHidden })
+// → { visible, hidden, reason: 'none'|'user'|'fullscreen'|'user+fullscreen' }
+nextUserHidden(currentHidden, explicitVisible?)  // 省略参数 = 取反；布尔 = 直接设置
+needsApply(prevHidden, hidden)                   // 主进程去重，避免重复 show/hide 造成闪烁
+```
+
+主进程维护三态：`userHidden` / `fullscreenHidden`（两个来源）+ `windowHidden`（**实际**已应用的
+状态）。任何来源变化都只调用 `syncWindowVisibility(reason)` 重新求值一次；`needsApply` 为假就不碰窗口。
+
+## A2. 入口与落点
+
+| 入口 | 落点 | 说明 |
+|---|---|---|
+| 宠物左脚边圆钮 | `renderer/pet.js` `drawHideButton()` + `canvas.click` | 鼠标进入窗口时淡入（`hideButtonFadeStep`），透明度 ≥ `hideButtonHitAlpha` 才有命中区，避免「看不见却能点」；点击 → `window.pet.toggleVisible(false)` |
+| 托盘菜单首项 | `main.js` `buildTrayMenu()` | 标签随 `windowHidden` 在「隐藏宠物 / 显示宠物」间切换；`refreshTrayMenu()` 在可见性/截屏保护变化后重建 |
+| 托盘图标单击 | `toggleWindow('tray-click')` | 以**实际可见性**决定方向（macOS 设了 context menu 时由菜单接管） |
+| 全局快捷键 | `main.js` `setupHotkey()` | 默认 `CommandOrControl+Shift+H`，`AGENTXRAY_PET_HOTKEY` 可覆盖、置空或 `off` 关闭；注册失败只打日志（不劫持、不阻断启动），`before-quit` 里 `globalShortcut.unregisterAll()` |
+| 收起后重新显示 | 托盘 / 快捷键 / 再次启动（`second-instance`）/ Dock 激活 | 窗口已隐藏时点不到窗口，这是「显示」必须存在窗口之外通道的原因 |
+
+几何：`desktop/lib/bubble-layout.js` 新增 `hideButtonCenter(input)` 与 `circleRect(center, r)`，
+与 `badgeCenter` 左右对称（`hideButtonOffsetX = 34`、`hideButtonFootOffsetY = 14`），
+`bubbleBelow` 模式同样跟随宠物贴到窗口顶部。
+
+渲染层：`pet:visible {visible, reason}` 推送 → `visibleState`；与 `pet:fullscreen` 的
+`fullscreenPaused` 合并成 `syncRunning()`（`visibleState && !fullscreenPaused`）开关 RAF 循环。
+收起时同时清空 `pointer` / `press` / `dragging` / `wantInteractive`，否则重新显示的第一帧会误判
+hover，或残留 `press` 触发误拖拽。
+
+## A3. 截屏保护
+
+窗口创建后立即 `win.setContentProtection(screenshotProtect)`（macOS = `NSWindowSharingNone`）：
+系统截屏（⌘⇧3/4/5）、录屏、屏幕共享画面都不含宠物窗，下层桌面照常被拍到。
+默认开；运行时可由托盘勾选项切换；`AGENTXRAY_PET_SCREENSHOT_VISIBLE=1` 启动即关闭。
+
+**边界**：这是「窗口不参与系统合成」的约定，绝大多数工具遵守，少数走私有 API 的应用可能绕过。
+
+## A4. 增量契约变化
+
+| 层 | 变化 |
+|---|---|
+| `desktop/lib/*` | 新增 `visibility.js`（纯）；`config.js` 增加 `SCREENSHOT_PROTECT` / `HOTKEY`；`bubble-layout.js` 增加 `hideButtonCenter` / `circleRect` |
+| `main.js` | `setContentProtection`、`syncWindowVisibility` / `setUserVisible` / `toggleWindow` / `applyContentProtection` / `setupHotkey`、托盘菜单动态化、`ipcMain.handle('pet:toggle-visible')`、推送 `pet:visible` |
+| `preload.js` | 暴露 `toggleVisible(visible?)` 与 `onVisible(cb)`；`ALLOWED_PUSH` 增加 `pet:visible` |
+| `renderer/pet.js` | 隐藏按钮绘制/命中/点击、`onVisible` 订阅、`syncRunning()` |
+| 测试 | 新增 `test/pet-shell-visibility.test.js`（仲裁）、`test/pet-shell-bridge.test.js`（renderer↔preload↔main 通道契约静态校验）；扩充 `pet-shell-bubble-layout` / `pet-shell-config`；`desktop/bin/verify.js` 增加 3 条纯模块冒烟 |
+
+## A5. 验收（GUI 部分见 `desktop/README.md` §3）
+
+- 纯 Node：`npm test`（`pet-shell-visibility` / `pet-shell-bridge` / `pet-shell-bubble-layout` /
+  `pet-shell-config` 全绿）+ `cd desktop && npm run verify`。
+- GUI：鼠标移入宠物窗 → 左脚边淡入圆钮 → 点击收起；托盘/`⌘⇧H` 恢复；先收起再进出全屏，
+  退出后保持隐藏；宠物可见时 `⌘⇧4` 截屏，图里没有宠物。
+
+## A6. 增量 2：跨显示器拖动（`lib/window-geometry.js` 扩展）
+
+> 来源：「宠物只能在一屏内拖，重启还会被拉回主屏」。产品决策：**不做「视觉贴边」**
+> （窗口仍按 300pt 整体留屏内，宠物离屏边约有 102pt 透明留白，那是气泡空间），
+> 只解决**跨屏**与**位置还原**。
+
+原来的夹紧散在三处（`loadWindowState` / 拖拽 tick / `finishDrag`），且都用
+`screen.getDisplayMatching(dragStartBounds)` 或 `getPrimaryDisplay()`——于是窗口被钉在
+「开始拖拽时所在的那块屏」和「主屏」上。现在把三处统一成纯函数：
+
+```js
+horizontalBounds({ displayBounds, windowWidth })        // → {min,max}
+clampToDisplay({ desired, windowSize, displayBounds, workArea, allowLargerThanScreen })
+clampAcrossDisplays({ desired, windowSize, displays, allowLargerThanScreen?, minVisibleRatio? })
+```
+
+`clampAcrossDisplays` 的规则（顺序执行，全部可单测）：
+
+1. **并集夹紧**：把所有屏 bounds 的并集矩形作为活动范围，允许窗口骑在两块屏中间。
+   这样跨屏拖动是连续的——不会像「逐屏夹紧」那样在过界瞬间跳 100~300px；
+2. **可见面积校验**：窗口至少 `minVisibleRatio`（默认 0.5）的面积要落在某块屏上。
+   竖向不齐/L 形摆位会在并集里留出「谁都不覆盖」的空隙，命中空隙就吸附回**最近**的那块屏，
+   避免宠物被拖进虚空（不可见、也拖不回来）。
+
+主进程侧：`displayDescriptors()` 把 `screen.getAllDisplays()` 快照成纯数据；`clampWindowPosition()`
+统一入口；拖动开始时缓存一次显示器快照（`dragDisplays`），16ms/tick 不再同步查显示器；
+拖拽结束/中断即丢弃缓存。`loadWindowState()` 也走同一套仲裁，所以**副屏坐标能跨重启保留**，
+副屏被拔掉时退回最近的一块屏。
+
+坐标口径（回答「x 只有 0~1170」）：Electron 的窗口/屏幕坐标是**逻辑点（DIP）**，
+Retina 屏（`scaleFactor: 2`）上物理像素是它的两倍；且夹紧上限是 `屏宽 − 窗口宽`。
+本机实测 `bounds.width = 1470` → `x ∈ [0, 1170]`，属正确行为，不是 bug。

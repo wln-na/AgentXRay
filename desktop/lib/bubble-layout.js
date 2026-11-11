@@ -23,6 +23,12 @@
     badgeFootOffsetY: 14,
     expandButtonRadius: 13,
     badgeButtonGap: 2,
+    // 隐藏按钮：与右侧徽标对称挂在宠物左脚边，只在鼠标进入窗口时淡入。
+    hideButtonRadius: 11,
+    hideButtonOffsetX: 34,
+    hideButtonFootOffsetY: 14,
+    hideButtonFadeStep: 0.18,
+    hideButtonHitAlpha: 0.4,
     bubbleAnchorGap: 6,
     bubbleEdgeMargin: 4,
     dismissButtonRadius: 9,
@@ -121,5 +127,48 @@
     return petHeight + 6 + cardsHeight + gapsHeight + 8;
   }
 
-  return { BUBBLE_LAYOUT, expandedWindowHeight, badgeCenter, expandButtonCenter, bubbleStackY, dismissButtonRect };
+  /**
+   * 隐藏按钮中心点：与活跃徽标左右对称，挂在宠物脚边左侧。
+   * 向下气泡模式（宠物贴屏幕顶、窗口向下长高）同样跟随宠物到窗口顶部。
+   *
+   * @param {{width: number, petHeight: number, height: number, bubbleBelow?: boolean}} input
+   * @returns {{x: number, y: number}}
+   */
+  function hideButtonCenter(input) {
+    const width = Number.isFinite(input?.width) ? input.width : 300;
+    const petHeight = Number.isFinite(input?.petHeight) ? input.petHeight : 128;
+    const height = Number.isFinite(input?.height) ? input.height : petHeight;
+    const bubbleBelow = input?.bubbleBelow === true;
+    const scale = Math.min(width, petHeight) / 160;
+    const footY = bubbleBelow ? petHeight : height;
+    return {
+      x: Math.round(width / 2 - BUBBLE_LAYOUT.hideButtonOffsetX * scale),
+      y: Math.round(footY - BUBBLE_LAYOUT.hideButtonFootOffsetY),
+    };
+  }
+
+  /**
+   * 圆形按钮的矩形命中区（渲染层与单测共用，避免各处重复 ±r 手算）。
+   *
+   * @param {{x: number, y: number}} center
+   * @param {number} r
+   * @returns {{x: number, y: number, w: number, h: number}}
+   */
+  function circleRect(center, r) {
+    const cx = Number.isFinite(center?.x) ? center.x : 0;
+    const cy = Number.isFinite(center?.y) ? center.y : 0;
+    const radius = Number.isFinite(r) && r > 0 ? r : 0;
+    return { x: cx - radius, y: cy - radius, w: radius * 2, h: radius * 2 };
+  }
+
+  return {
+    BUBBLE_LAYOUT,
+    expandedWindowHeight,
+    badgeCenter,
+    expandButtonCenter,
+    hideButtonCenter,
+    circleRect,
+    bubbleStackY,
+    dismissButtonRect,
+  };
 });

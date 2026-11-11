@@ -863,3 +863,71 @@ export interface DailyUsage {
   platforms: string[];
   series: DailyUsageDay[];
 }
+
+// ---------- Eval loop (annotations / LLM-as-judge / regression set) ----------
+
+/** Manual annotation for one session (PUT /api/evals/annotation). */
+export interface EvalAnnotation {
+  thumb: 'up' | 'down' | null;
+  note: string;
+  updatedAt: string;
+}
+
+/** LLM-as-judge result — same shape as the rule-based AgentHealthScore. */
+export interface EvalJudgement {
+  overall: number;
+  dimensions: {
+    completion: number;
+    efficiency: number;
+    toolQuality: number;
+    errorResilience: number;
+  };
+  summary: string;
+  issues: string[];
+  model: string;
+  backend: string;
+  contentHash: string;
+  judgedAt: string;
+  /** Audit trail: the exact transcript the judge received. */
+  transcript?: string | null;
+  /** The model's thinking, when the endpoint exposes it. */
+  reasoning?: string | null;
+}
+
+/**
+ * One judge attempt in a session's history (newest first). Successful runs
+ * carry the score shape without the transcript/reasoning audit bulk (which
+ * stays only on the latest judgement); parse failures carry the raw model
+ * output instead.
+ */
+export type EvalHistoryEntry =
+  | (Omit<EvalJudgement, 'transcript' | 'reasoning'> & { ok: true })
+  | {
+      ok: false;
+      /** Raw model output that failed to parse into the score shape. */
+      raw: string;
+      model: string;
+      backend: string;
+      contentHash: string;
+      judgedAt: string;
+    };
+
+/** One curated bad case in the regression set. */
+export interface RegressionCase {
+  id: string;
+  platform: string;
+  sessionId: string;
+  source: string;
+  tags: string[];
+  note: string;
+  createdAt: string;
+}
+
+/** GET /api/evals — the whole eval store. */
+export interface EvalStoreData {
+  annotations: Record<string, EvalAnnotation>;
+  judgements: Record<string, EvalJudgement>;
+  /** Per-session judge attempts, newest first. Omitted by older servers. */
+  history?: Record<string, EvalHistoryEntry[]>;
+  regression: RegressionCase[];
+}

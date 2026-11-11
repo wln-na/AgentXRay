@@ -10,6 +10,9 @@ import type {
   ContextBatch,
   ContextSnapshot,
   DailyUsage,
+  EvalAnnotation,
+  EvalJudgement,
+  EvalStoreData,
   HiddenPromptsData,
   HidePromptsResult,
   Insights,
@@ -20,6 +23,7 @@ import type {
   Platform,
   PromptAnalysis,
   PromptsData,
+  RegressionCase,
   SearchResult,
   SessionDetail,
   SessionFull,
@@ -519,4 +523,53 @@ export function getSessionContextBatch(
       agent: opts.agent,
     })
   );
+}
+
+// ---------- Eval loop (annotations / LLM-as-judge / regression set) ----------
+
+/** GET /api/evals — annotations, judgements and the regression set in one shot. */
+export function getEvalStore(): Promise<EvalStoreData> {
+  return fetchJson('/api/evals');
+}
+
+/**
+ * PUT /api/evals/annotation — upsert the manual annotation for one session.
+ * A 👎 auto-collects the session into the regression set (tags/note carried
+ * over); flipping back to 👍 removes an untouched auto-collected case.
+ */
+export function putAnnotation(
+  platform: Platform,
+  sessionId: string,
+  body: { thumb: 'up' | 'down' | null; note?: string; tags?: string[] }
+): Promise<{ annotation: EvalAnnotation | null }> {
+  return requestJson('/api/evals/annotation', 'PUT', { platform, sessionId, ...body });
+}
+
+/**
+ * POST /api/evals/judge — run LLM-as-judge over a session transcript.
+ * Returns the persisted judgement (also recorded in the session's judge
+ * history), or `{ judgement: null, raw }` when the model's output could not
+ * be parsed into the score shape (the failed attempt is recorded in history
+ * with the raw output; `judgements` keeps the last successful score).
+ */
+export function judgeSession(
+  platform: Platform,
+  sessionId: string,
+  transcript: string
+): Promise<{ judgement: EvalJudgement | null; raw?: string }> {
+  return requestJson('/api/evals/judge', 'POST', { platform, sessionId, transcript });
+}
+
+/** POST /api/evals/regression — upsert one curated bad case (per session). */
+export function addRegressionCase(
+  platform: Platform,
+  sessionId: string,
+  body: { tags?: string[]; note?: string; source?: string } = {}
+): Promise<{ case: RegressionCase }> {
+  return requestJson('/api/evals/regression', 'POST', { platform, sessionId, ...body });
+}
+
+/** DELETE /api/evals/regression/:id — remove one case. */
+export function removeRegressionCase(id: string): Promise<{ removed: boolean }> {
+  return requestJson(`/api/evals/regression/${encodeURIComponent(id)}`, 'DELETE');
 }
