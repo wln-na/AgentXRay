@@ -157,7 +157,7 @@ test('root safety: never removes the root itself or a .agentxray-shaped dir', (t
   assert.ok(res.skipped.some((s) => s.path === agentxray && s.reason === 'protected'));
 });
 
-test('collects errors for a bad root and never throws', (t) => {
+test('collects errors for a bad root and never throws', () => {
   const missing = path.join(
     os.tmpdir(),
     `axr-sweep-missing-${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2)}`
