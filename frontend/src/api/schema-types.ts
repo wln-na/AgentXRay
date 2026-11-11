@@ -63,6 +63,8 @@ export interface SessionSummary {
   status?: string | null;
   source?: string | null;
   archived?: boolean;
+  lastRole?: 'user' | 'assistant' | null;
+  lastTurnOutcome?: 'delivered' | 'interrupted' | 'empty' | null;
   parentThreadId?: string | null;
   childCount?: number;
   agentRole?: string | null;

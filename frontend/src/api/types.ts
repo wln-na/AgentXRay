@@ -92,6 +92,10 @@ export interface SessionSummary {
   trajectoryPath?: string | null;
   filePath?: string | null;
   archived?: boolean;
+  /** 轮边界事实（A）：最后一条对话记录的 role；缺失＝该平台无法判断，前端回退计数推断。 */
+  lastRole?: 'user' | 'assistant' | null;
+  /** 轮边界事实（A）：最后一轮的产出/中断；缺失＝未知。 */
+  lastTurnOutcome?: 'delivered' | 'interrupted' | 'empty' | null;
   parentThreadId?: string | null;
   childCount?: number;
   agentRole?: string | null;
