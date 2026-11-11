@@ -1,8 +1,7 @@
-import { BarChart3, Copy } from 'lucide-react';
+import { BarChart3, CircleHelp, Copy } from 'lucide-react';
 import type { CSSProperties, KeyboardEvent as ReactKeyboardEvent, PointerEvent as ReactPointerEvent } from 'react';
 import { lazy, Suspense, useEffect, useState } from 'react';
 import { toast } from 'sonner';
-import { PetWidget } from '@/components/PetWidget';
 import { PlatformBar } from '@/components/PlatformBar';
 import { Sidebar } from '@/components/Sidebar';
 import { Tabs, TabsContent } from '@/components/ui/tabs';
@@ -12,6 +11,7 @@ import { useVersionPoller } from '@/hooks/useVersionPoller';
 import { cn } from '@/lib/utils';
 import type { MainView } from '@/store';
 import { useAppStore } from '@/store';
+import { HelpDialog } from '@/views/help/HelpDialog';
 
 const InsightsView = lazy(() =>
   import('@/views/insights/InsightsView').then((module) => ({ default: module.InsightsView }))
@@ -26,7 +26,6 @@ const PromptsView = lazy(() =>
 const SessionsView = lazy(() =>
   import('@/views/sessions/SessionsView').then((module) => ({ default: module.SessionsView }))
 );
-const HelpView = lazy(() => import('@/views/help/HelpView').then((module) => ({ default: module.HelpView })));
 
 const SIDEBAR_WIDTH_KEY = 'agent-xray-sidebar-width';
 const SIDEBAR_DEFAULT_WIDTH = 280;
@@ -63,7 +62,6 @@ const TABS: { view: MainView; label: string; title: string }[] = [
   { view: 'insights', label: '分析', title: '聚合统计：工具调用、错误聚类、token 消耗、按日趋势' },
   { view: 'prompts', label: 'Prompts', title: '自动提取历史里所有真人 prompt：搜索、收藏、聚类分析与改写' },
   { view: 'library', label: '资产库', title: 'Prompt 资产库：标签管理，一键安装为各工具的 slash command' },
-  { view: 'help', label: '帮助', title: '使用指南、数据目录说明与常见问题排查' },
 ];
 
 export default function App() {
@@ -71,6 +69,9 @@ export default function App() {
   const view = useAppStore((s) => s.view);
   const setView = useAppStore((s) => s.setView);
   const isUsage = view === 'usage';
+  // 「用量」是整页仪表盘，收起侧栏把宽度让出来。
+  const hideSidebar = isUsage;
+  const [helpOpen, setHelpOpen] = useState(false);
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
   const [sidebarWidth, setSidebarWidth] = useState(loadSidebarWidth);
   const [isResizingSidebar, setIsResizingSidebar] = useState(false);
@@ -175,11 +176,11 @@ export default function App() {
         <div
           className={cn(
             'grid min-h-0 flex-1 grid-cols-1 lg:grid-cols-[var(--sidebar-width)_minmax(0,1fr)]',
-            isUsage && 'lg:grid-cols-1'
+            hideSidebar && 'lg:grid-cols-1'
           )}
           style={{ '--sidebar-width': `${sidebarWidth}px` } as CSSProperties}
         >
-          {!isUsage && (
+          {!hideSidebar && (
             <div className="contents lg:relative lg:block lg:h-full lg:min-h-0">
               <Sidebar mobileOpen={mobileSidebarOpen} onMobileOpenChange={setMobileSidebarOpen} />
               <hr
@@ -233,6 +234,15 @@ export default function App() {
                 <BarChart3 className="h-4 w-4" />
                 用量
               </button>
+              <button
+                type="button"
+                title="帮助：常见问题排查与数据边界说明"
+                aria-label="帮助"
+                onClick={() => setHelpOpen(true)}
+                className="ml-auto inline-flex h-9 w-9 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
+              >
+                <CircleHelp className="h-4 w-4" />
+              </button>
             </div>
 
             {isUsage ? (
@@ -244,37 +254,50 @@ export default function App() {
             ) : (
               <Tabs value={view} onValueChange={(v) => setView(v as MainView)} className="flex min-h-0 flex-1 flex-col">
                 {mountedViews.has('sessions') ? (
-                  <TabsContent value="sessions" forceMount className="mt-0 min-h-0 flex-1 overflow-auto p-2 sm:p-4">
+                  <TabsContent
+                    value="sessions"
+                    forceMount
+                    hidden={view !== 'sessions'}
+                    className="mt-0 min-h-0 flex-1 overflow-auto p-2 sm:p-4"
+                  >
                     <Suspense fallback={<ViewFallback />}>
                       <SessionsView />
                     </Suspense>
                   </TabsContent>
                 ) : null}
                 {mountedViews.has('insights') ? (
-                  <TabsContent value="insights" forceMount className="mt-0 min-h-0 flex-1 overflow-auto p-4">
+                  <TabsContent
+                    value="insights"
+                    forceMount
+                    hidden={view !== 'insights'}
+                    className="mt-0 min-h-0 flex-1 overflow-auto p-4"
+                  >
                     <Suspense fallback={<ViewFallback />}>
                       <InsightsView />
                     </Suspense>
                   </TabsContent>
                 ) : null}
                 {mountedViews.has('prompts') ? (
-                  <TabsContent value="prompts" forceMount className="mt-0 min-h-0 flex-1 overflow-auto p-4">
+                  <TabsContent
+                    value="prompts"
+                    forceMount
+                    hidden={view !== 'prompts'}
+                    className="mt-0 min-h-0 flex-1 overflow-auto p-4"
+                  >
                     <Suspense fallback={<ViewFallback />}>
                       <PromptsView />
                     </Suspense>
                   </TabsContent>
                 ) : null}
                 {mountedViews.has('library') ? (
-                  <TabsContent value="library" forceMount className="mt-0 min-h-0 flex-1 overflow-auto p-4">
+                  <TabsContent
+                    value="library"
+                    forceMount
+                    hidden={view !== 'library'}
+                    className="mt-0 min-h-0 flex-1 overflow-auto p-4"
+                  >
                     <Suspense fallback={<ViewFallback />}>
                       <LibraryView />
-                    </Suspense>
-                  </TabsContent>
-                ) : null}
-                {mountedViews.has('help') ? (
-                  <TabsContent value="help" forceMount className="mt-0 min-h-0 flex-1 overflow-auto p-3 sm:p-4">
-                    <Suspense fallback={<ViewFallback />}>
-                      <HelpView />
                     </Suspense>
                   </TabsContent>
                 ) : null}
@@ -283,7 +306,7 @@ export default function App() {
           </main>
         </div>
       </div>
-      <PetWidget />
+      <HelpDialog open={helpOpen} onOpenChange={setHelpOpen} />
     </TooltipProvider>
   );
 }

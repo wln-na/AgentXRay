@@ -12,6 +12,14 @@ import { cn } from '@/lib/utils';
 import { ContextPanel } from './ContextPanel';
 import type { TimingMeta } from './lib';
 import { formatDate, formatNumber, messageAnchorId, splitUserMessageContext, truncateId } from './lib';
+
+/** 逐条时间只显示「时:分:秒」；完整日期在 tooltip 与日期分隔线里。 */
+export function formatClockTime(timestamp: string | null): string {
+  if (!timestamp) return '';
+  const date = new Date(timestamp);
+  if (Number.isNaN(date.getTime())) return '';
+  return date.toLocaleTimeString(undefined, { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' });
+}
 /** scrollToMessage from SessionsView: expands pagination + clears filter + flashes. */
 export const MessageActionsContext = createContext<{ scrollToMessage: (id: string) => void }>({
   scrollToMessage: () => {},
@@ -72,7 +80,11 @@ function MessageHead({
         {meta}
       </div>
       <div className="flex items-center gap-1.5 text-muted-foreground">
-        {timestamp ? <span>{formatDate(timestamp)}</span> : null}
+        {timestamp ? (
+          <span title={formatDate(timestamp)} className="tabular-nums">
+            {formatClockTime(timestamp)}
+          </span>
+        ) : null}
         {/* tool duration ≥200ms on toolResults; delta ≥5s on everything (legacy badges) */}
         {withToolDuration && toolMs !== null && toolMs >= 200 ? (
           <DurationBadge ms={toolMs} warnAt={10000} dangerAt={60000} prefix="⏱ " title="Tool execution time" />

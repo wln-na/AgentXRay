@@ -11,8 +11,6 @@ export const SETTINGS_KEY = 'agent-xray-settings';
 
 // Legacy per-view flags, reused as-is ('1'/'0' strings, default true when absent).
 export const SUMMARY_COLLAPSED_KEY = 'axr-summary-collapsed';
-export const HIDE_TRIVIAL_KEY = 'axr-hide-trivial';
-export const LIB_SORT_KEY = 'axr-lib-sort';
 
 export function loadStoredFlag(key: string, fallback = true): boolean {
   try {
@@ -118,7 +116,7 @@ function persist(settings: DirSettings, platform: Platform): void {
   }
 }
 
-export type MainView = 'sessions' | 'insights' | 'usage' | 'prompts' | 'library' | 'help';
+export type MainView = 'sessions' | 'insights' | 'usage' | 'prompts' | 'library';
 export type InsightsScope = 'global' | 'session';
 export type SessionView = 'messages' | 'trace';
 export type Theme = 'light' | 'dark';

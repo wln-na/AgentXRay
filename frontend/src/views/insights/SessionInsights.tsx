@@ -10,6 +10,8 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { formatDurationCompact } from '@/lib/pure';
 import { dirForPlatform, useAppStore } from '@/store';
 import { ContextUsageCard } from '@/views/sessions/ContextUsageCard';
+import { useSessionSummaries } from '@/views/sessions/queries';
+import { summaryFacts } from '@/views/sessions/sessionFacts';
 import { fmtTokens, formatNumber, InsightSection, ScopeChip, StatCard, UsageBar } from './bits';
 import type { WasteCategory } from './sessionStats';
 import {
@@ -37,6 +39,8 @@ export function SessionInsights() {
   const selectedSessionId = useAppStore((s) => s.selectedSessionId);
   const settings = useAppStore((s) => s.settings);
   const requestScrollToMessage = useAppStore((s) => s.requestScrollToMessage);
+  // 计数以列表摘要为准，避免「分析页 👤11」与「侧栏 👤12」再次打架。
+  const { data: sessionSummaries } = useSessionSummaries();
 
   // A separate endpoint (…/full) and a separate cache key: session analytics need
   // every message, the sessions view needs one window. Previously both used one
@@ -85,6 +89,8 @@ export function SessionInsights() {
   const errorRate = st.toolResultCount > 0 ? ((st.errorCount / st.toolResultCount) * 100).toFixed(1) : '0.0';
   const maxCalls = st.toolStats.length > 0 ? st.toolStats[0].calls : 1;
   const sid = session.id || selectedSessionId || '?';
+  const listSummary = sessionSummaries.find((item) => item.id === sid) ?? null;
+  const listFacts = listSummary ? summaryFacts(listSummary) : null;
 
   // Jump to the message backing a stat item (error / retry).
   const jumpToIndex = (idx: number) => {
@@ -112,7 +118,7 @@ export function SessionInsights() {
         <Badge variant="secondary">{sid.slice(0, 20)}</Badge>
         {session.cwd && <Badge variant="secondary">{session.cwd}</Badge>}
         <Badge variant="secondary">
-          👤 {st.userCount} &nbsp; 🤖 {st.assistantCount}
+          👤 {listFacts?.userCount ?? st.userCount} &nbsp; 🤖 {listFacts?.assistantCount ?? st.assistantCount}
         </Badge>
       </div>
 

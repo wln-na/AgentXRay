@@ -65,13 +65,6 @@ function BackupSection() {
   );
 }
 
-const LLM_PURPOSES: { key: LlmPurpose; label: string }[] = [
-  { key: 'sessionTasks', label: '会话任务归类' },
-  { key: 'promptRewrite', label: 'Prompt 改写' },
-  { key: 'promptAnalysis', label: 'Prompt 分析' },
-  { key: 'libraryName', label: '资产库命名' },
-];
-
 type DraftLlmProfile = LlmProfileInput & { clearApiKey?: boolean };
 
 function blankProfile(): DraftLlmProfile {
@@ -83,7 +76,6 @@ function LlmSection() {
   const llm = useQuery({ queryKey: ['llm-settings'], queryFn: getLlmSettings });
   const [draftProfiles, setDraftProfiles] = useState<Record<string, DraftLlmProfile>>({});
   const [activeProfile, setActiveProfile] = useState('');
-  const [routes, setRoutes] = useState<Partial<Record<LlmPurpose, string | null>>>({});
   const [selectedProfile, setSelectedProfile] = useState('');
   const [newProfileName, setNewProfileName] = useState('');
 
@@ -94,10 +86,11 @@ function LlmSection() {
     );
     setDraftProfiles(profiles);
     setActiveProfile(llm.data.activeProfile);
-    setRoutes(llm.data.routes);
     setSelectedProfile(llm.data.activeProfile || Object.keys(profiles)[0] || '');
   }, [llm.data]);
 
+  // 按功能路由的界面已移除；保存时原样带回，避免把已有配置清空。
+  const routes: Partial<Record<LlmPurpose, string | null>> = llm.data?.routes ?? {};
   const profileNames = Object.keys(draftProfiles);
   const current = draftProfiles[selectedProfile] || blankProfile();
   const updateCurrent = (patch: Partial<DraftLlmProfile>) => {
@@ -124,9 +117,6 @@ function LlmSection() {
     setDraftProfiles(next);
     setSelectedProfile(nextSelected);
     if (activeProfile === selectedProfile) setActiveProfile(nextSelected);
-    setRoutes((currentRoutes) =>
-      Object.fromEntries(Object.entries(currentRoutes).filter(([, target]) => target !== selectedProfile))
-    );
   };
 
   const save = useMutation({
@@ -235,27 +225,6 @@ function LlmSection() {
           </label>
         </>
       ) : null}
-      <div className="space-y-1">
-        <div className="text-xs font-medium">按功能路由</div>
-        {LLM_PURPOSES.map(({ key, label }) => (
-          <label key={key} className="flex items-center gap-2 text-xs text-muted-foreground">
-            <span className="w-24 shrink-0">{label}</span>
-            <select
-              className="h-8 min-w-0 flex-1 rounded-md border border-input bg-background px-2"
-              value={routes[key] || ''}
-              onChange={(e) => setRoutes((currentRoutes) => ({ ...currentRoutes, [key]: e.target.value || null }))}
-            >
-              <option value="">跟随默认 profile</option>
-              <option value="claude-cli">本机 claude CLI</option>
-              {profileNames.map((name) => (
-                <option key={name} value={name}>
-                  {name}
-                </option>
-              ))}
-            </select>
-          </label>
-        ))}
-      </div>
       <div className="flex items-center gap-2.5">
         <Button variant="outline" size="sm" disabled={save.isPending} onClick={() => save.mutate()}>
           {save.isPending ? '保存中…' : '保存 LLM 配置'}
@@ -301,7 +270,7 @@ export function SettingsDialog({ open, onOpenChange }: { open: boolean; onOpenCh
 
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
-      <DialogContent className="max-w-lg">
+      <DialogContent className="max-h-[85vh] max-w-lg overflow-y-auto">
         <DialogHeader>
           <DialogTitle>Settings</DialogTitle>
         </DialogHeader>

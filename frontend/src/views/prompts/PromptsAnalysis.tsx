@@ -1,15 +1,46 @@
-// 📊 Prompt 画像 — legacy renderAnalysisHtml: loading block with elapsed ticker,
-// header, overall/llmError/rawText, portrait sub-sections (PromptsPortrait.tsx),
+// 📊 Prompt 画像 — loading block with elapsed ticker, header, overall/llmError/rawText,
 // and template cluster rows (expand → suggestion/rewrite, 📥 入库 prefill).
+// 已移除主题构成 / 周趋势 / 差生榜三张手写图表（与「统计」页聚合重复）。
 
 import { useEffect, useState } from 'react';
 
 import type { Platform, PromptAnalysis, PromptCluster } from '@/api/types';
+import { CopyButton } from '@/components/CopyButton';
 import { Markdown } from '@/components/Markdown';
 import { Button } from '@/components/ui/button';
+import { cn } from '@/lib/utils';
 
-import { CopyButton } from './PromptItemRow';
-import { buildTopicColor, Metric, PromptsPortrait } from './PromptsPortrait';
+const TOPIC_COLORS = [
+  '#58a6ff',
+  '#3fb950',
+  '#d29922',
+  '#f778ba',
+  '#a371f7',
+  '#79c0ff',
+  '#56d364',
+  '#e3b341',
+  '#ff7b72',
+  '#8b949e',
+];
+
+/** Topic → colour by order of appearance in analysis.topics. */
+function buildTopicColor(a: PromptAnalysis): (topic: string) => string {
+  const order = (a.topics || []).map((t) => t.topic);
+  return (t) => TOPIC_COLORS[Math.max(0, order.indexOf(t)) % TOPIC_COLORS.length];
+}
+
+function Metric({ warn, children }: { warn?: boolean; children: React.ReactNode }) {
+  return (
+    <span
+      className={cn(
+        'rounded border border-border px-1.5 py-0.5 text-[11px] text-muted-foreground',
+        warn && 'border-[#d29922] text-[#d29922]'
+      )}
+    >
+      {children}
+    </span>
+  );
+}
 
 interface PromptsAnalysisProps {
   analysis: PromptAnalysis | null;
@@ -85,8 +116,6 @@ export function PromptsAnalysis({
           ))}
         </ul>
       )}
-
-      <PromptsPortrait analysis={a} clusters={displayClusters} topicColor={topicColor} />
 
       {displayClusters.length === 0 ? (
         <div className="text-sm text-muted-foreground">没有出现 2 次以上的模板</div>

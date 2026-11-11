@@ -10,23 +10,16 @@ import type {
   ContextBatch,
   ContextSnapshot,
   DailyUsage,
-  FabricPatternsData,
   HiddenPromptsData,
   HidePromptsResult,
-  ImportFabricResult,
   Insights,
   InstallTarget,
   LibraryData,
-  LibraryHistoryData,
-  LibraryHistoryEntry,
-  LibraryUsageData,
   OpenSessionResult,
   OtlpExport,
-  PetState,
   Platform,
   PromptAnalysis,
   PromptsData,
-  RewriteResult,
   SearchResult,
   SessionDetail,
   SessionFull,
@@ -296,10 +289,6 @@ export async function getPromptAnalysis(opts: {
   return fetchJson(url);
 }
 
-export function rewritePrompt(text: string): Promise<RewriteResult> {
-  return requestJson('/api/prompts/rewrite', 'POST', { text });
-}
-
 export function getHiddenPrompts(): Promise<HiddenPromptsData> {
   return fetchJson('/api/prompts/hidden');
 }
@@ -367,10 +356,6 @@ export function getLibrary(): Promise<LibraryData> {
   return fetchJson('/api/library');
 }
 
-export function getLibraryUsage(): Promise<LibraryUsageData> {
-  return fetchJson('/api/library/usage');
-}
-
 export function createLibraryPrompt(body: {
   name: string;
   content: string;
@@ -403,22 +388,6 @@ export function uninstallLibraryPrompt(name: string, targets: InstallTarget[]): 
 /** Claude-CLI name suggestion; `{ name: null }` when the CLI is unavailable. */
 export function suggestLibraryName(text: string): Promise<SuggestNameResult> {
   return requestJson('/api/library/suggest-name', 'POST', { text });
-}
-
-export function getFabricPatterns(): Promise<FabricPatternsData> {
-  return fetchJson('/api/library/fabric-patterns');
-}
-
-export function importFabricPatterns(names: string[]): Promise<ImportFabricResult> {
-  return requestJson('/api/library/import-fabric', 'POST', { names });
-}
-
-export function getLibraryHistory(name: string): Promise<LibraryHistoryData> {
-  return fetchJson(`/api/library/${encodeURIComponent(name)}/history`);
-}
-
-export function getLibraryHistoryEntry(name: string, hash: string): Promise<LibraryHistoryEntry> {
-  return fetchJson(`/api/library/${encodeURIComponent(name)}/history/${encodeURIComponent(hash)}`);
 }
 
 // ---------- Backup / misc ----------
@@ -509,23 +478,6 @@ export function watchUrl(opts: { platform: Platform; sessionId: string; agent?: 
 }
 
 // ---------- Pet (global status companion, PRD §5.2) ----------
-
-/**
- * URL for the global pet-state EventSource (GET /api/pet/state, SSE). Consumed
- * via `new EventSource(petStateUrl())` — the server only emits on change, with
- * a 15s keep-alive ping. `window`/`interval` mirror the backend query params.
- */
-export function petStateUrl(opts: { window?: number; interval?: number } = {}): string {
-  return withParams('/api/pet/state', {
-    window: opts.window,
-    interval: opts.interval,
-  });
-}
-
-/** One-shot JSON snapshot (GET /api/pet/state?once=1). Handy as a non-SSE fallback. */
-export function getPetState(opts: { window?: number } = {}): Promise<PetState> {
-  return fetchJson<PetState>(withParams('/api/pet/state', { once: 1, window: opts.window }));
-}
 
 // ---------- Context reconstruction ----------
 
