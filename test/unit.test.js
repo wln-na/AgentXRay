@@ -792,13 +792,18 @@ test('assertSafePath rejects a symlink that escapes allowedRoot', async () => {
   }
 });
 
-test('ensureDirectory rejects a directory outside HOME before touching it', async () => {
+test('ensureDirectory rejects a path outside an explicit allowed root', async () => {
   const outside = fs.mkdtempSync(path.join(os.tmpdir(), 'ax-outside-'));
   try {
-    await assert.rejects(() => config.ensureDirectory(outside), /escapes allowed scope/);
+    await assert.rejects(() => config.ensureDirectory(outside, config.HOME), /escapes allowed scope/);
   } finally {
     fs.rmSync(outside, { recursive: true, force: true });
   }
+});
+
+test('sanitizeAgentName rejects dot path segments', () => {
+  assert.equal(config.sanitizeAgentName('.'), null);
+  assert.equal(config.sanitizeAgentName('..'), null);
 });
 
 // --- lib/platforms/codex.js: extractCodexUserPromptText ---
