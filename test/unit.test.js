@@ -27,6 +27,7 @@ const config = require(path.join(ROOT, 'lib', 'config'));
 const codex = require(path.join(ROOT, 'lib', 'platforms', 'codex'));
 const sessionTasks = require(path.join(ROOT, 'lib', 'session-tasks'));
 const sessionPagination = require(path.join(ROOT, 'lib', 'session-pagination'));
+const fsUtils = require(path.join(ROOT, 'lib', 'fs-utils'));
 
 function loadSessionsLib() {
   const { buildSync } = createRequire(path.join(ROOT, 'frontend', 'package.json'))('esbuild');
@@ -800,6 +801,52 @@ test('assertSafePath rejects a symlink that escapes allowedRoot', async () => {
 test('sanitizeAgentName rejects dot path segments', () => {
   assert.equal(config.sanitizeAgentName('.'), null);
   assert.equal(config.sanitizeAgentName('..'), null);
+});
+
+test('JSONL readers reject files outside the configured read root', async () => {
+  const outside = fs.mkdtempSync(path.join(os.tmpdir(), 'ax-outside-read-'));
+  const filePath = path.join(outside, 'session.jsonl');
+  fs.writeFileSync(filePath, '{"ok":true}\n');
+  try {
+    await assert.rejects(async () => {
+      for await (const _record of fsUtils.iterateJsonlLines(filePath)) {
+        // unreachable
+      }
+    }, /escapes the configured read root/);
+  } finally {
+    fs.rmSync(outside, { recursive: true, force: true });
+  }
+});
+
+test('JSONL readers reject symlinks that escape the configured read root', async () => {
+  const outside = fs.mkdtempSync(path.join(os.tmpdir(), 'ax-outside-link-'));
+  const target = path.join(outside, 'session.jsonl');
+  const link = path.join(config.HOME, `.agentxray-fs-link-${process.pid}-${Date.now()}`);
+  fs.writeFileSync(target, '{"ok":true}\n');
+  fs.symlinkSync(target, link);
+  try {
+    await assert.rejects(async () => {
+      for await (const _record of fsUtils.iterateJsonlLines(link)) {
+        // unreachable
+      }
+    }, /escapes the configured read root via symlink/);
+  } finally {
+    fs.rmSync(link, { force: true });
+    fs.rmSync(outside, { recursive: true, force: true });
+  }
+});
+
+test('JSONL readers accept files inside the configured read root', async () => {
+  const inside = fs.mkdtempSync(path.join(config.HOME, '.agentxray-fs-test-'));
+  const filePath = path.join(inside, 'session.jsonl');
+  fs.writeFileSync(filePath, '{"ok":true}\n');
+  try {
+    for await (const record of fsUtils.iterateJsonlLines(filePath)) {
+      assert.deepEqual(record, { ok: true });
+    }
+  } finally {
+    fs.rmSync(inside, { recursive: true, force: true });
+  }
 });
 
 // --- lib/platforms/codex.js: extractCodexUserPromptText ---

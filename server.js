@@ -1,4 +1,5 @@
 const express = require('express');
+const { rateLimit } = require('express-rate-limit');
 const fs = require('node:fs');
 const path = require('node:path');
 const pkg = require('./package.json');
@@ -52,26 +53,14 @@ const HAS_DIST = fs.existsSync(path.join(DIST_DIR, 'index.html'));
 const PLATFORM_COUNT = Object.keys(PLATFORMS).length;
 
 // Keep the SPA shell from becoming an unbounded filesystem-read endpoint.
-// This small in-process limiter is sufficient for the localhost-first server;
-// deployments behind a proxy should still enforce a network-level limit.
-const SPA_RATE_WINDOW_MS = 60_000;
-const SPA_RATE_MAX = 120;
-const spaRateBuckets = new Map();
-function spaRateLimit(req, res, next) {
-  const now = Date.now();
-  const key = req.ip || req.socket.remoteAddress || 'unknown';
-  const current = spaRateBuckets.get(key);
-  if (!current || now - current.startedAt >= SPA_RATE_WINDOW_MS) {
-    spaRateBuckets.set(key, { startedAt: now, count: 1 });
-    return next();
-  }
-  current.count += 1;
-  if (current.count > SPA_RATE_MAX) {
-    res.setHeader('Retry-After', '60');
-    return res.status(429).end('Too many requests');
-  }
-  return next();
-}
+// Deployments behind a proxy should still enforce a network-level limit.
+const spaRateLimit = rateLimit({
+  windowMs: 60_000,
+  limit: 120,
+  standardHeaders: 'draft-8',
+  legacyHeaders: false,
+  message: 'Too many requests',
+});
 
 // --- Transport & ops middleware (lib/ops.js) -------------------------------
 // Order matters: the logger wraps everything so it measures the full request,
