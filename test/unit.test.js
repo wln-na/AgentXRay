@@ -792,6 +792,11 @@ test('assertSafePath rejects a symlink that escapes allowedRoot', async () => {
   }
 });
 
+test('sanitizeAgentName rejects dot path segments', () => {
+  assert.equal(config.sanitizeAgentName('.'), null);
+  assert.equal(config.sanitizeAgentName('..'), null);
+});
+
 // --- lib/platforms/codex.js: extractCodexUserPromptText ---
 
 test('extractCodexUserPromptText returns null for environment_context injection', () => {
