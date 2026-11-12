@@ -115,7 +115,9 @@ export function getSessions(
       agent: opts.agent,
       include_archived: opts.includeArchived,
       dir: opts.dir,
-      limit: opts.limit,
+      // Keep the list response in its paged shape. The API still supports its
+      // legacy bare-array response when no pagination parameter is supplied.
+      limit: opts.limit ?? 100,
       before: opts.before,
     })
   );

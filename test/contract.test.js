@@ -87,7 +87,7 @@ test('query schemas reject values the routes used to coerce silently', () => {
 });
 
 test('response schemas reject shape drift', () => {
-  const page = { total: 0, limit: 100, start: 0, end: 0, hasMore: false, nextBefore: null };
+  const page = { total: 0, limit: 100, start: 0, end: 0, hasMoreBefore: false, nextBefore: null };
   assert.doesNotThrow(() => contracts.schemas.SessionsPage.parse({ sessions: [], page }));
   assert.throws(() => contracts.schemas.SessionsPage.parse({ sessions: [] }), /page.*is required/);
   assert.throws(
@@ -121,10 +121,11 @@ test('live responses from a scratch server satisfy the schemas', async (t) => {
   ];
   const lists = {};
   for (const pathname of listPaths) {
-    const body = await getJson(srv.base, pathname);
+    const sep = pathname.includes('?') ? '&' : '?';
+    const body = await getJson(srv.base, `${pathname}${sep}limit=100`);
     contracts.routes['sessions.list'].response.parse(body);
     assert.ok(Array.isArray(body.sessions), `${pathname} must return { sessions }`);
-    assert.equal(typeof body.page.hasMore, 'boolean', `${pathname} page.hasMore`);
+    assert.equal(typeof body.page.hasMoreBefore, 'boolean', `${pathname} page.hasMoreBefore`);
     lists[pathname] = body;
   }
 
@@ -133,35 +134,36 @@ test('live responses from a scratch server satisfy the schemas', async (t) => {
   contracts.schemas.SessionsPage.parse(paged);
   assert.equal(paged.sessions.length, 1);
   assert.equal(paged.page.limit, 1);
-  assert.equal(paged.page.hasMore, true);
+  assert.equal(paged.page.hasMoreBefore, true);
   assert.equal(typeof paged.page.nextBefore, 'string');
 
   // --- detail / full / messages for the same session ---
   const codexSession = lists['/api/codex/sessions'].sessions[0];
   assert.ok(codexSession, 'fixture codex list must not be empty');
-  const detailPath = `/api/codex/sessions/${encodeURIComponent(codexSession.id)}`;
+  const detailBase = `/api/codex/sessions/${encodeURIComponent(codexSession.id)}`;
+  const detailPath = `${detailBase}?limit=60`;
   const detail = await getJson(srv.base, detailPath);
   contracts.schemas.SessionDetail.parse(detail);
   assert.ok(detail.messagePage, 'paged detail must carry messagePage');
 
-  const full = await getJson(srv.base, `${detailPath}/full`);
+  const full = await getJson(srv.base, `${detailBase}/full`);
   contracts.schemas.SessionFull.parse(full);
   assert.equal(full.complete, true);
   assert.equal('messagePage' in full, false, '/full must not carry messagePage');
 
-  const messages = await getJson(srv.base, `${detailPath}/messages?limit=2`);
+  const messages = await getJson(srv.base, `${detailBase}/messages?limit=2`);
   contracts.schemas.SessionMessagesPage.parse(messages);
   assert.ok(messages.messages.length <= 2);
 
-  const tasks = await getJson(srv.base, `${detailPath}/tasks`);
+  const tasks = await getJson(srv.base, `${detailBase}/tasks`);
   contracts.schemas.SessionTaskAnalysis.parse(tasks);
-  const children = await getJson(srv.base, `${detailPath}/children`);
+  const children = await getJson(srv.base, `${detailBase}/children`);
   contracts.routes['sessions.children'].response.parse(children);
 
   // --- context: single + batch ---
   // The newest codex fixture session may be a metadata-only rollout, so pick a
   // session that actually has user messages to anchor on.
-  let contextPath = detailPath;
+  let contextPath = detailBase;
   let contextDetail = detail;
   if (!contextDetail.messages.some((message) => message.role === 'user')) {
     for (const candidate of lists['/api/codex/sessions'].sessions) {
@@ -193,9 +195,9 @@ test('live responses from a scratch server satisfy the schemas', async (t) => {
     ['/api/codex/sessions?limit=abc', 'limit'],
     ['/api/codex/sessions?limit=-1', 'limit'],
     ['/api/codex/sessions?before=1.5', 'before'],
-    [`${detailPath}?limit=abc`, 'limit'],
-    [`${detailPath}?before=oops`, 'before'],
-    [`${detailPath}/messages?limit=abc`, 'limit'],
+    [`${detailBase}?limit=abc`, 'limit'],
+    [`${detailBase}?before=oops`, 'before'],
+    [`${detailBase}/messages?limit=abc`, 'limit'],
     [`${contextPath}/context?agent=bad!name&messageIndex=0`, 'agent'],
     [`${contextPath}/context?messageIds=${encodeURIComponent('has space')}`, 'messageIds'],
   ];
@@ -207,7 +209,7 @@ test('live responses from a scratch server satisfy the schemas', async (t) => {
   }
 
   // Valid values are untouched (no status-code semantics changed).
-  const okResponse = await fetch(`${srv.base}${detailPath}?limit=0&before=0`);
+  const okResponse = await fetch(`${srv.base}${detailBase}?limit=0&before=0`);
   assert.equal(okResponse.status, 200);
   contracts.schemas.SessionDetail.parse(await okResponse.json());
 });

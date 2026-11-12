@@ -137,7 +137,7 @@ describe('sessions: gemini', () => {
   });
 
   it('lists sessions newest-first with metadata, excluding nested subagent transcripts', async () => {
-    const { sessions } = await getJson(srv.base, '/api/gemini/sessions');
+    const sessions = await getJson(srv.base, '/api/gemini/sessions');
     assert.equal(sessions.length, 2);
     assert.deepEqual(
       sessions.map((s) => s.id),

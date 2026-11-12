@@ -803,36 +803,25 @@ test('sanitizeAgentName rejects dot path segments', () => {
   assert.equal(config.sanitizeAgentName('..'), null);
 });
 
-test('JSONL readers reject files outside the configured read root', async () => {
-  const outside = fs.mkdtempSync(path.join(os.tmpdir(), 'ax-outside-read-'));
-  const filePath = path.join(outside, 'session.jsonl');
-  fs.writeFileSync(filePath, '{"ok":true}\n');
-  try {
-    await assert.rejects(async () => {
-      for await (const _record of fsUtils.iterateJsonlLines(filePath)) {
-        // unreachable
-      }
-    }, /escapes the configured read root/);
-  } finally {
-    fs.rmSync(outside, { recursive: true, force: true });
-  }
+test('JSONL readers reject files outside the configured read roots', async () => {
+  await assert.rejects(async () => {
+    for await (const _record of fsUtils.iterateJsonlLines(path.join(ROOT, 'package.json'))) {
+      // unreachable
+    }
+  }, /escapes the configured read roots/);
 });
 
-test('JSONL readers reject symlinks that escape the configured read root', async () => {
-  const outside = fs.mkdtempSync(path.join(os.tmpdir(), 'ax-outside-link-'));
-  const target = path.join(outside, 'session.jsonl');
+test('JSONL readers reject symlinks that escape the configured read roots', async () => {
   const link = path.join(config.HOME, `.agentxray-fs-link-${process.pid}-${Date.now()}`);
-  fs.writeFileSync(target, '{"ok":true}\n');
-  fs.symlinkSync(target, link);
+  fs.symlinkSync(path.join(ROOT, 'package.json'), link);
   try {
     await assert.rejects(async () => {
       for await (const _record of fsUtils.iterateJsonlLines(link)) {
         // unreachable
       }
-    }, /escapes the configured read root via symlink/);
+    }, /escapes the configured read roots/);
   } finally {
     fs.rmSync(link, { force: true });
-    fs.rmSync(outside, { recursive: true, force: true });
   }
 });
 

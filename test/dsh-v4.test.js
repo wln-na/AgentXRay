@@ -720,7 +720,7 @@ describe('dsh v4 API integration', () => {
   });
 
   it('lists v0 and v4 sessions newest-first with one row per session dir', async () => {
-    const { sessions } = await getJson(srv.base, '/api/dsh/sessions');
+    const sessions = await getJson(srv.base, '/api/dsh/sessions');
     const byId = new Map(sessions.map((session) => [session.id, session]));
 
     // v0 keeps working.
@@ -758,7 +758,7 @@ describe('dsh v4 API integration', () => {
   });
 
   it('adds subagent rows only for include_subagents=1', async () => {
-    const { sessions } = await getJson(srv.base, '/api/dsh/sessions?include_subagents=1');
+    const sessions = await getJson(srv.base, '/api/dsh/sessions?include_subagents=1');
     const byId = new Map(sessions.map((session) => [session.id, session]));
 
     assert.deepEqual(

@@ -79,7 +79,7 @@ export interface ListPage {
   limit: number;
   start: number;
   end: number;
-  hasMore: boolean;
+  hasMoreBefore: boolean;
   nextBefore: string | null;
   [key: string]: unknown;
 }
@@ -151,7 +151,7 @@ export interface SessionMessagePage {
   limit: number;
   start: number;
   end: number;
-  loadedCount: number;
+  loadedCount?: number;
   hasMoreBefore: boolean;
   nextBefore: string | null;
   [key: string]: unknown;
