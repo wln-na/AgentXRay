@@ -792,6 +792,15 @@ test('assertSafePath rejects a symlink that escapes allowedRoot', async () => {
   }
 });
 
+test('ensureDirectory rejects a directory outside HOME before touching it', async () => {
+  const outside = fs.mkdtempSync(path.join(os.tmpdir(), 'ax-outside-'));
+  try {
+    await assert.rejects(() => config.ensureDirectory(outside), /escapes allowed scope/);
+  } finally {
+    fs.rmSync(outside, { recursive: true, force: true });
+  }
+});
+
 // --- lib/platforms/codex.js: extractCodexUserPromptText ---
 
 test('extractCodexUserPromptText returns null for environment_context injection', () => {
