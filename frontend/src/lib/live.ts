@@ -1,6 +1,5 @@
-// Shared "live session" definition: a session whose log was written within
-// this window is considered "live" — the agent is (or just was) actively
-// working on it elsewhere (the "open in another app" situation).
+// Shared recent-activity hint. This timestamp window does not confirm that an
+// agent process is still running; it only indicates a recent session update.
 export const LIVE_WINDOW_MS = 3 * 60 * 1000;
 
 export function isLive(lastActivity: unknown): boolean {

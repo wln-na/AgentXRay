@@ -25,6 +25,9 @@ const llmJson = require(path.join(ROOT, 'lib', 'llm-json'));
 const pure = require(path.join(ROOT, 'public', 'js', 'pure.js'));
 const config = require(path.join(ROOT, 'lib', 'config'));
 const codex = require(path.join(ROOT, 'lib', 'platforms', 'codex'));
+const sessionTasks = require(path.join(ROOT, 'lib', 'session-tasks'));
+const sessionPagination = require(path.join(ROOT, 'lib', 'session-pagination'));
+const fsUtils = require(path.join(ROOT, 'lib', 'fs-utils'));
 
 function loadSessionsLib() {
   const { buildSync } = createRequire(path.join(ROOT, 'frontend', 'package.json'))('esbuild');
@@ -719,7 +722,10 @@ test('setInsightsCache evicts oldest keys when exceeding LRU cap', () => {
     setInsightsCache(`key-${i}`, { idx: i });
   }
   assert.equal(insightsCache.size, INSIGHTS_CACHE_MAX);
-  assert.ok(insightsCache.has('key-0'));
+  // Probe via keys(): insightsCache is a true-LRU cache whose has()/get()
+  // refresh recency, so a has() here would move key-0 to the most-recent
+  // end and change which key the overflow eviction drops below.
+  assert.ok([...insightsCache.keys()].includes('key-0'));
 
   // Insert one more → oldest (key-0) should be evicted
   setInsightsCache(`key-${INSIGHTS_CACHE_MAX}`, { idx: INSIGHTS_CACHE_MAX });
@@ -797,6 +803,41 @@ test('sanitizeAgentName rejects dot path segments', () => {
   assert.equal(config.sanitizeAgentName('..'), null);
 });
 
+test('JSONL readers reject files outside the configured read roots', async () => {
+  await assert.rejects(async () => {
+    for await (const _record of fsUtils.iterateJsonlLines(path.join(ROOT, 'package.json'))) {
+      // unreachable
+    }
+  }, /escapes the configured read roots/);
+});
+
+test('JSONL readers reject symlinks that escape the configured read roots', async () => {
+  const link = path.join(config.HOME, `.agentxray-fs-link-${process.pid}-${Date.now()}`);
+  fs.symlinkSync(path.join(ROOT, 'package.json'), link);
+  try {
+    await assert.rejects(async () => {
+      for await (const _record of fsUtils.iterateJsonlLines(link)) {
+        // unreachable
+      }
+    }, /escapes the configured read roots/);
+  } finally {
+    fs.rmSync(link, { force: true });
+  }
+});
+
+test('JSONL readers accept files inside the configured read root', async () => {
+  const inside = fs.mkdtempSync(path.join(config.HOME, '.agentxray-fs-test-'));
+  const filePath = path.join(inside, 'session.jsonl');
+  fs.writeFileSync(filePath, '{"ok":true}\n');
+  try {
+    for await (const record of fsUtils.iterateJsonlLines(filePath)) {
+      assert.deepEqual(record, { ok: true });
+    }
+  } finally {
+    fs.rmSync(inside, { recursive: true, force: true });
+  }
+});
+
 // --- lib/platforms/codex.js: extractCodexUserPromptText ---
 
 test('extractCodexUserPromptText returns null for environment_context injection', () => {
@@ -832,6 +873,214 @@ test('extractCodexUserPromptText returns null for empty content', () => {
   assert.equal(codex.extractCodexUserPromptText({}), null);
   assert.equal(codex.extractCodexUserPromptText({ content: [] }), null);
   assert.equal(codex.extractCodexUserPromptText({ content: '' }), null);
+});
+
+test('normalizeCodexRecord preserves the response turn id for inferred task grouping', () => {
+  const message = codex.normalizeCodexRecord({
+    timestamp: '2026-01-15T10:00:00.000Z',
+    type: 'response_item',
+    payload: {
+      type: 'message',
+      role: 'user',
+      id: 'user-1',
+      content: [{ type: 'input_text', text: 'inspect the build' }],
+      internal_chat_message_metadata_passthrough: { turn_id: 'turn-1' },
+    },
+  });
+  assert.equal(message.turnId, 'turn-1');
+  assert.equal(codex.codexTurnId({ type: 'turn_context', payload: { turn_id: 'turn-2' } }), 'turn-2');
+});
+
+test('session task units keep one turn together while allowing LLM to merge multiple turns', () => {
+  const messages = [
+    {
+      id: 'u1',
+      timestamp: '2026-01-15T10:00:00.000Z',
+      role: 'user',
+      turnId: 'turn-1',
+      content: [{ text: '先检查构建失败原因' }],
+    },
+    {
+      id: 'a1',
+      timestamp: '2026-01-15T10:00:02.000Z',
+      role: 'assistant',
+      turnId: 'turn-1',
+      content: [{ text: '我先查看日志' }],
+    },
+    {
+      id: 'u2',
+      timestamp: '2026-01-15T10:02:00.000Z',
+      role: 'user',
+      turnId: 'turn-2',
+      content: [{ text: '继续检查刚才的 SBOM 错误' }],
+    },
+  ];
+  const units = sessionTasks.buildExecutionUnits(messages);
+  assert.deepEqual(
+    units.map((unit) => unit.id),
+    ['turn-turn-1', 'turn-turn-2']
+  );
+  assert.deepEqual(units[0].messageIds, ['u1', 'a1']);
+
+  const tasks = sessionTasks.normalizeTasks(
+    {
+      tasks: [
+        {
+          title: '排查构建与 SBOM 失败',
+          status: 'in_progress',
+          confidence: 'high',
+          unitIds: ['turn-turn-1', 'turn-turn-2'],
+        },
+      ],
+    },
+    units
+  );
+  assert.equal(tasks.length, 1);
+  assert.deepEqual(tasks[0].unitIds, ['turn-turn-1', 'turn-turn-2']);
+  assert.deepEqual(tasks[0].evidenceMessageIds, ['u1', 'a1', 'u2']);
+});
+
+test('session task classification fallback keeps clearly different topics as separate tasks', () => {
+  const units = sessionTasks.buildExecutionUnits([
+    {
+      id: 'u1',
+      timestamp: '2026-01-15T10:00:00.000Z',
+      role: 'user',
+      turnId: 'turn-1',
+      content: [{ text: '设计会话任务进度面板，展示任务开始、进行中和结束状态' }],
+    },
+    {
+      id: 'a1',
+      timestamp: '2026-01-15T10:00:02.000Z',
+      role: 'assistant',
+      turnId: 'turn-1',
+      content: [{ text: '我会先设计会话任务面板' }],
+    },
+    {
+      id: 'u2',
+      timestamp: '2026-01-15T10:05:00.000Z',
+      role: 'user',
+      turnId: 'turn-2',
+      content: [{ text: '面板中的任务要能点击回到对应消息' }],
+    },
+    {
+      id: 'u3',
+      timestamp: '2026-01-15T11:00:00.000Z',
+      role: 'user',
+      turnId: 'turn-3',
+      content: [{ text: '配置 dev-box 的 Ollama，通过 SSH 隧道调用本地模型' }],
+    },
+    {
+      id: 'a3',
+      timestamp: '2026-01-15T11:00:02.000Z',
+      role: 'assistant',
+      turnId: 'turn-3',
+      content: [{ text: '我会检查 SSH 隧道和 Ollama 接口' }],
+    },
+  ]);
+
+  const tasks = sessionTasks.normalizeTasks({ tasks: [] }, units);
+  assert.equal(tasks.length, 2);
+  assert.deepEqual(
+    tasks.map((task) => task.unitIds),
+    [['turn-turn-1', 'turn-turn-2'], ['turn-turn-3']]
+  );
+  assert.ok(tasks.every((task) => task.source === 'inferred'));
+});
+
+test('session task fallback is exposed as inferred tasks instead of an empty unavailable result', () => {
+  const units = sessionTasks.buildExecutionUnits([
+    {
+      id: 'u1',
+      timestamp: '2026-01-15T10:00:00.000Z',
+      role: 'user',
+      turnId: 'turn-1',
+      content: [{ text: '设计任务看板' }],
+    },
+    {
+      id: 'u2',
+      timestamp: '2026-01-15T11:00:00.000Z',
+      role: 'user',
+      turnId: 'turn-2',
+      content: [{ text: '配置 Ollama SSH 隧道' }],
+    },
+  ]);
+  const inferred = sessionTasks.normalizeTasks({ tasks: [] }, units);
+  assert.equal(inferred.length, 2);
+  assert.deepEqual(
+    inferred.map((task) => task.source),
+    ['inferred', 'inferred']
+  );
+});
+
+test('session task requests return inferred tasks while an LLM classification is in flight', async () => {
+  let releaseLlm;
+  let llmStarted;
+  const llmStartedPromise = new Promise((resolve) => {
+    llmStarted = resolve;
+  });
+  const pendingLlm = new Promise((resolve) => {
+    releaseLlm = resolve;
+  });
+  const payload = {
+    session: { filePath: `/tmp/agentxray-inflight-${process.pid}-${Date.now()}.jsonl` },
+    messages: [
+      {
+        id: 'u-inflight',
+        timestamp: '2026-01-15T10:00:00.000Z',
+        role: 'user',
+        turnId: 'turn-inflight',
+        content: [{ text: '分析任务分类响应速度' }],
+      },
+    ],
+  };
+  const runLlmImpl = async () => {
+    llmStarted();
+    return pendingLlm;
+  };
+  const options = {
+    platform: 'codex',
+    sessionId: `inflight-${process.pid}-${Date.now()}`,
+    payload,
+    runLlmImpl,
+  };
+
+  const first = await sessionTasks.classifySessionTasks(options);
+  await llmStartedPromise;
+  const second = await Promise.race([
+    sessionTasks.classifySessionTasks(options),
+    new Promise((_, reject) => setTimeout(() => reject(new Error('second task request waited for LLM')), 100)),
+  ]);
+
+  assert.equal(first.classificationPending, true);
+  assert.equal(second.classificationPending, true);
+  assert.deepEqual(
+    second.tasks.map((task) => task.source),
+    ['inferred']
+  );
+
+  releaseLlm('not-json');
+  await new Promise((resolve) => setTimeout(resolve, 20));
+});
+
+test('session message pagination returns the newest page and a before cursor', () => {
+  const messages = Array.from({ length: 145 }, (_, index) => ({ id: `m-${index}` }));
+  const first = sessionPagination.paginateMessages(messages, { limit: 60 });
+  assert.equal(first.messages.length, 60);
+  assert.equal(first.messages[0].id, 'm-85');
+  assert.equal(first.messages.at(-1).id, 'm-144');
+  assert.equal(first.page.hasMoreBefore, true);
+  assert.equal(first.page.nextBefore, '85');
+
+  const second = sessionPagination.paginateMessages(messages, { limit: 60, before: first.page.nextBefore });
+  assert.equal(second.messages[0].id, 'm-25');
+  assert.equal(second.messages.at(-1).id, 'm-84');
+  assert.equal(second.page.nextBefore, '25');
+
+  const last = sessionPagination.paginateMessages(messages, { limit: 60, before: second.page.nextBefore });
+  assert.equal(last.messages.length, 25);
+  assert.equal(last.messages[0].id, 'm-0');
+  assert.equal(last.page.hasMoreBefore, false);
 });
 
 // --- lib/platforms/codex.js: codexArchivedDir ---

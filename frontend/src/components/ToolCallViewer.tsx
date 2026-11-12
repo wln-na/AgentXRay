@@ -3,7 +3,8 @@
 // as colour-coded unified diffs, pretty-prints JSON args, and clamps long
 // payloads behind a Show more toggle.
 
-import { useMemo, useState } from 'react';
+import { useMemo } from 'react';
+import { Clamp } from '@/components/Clamp';
 import { Markdown } from '@/components/Markdown';
 import { detectPatch, diffLineSegments, extractEmbeddedPatch, parseToolArguments } from '@/lib/pure';
 import { cn } from '@/lib/utils';
@@ -31,32 +32,6 @@ function DiffView({ text }: { text: string }) {
         </div>
       ))}
     </div>
-  );
-}
-
-function Clamp({ len, children }: { len: number; children: React.ReactNode }) {
-  const [clamped, setClamped] = useState(len > 600);
-  return (
-    <>
-      <div
-        className={
-          clamped
-            ? 'max-h-[16em] overflow-hidden [mask-image:linear-gradient(to_bottom,black_70%,transparent)]'
-            : undefined
-        }
-      >
-        {children}
-      </div>
-      {len > 600 && (
-        <button
-          type="button"
-          className="mt-1 text-xs text-[#58a6ff] hover:underline"
-          onClick={() => setClamped((v) => !v)}
-        >
-          {clamped ? 'Show more' : 'Show less'}
-        </button>
-      )}
-    </>
   );
 }
 

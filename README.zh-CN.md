@@ -43,9 +43,10 @@ LangSmith、Langfuse 这类观测平台面向的是*你自己写的* agent：接
 - **Spawn 追踪** — 检测并导航父子 Agent 之间的调用关系
 - **OMP 子 Agent** — OMP 会话派生的子 Agent 会在摘要区以标签列出，点击即可查看子 Agent 的完整对话
 - **消息时间线** — 可视化对话流程图，不同角色用不同颜色标识
+- **会话任务面板** — 结合显式任务记录和 LLM 语义归类。多条用户消息、多个 Codex turn 可以被归并为同一个任务，并按待开始、进行中、已完成展示，还可以跳回任务对应的证据消息
 - **Resume 命令** — 一键复制该会话在原 CLI 中的续跑命令（`codex resume`、`claude --resume`、`omp --resume=`）
 - **定位与打开** — 一键在 Finder 中定位会话日志；或通过深链直接跳到对应会话（codex → `codex://threads/<sessionId>` 直达 ChatGPT 应用中的会话，Codex 的 thread id 就是 rollout 的 session id；doubao → 在豆包工作客户端内打开 `https://www.doubao.com/chat/<conversationId>` 直达对应对话），否则打开宿主应用（claude-desktop → Claude、cursor → Cursor）、在新 iTerm2/Terminal 窗口续跑 CLI 会话（claude-code / omp）、用默认编辑器打开日志（Hermes 仅支持定位）。应用优先的平台在应用缺失时自动兜底（codex → 终端续跑；claude-desktop / cursor → 默认编辑器）。打开时若检测到其他进程正在写入该日志（即 "open in another app" 场景），界面会警告是哪个进程占用着。非 macOS 或失败时返回可复制的路径/命令兜底（仅 macOS；见 `/api/:platform/sessions/:id/open`）
-- **活跃会话一目了然** — 最近 3 分钟内有写入的会话会在列表和详情头部打上「活跃中」标记，一眼看出哪个 agent 正在干活
+- **近期活动与会话时长** — 最近 3 分钟内有活动记录的会话会显示提示；这是基于最近活动时间的判断，不代表进程仍在运行。详情头部显示首末有效消息之间的时长及最近活动时间
 - **摘要可折叠** — 需要更多阅读空间时可折叠会话摘要
 - **自动刷新** — 会话列表和消息实时更新：SSE 实时推送新写入的行，列表与详情每 5 秒对账一次，即使推送中断视图也能自愈
 - **设置面板** — 在页面上直接配置各平台目录，保存到 localStorage，无需重启
@@ -113,6 +114,84 @@ npm start
 ```
 
 打开 http://localhost:3800
+
+### 通过 SSH 使用远程 Ollama 模型
+
+AgentXRay 可以通过 SSH 隧道调用远程开发机上的 Ollama。请将
+`your-ssh-host` 替换成你本机 SSH 配置中的主机别名。不要把个人主机名、API
+Key 或本地模型配置提交到仓库。下面的命令会把远程 Ollama 端口映射到本机
+`127.0.0.1:18000`：
+
+```bash
+# 终端 1：保持 SSH 隧道运行
+ssh -fNT \
+  -o ExitOnForwardFailure=yes \
+  -o ServerAliveInterval=30 \
+  -o ServerAliveCountMax=3 \
+  -L 127.0.0.1:18000:127.0.0.1:11434 \
+  your-ssh-host
+
+# 通过隧道检查远程 Ollama 模型
+curl http://127.0.0.1:18000/v1/models
+
+# 终端 2：从源码目录启动 AgentXRay
+npm start
+```
+
+在 AgentXRay 中打开 **设置 → LLM 接口**，新增一个名为 `local` 的 profile，
+然后填写：
+
+```text
+Base URL：http://127.0.0.1:18000/v1
+模型名：qwen2.5:7b-instruct-q4_K_M
+API Key：留空
+```
+
+多个 profile 可以同时保存。例如，可以让会话任务归类使用远程 Ollama，
+而 Prompt 改写使用单独的云端 API。个人配置文件的结构如下：
+
+```json
+{
+  "version": 2,
+  "activeProfile": "local",
+  "profiles": {
+    "local": {
+      "type": "openai-compatible",
+      "baseUrl": "http://127.0.0.1:18000/v1",
+      "model": "qwen2.5:7b-instruct-q4_K_M",
+      "apiKey": ""
+    },
+    "cloud": {
+      "type": "openai-compatible",
+      "baseUrl": "https://your-provider.example/v1",
+      "model": "your-cloud-model",
+      "apiKey": "your-local-secret"
+    }
+  },
+  "routes": {
+    "sessionTasks": "local",
+    "promptRewrite": "cloud",
+    "promptAnalysis": "cloud",
+    "libraryName": "local"
+  }
+}
+```
+
+文件保存在 `~/.agentxray/llm.json`，位于仓库之外。不要提交这个文件，
+也不要把真实 API Key 写进 README 示例。
+
+Base URL 填到 `/v1` 即可，AgentXRay 会自动追加 `/chat/completions`。
+模型名必须使用 `/v1/models` 返回的准确 id。需要切换模型时，例如可以改为
+`deepseek-r1:7b`。
+
+SSH 隧道只在运行 AgentXRay 的本机有效。实际的 endpoint 和模型选择属于
+个人配置，保存在仓库之外的 `~/.agentxray/llm.json` 中。如果隧道断开，
+重新执行上面的 `ssh -fNT` 命令后，LLM 相关功能即可恢复。查看或停止隧道：
+
+```bash
+pgrep -af '127.0.0.1:18000:127.0.0.1:11434'
+kill <ssh-pid>
+```
 
 ## 使用方法
 
@@ -199,8 +278,8 @@ npm start
 | 接口 | 说明 |
 |------|------|
 | `GET /api/agents` | 获取 OpenClaw Agent 列表 |
-| `GET /api/agents/:name/sessions` | 获取指定 Agent 的会话列表 |
-| `GET /api/agents/:name/sessions/:id` | 获取会话消息详情 |
+| `GET /api/openclaw/sessions?agent=<name>` | 获取指定 Agent 的会话列表（`{ sessions, page }`，与其它平台同形） |
+| `GET /api/openclaw/sessions/:id?agent=<name>` | 获取指定 Agent 的会话分页窗口 |
 | `GET /api/codex/sessions` | 获取 Codex 会话列表 |
 | `GET /api/codex/sessions/:id` | 获取 Codex 会话消息详情 |
 | `GET /api/claude-code/sessions` | 获取 Claude Code 会话列表 |
@@ -233,7 +312,7 @@ npm start
 | `GET /api/prompts/hidden` | 获取已隐藏 prompt 的 hash 与预览 |
 | `POST /api/prompts/hidden` | 隐藏单条 prompt（`text`）或批量 prompt（`texts`） |
 | `DELETE /api/prompts/hidden/:hash` | 按 hash 恢复已隐藏 prompt |
-| `GET/PUT /api/settings/llm` | LLM 后端配置：OpenAI 兼容 `baseUrl`/`model`/`apiKey`，持久化在 `~/.agentxray/llm.json`（key 不回显） |
+| `GET/PUT /api/settings/llm` | LLM profile 与按功能路由配置，持久化在 `~/.agentxray/llm.json`（API Key 不回显） |
 | `GET /api/search` | 会话全文搜索（`?platform=all` 一次搜索全部平台，多关键词 AND） |
 | `GET /api/codex/sessions/:id/children` | 获取 Codex 会话派生的子 Agent 列表 |
 | `GET /api/codex/sessions/:id/children/:name` | 获取指定 Codex 子 Agent 的消息详情 |
@@ -241,9 +320,10 @@ npm start
 | `GET /api/claude-code/sessions/:id/children/:name` | 获取指定 Claude Code 子 Agent 的消息详情 |
 | `GET /api/omp/sessions/:id/children` | 获取 OMP 会话派生的子 Agent 列表 |
 | `GET /api/omp/sessions/:id/children/:name` | 获取指定 OMP 子 Agent 的消息详情 |
-| `GET /api/:platform/sessions/:id/context?messageIndex=N` | 重建指定消息前的上下文（支持 `codex`、`claude-code`、`claude-desktop`） |
-| `POST /api/:platform/sessions/:id/open` | 一键定位/打开会话（除 OpenClaw 外全部平台；`{ "action": "locate" \| "open" }`）：locate 在 Finder 中定位日志；open 通过深链直接跳到对应会话（codex → `codex://threads/<sessionId>` 直达 ChatGPT 应用中的会话；doubao → 在豆包工作客户端内打开 `https://www.doubao.com/chat/<conversationId>` 直达对应对话），或打开宿主应用（claude-desktop→Claude、cursor→Cursor）、在新终端窗口续跑 CLI 会话（claude-code/omp）或用默认编辑器打开日志。应用优先的平台在应用缺失时自动兜底（codex→终端续跑；claude-desktop/cursor→默认编辑器）；若打开时检测到其他进程正在写入日志，响应带 `hint`（占用进程），前端据此提示 "open in another app"。仅 macOS —— 非 macOS 或失败时返回可复制的 `fallback` 路径/命令 |
-| `POST /api/agents/:name/sessions/:id/open` | 对 OpenClaw agent 会话执行相同的定位/打开操作（`{ "action": "locate" \| "open" }`；OpenClaw 走此路由而非通用路由） |
+| `GET /api/:platform/sessions/:id/context?messageIndex=N` 或 `?messageId=…` | 重建指定消息前的上下文（支持 `codex`、`claude-code`、`claude-desktop`；OpenClaw 用 `?agent=<name>`） |
+| `GET /api/:platform/sessions/:id/context?messageIds=a,b,c` | 批量上下文重建（最多 200 个 id，只解析一次）→ `{ snapshots, errors }` |
+| `GET /api/:platform/sessions/:id/full?agent` | 获取完整会话全文（`complete: true`，不含 `messagePage`）—— 需要全部消息时显式走此端点 |
+| `POST /api/:platform/sessions/:id/open?agent` | 一键定位/打开会话（全部平台；OpenClaw 用 `?agent=<name>`；`{ "action": "locate" \| "open" }`）：locate 在 Finder 中定位日志；open 通过深链直接跳到对应会话（codex → `codex://threads/<sessionId>` 直达 ChatGPT 应用中的会话；doubao → 在豆包工作客户端内打开 `https://www.doubao.com/chat/<conversationId>` 直达对应对话），或打开宿主应用（claude-desktop→Claude、cursor→Cursor）、在新终端窗口续跑 CLI 会话（claude-code/omp）或用默认编辑器打开日志。应用优先的平台在应用缺失时自动兜底（codex→终端续跑；claude-desktop/cursor→默认编辑器）；若打开时检测到其他进程正在写入日志，响应带 `hint`（占用进程），前端据此提示 "open in another app"。仅 macOS —— 非 macOS 或失败时返回可复制的 `fallback` 路径/命令 |
 | `GET /api/:platform/sessions/:id/export?format=md\|html` | 将脱敏后的会话导出为 Markdown 或自包含 HTML |
 | `GET /api/otlp/:platform/:sessionId` | 将支持的平台会话导出为 OTLP 兼容 JSON |
 | `GET /api/watch` | 通过 Server-Sent Events 实时推送会话更新 |
@@ -264,11 +344,13 @@ npm start
 
 所有列表和详情接口均支持 `?dir=` 参数来覆盖默认目录；`/api/usage/daily` 使用各平台目录参数（如 `?codexDir=/custom/path`）。
 
+会话列表已分页，返回 `{ sessions, page }`（`page`：`total`、`limit`、`start`、`end`、`hasMore`、`nextBefore`；默认 limit 100，最大 200）。会话详情同样是窗口：`messagePage` 始终存在（默认 limit 60，最大 200），两者共用 `before` 游标；需要完整全文时显式请求 `/…/full`——省略 `limit` 不再等同于「返回全部」。OpenClaw 与其它平台走同一套 `/api/:platform/...` 路由，`agent` 通过查询参数传入（`?agent=<name>`）；`GET /api/agents` 仍用于列出 OpenClaw 的 Agent 名称。
+
 ## 技术栈
 
 - **后端：** Node.js + Express
-- **前端：** `frontend/` 下的 React + Vite + TypeScript（默认 UI，服务自 `frontend/dist`）
-- **Legacy UI：** `public/` 下的原版 vanilla HTML/CSS/JS 应用，服务于 `/legacy` —— **已冻结，仅接受安全修复**。新功能只进 React 应用；改动 React 渲染器无需触碰 `public/js/`。共享逻辑（格式化、trace 构建、markdown/转义管线）单一源在 `frontend/src/lib/pure.ts` 与 `frontend/src/lib/markdown.ts`,`public/js/pure.js` 由其生成（`npm run build:legacy-pure`,也包含在 `build:ui` 中）。
+- **前端：** `frontend/` 下的 React + Vite + TypeScript（唯一 UI，服务自 `frontend/dist`）
+- **Legacy UI（已退役）：** `public/` 下的原版 vanilla HTML/CSS/JS 应用已删除，`/legacy` 不再提供服务，也不再有「两套 UI 如何选择」的问题。共享逻辑（格式化、trace 构建、markdown/转义管线）仍单一源在 `frontend/src/lib/pure.ts` 与 `frontend/src/lib/markdown.ts`，`public/js/pure.js` 由其生成（`npm run build:pure`，也包含在 `build:ui` 中），作为 Node 测试直接 `require()` 的打包产物。
 - **数据：** 直接从磁盘读取 JSONL 会话文件 / SQLite 数据库；每日用量在 `~/.agentxray/usage-index.sqlite` 维护日粒度派生索引，只存 rollup，不存 prompt，且不进入默认会话备份
 - **零外部 CDN** — 完全自包含，离线可用
 

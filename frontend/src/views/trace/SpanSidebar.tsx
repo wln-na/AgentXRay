@@ -3,15 +3,15 @@
 // arguments JSON + the toolCallId-paired result (+ error banner); chat spans
 // show the assistant markdown with model/token badges.
 
-import { useEffect, useState } from 'react';
+import { useEffect } from 'react';
 import type { MessageContentPart, SessionMessage } from '@/api/types';
+import { Clamp } from '@/components/Clamp';
 import { Markdown } from '@/components/Markdown';
 import { ToolCallViewer } from '@/components/ToolCallViewer';
 import type { TraceSpan } from '@/lib/pure';
 import {
   DEFAULT_MODEL_PRICING,
   estimateSpanCost,
-  formatDurationCompact,
   formatTokensCompact,
   getTextContent,
   resultLanguage,
@@ -19,6 +19,7 @@ import {
   toolMeta,
 } from '@/lib/pure';
 import { useAppStore } from '@/store';
+import { spanDurationText } from './spanUtils';
 
 function formatNumber(value: unknown): string {
   return typeof value === 'number' ? value.toLocaleString() : '0';
@@ -89,33 +90,6 @@ function findSpanToolData(
   return { args, hasArgs, result, summary, status };
 }
 
-/** Legacy .prompt-text clamp: contents >600 chars start clamped with a Show more toggle. */
-function ClampBlock({ len, children }: { len: number; children: React.ReactNode }) {
-  const [clamped, setClamped] = useState(len > 600);
-  return (
-    <>
-      <div
-        className={
-          clamped
-            ? 'max-h-[8em] overflow-hidden [mask-image:linear-gradient(to_bottom,black_70%,transparent)]'
-            : undefined
-        }
-      >
-        {children}
-      </div>
-      {len > 600 && (
-        <button
-          type="button"
-          className="mt-1 text-xs text-[#58a6ff] hover:underline"
-          onClick={() => setClamped((v) => !v)}
-        >
-          {clamped ? 'Show more' : 'Show less'}
-        </button>
-      )}
-    </>
-  );
-}
-
 function SectionTitle({ children }: { children: React.ReactNode }) {
   return <div className="mb-1.5 mt-4 text-xs uppercase tracking-wide text-muted-foreground">{children}</div>;
 }
@@ -129,13 +103,6 @@ function Pre({ text }: { text: string }) {
 }
 
 const EMPTY_CLS = 'text-xs text-muted-foreground';
-
-function spanDurationText(span: TraceSpan): string {
-  const duration = formatDurationCompact(span.end - span.start);
-  if (span.durationSource === 'estimated') return `约 ${duration}（估算）`;
-  if (span.durationSource === 'unknown') return '耗时未知';
-  return duration;
-}
 
 export function SpanSidebar({ span, msgs, onClose }: { span: TraceSpan; msgs: SessionMessage[]; onClose: () => void }) {
   const requestScrollToMessage = useAppStore((s) => s.requestScrollToMessage);
@@ -207,13 +174,13 @@ export function SpanSidebar({ span, msgs, onClose }: { span: TraceSpan; msgs: Se
         )}
         <SectionTitle>Result{resultLang ? ` · ${resultLang}` : ''}</SectionTitle>
         {result ? (
-          <ClampBlock len={resultText.length}>
+          <Clamp maxHeight="8em" len={resultText.length}>
             {resultLang ? (
               <Markdown text={`\`\`\`${resultLang}\n${resultText || '(空输出)'}\n\`\`\``} />
             ) : (
               <Pre text={resultText || '(空输出)'} />
             )}
-          </ClampBlock>
+          </Clamp>
         ) : (
           <div className={EMPTY_CLS}>
             未找到配对的工具结果
@@ -317,9 +284,9 @@ export function SpanSidebar({ span, msgs, onClose }: { span: TraceSpan; msgs: Se
         )}
         <SectionTitle>{text ? '回复内容' : '阶段说明'}</SectionTitle>
         {text ? (
-          <ClampBlock len={text.length}>
+          <Clamp maxHeight="8em" len={text.length}>
             <Markdown text={text} />
-          </ClampBlock>
+          </Clamp>
         ) : (
           <div className="rounded-md border border-[#58a6ff]/30 bg-[#58a6ff]/5 px-2.5 py-2 text-xs text-[#58a6ff]">
             💡 此阶段是模型的<strong>推理/思考时间</strong>（{reasoningLabel}），不是 bug。
@@ -329,9 +296,9 @@ export function SpanSidebar({ span, msgs, onClose }: { span: TraceSpan; msgs: Se
         {thinkingText && (
           <>
             <SectionTitle>思考过程</SectionTitle>
-            <ClampBlock len={thinkingText.length}>
+            <Clamp maxHeight="8em" len={thinkingText.length}>
               <Pre text={thinkingText} />
-            </ClampBlock>
+            </Clamp>
           </>
         )}
       </>

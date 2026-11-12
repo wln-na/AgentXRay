@@ -21,6 +21,7 @@ import { useAppStore } from '@/store';
 import { childAgentLabel, useActiveSessionDetail, useChildrenQuery } from './childAgents';
 import { EvalLoopPanel } from './EvalLoopPanel';
 import { SpanSidebar } from './SpanSidebar';
+import { spanDurationText } from './spanUtils';
 
 const BAR_COLORS: Record<TraceSpan['kind'], string> = {
   chat: '#58a6ff',
@@ -78,13 +79,6 @@ function spanDisplayLabel(span: TraceSpan): string {
   if (span.kind === 'chat' || span.kind === 'agent') return span.label;
   const meta = toolMeta(span.label);
   return span.subject ? `${meta.label} · ${span.subject}` : meta.label;
-}
-
-function spanDurationText(span: TraceSpan): string {
-  const duration = formatDurationCompact(span.end - span.start);
-  if (span.durationSource === 'estimated') return `约 ${duration}（估算）`;
-  if (span.durationSource === 'unknown') return '耗时未知';
-  return duration;
 }
 
 /** Recursive tree row for a single span + its children.

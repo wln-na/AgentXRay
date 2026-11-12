@@ -1,23 +1,23 @@
 // Session overview: id/time/cwd/model header, time split + slowest turn,
 // persisted collapse (axr-summary-collapsed), stat filter badges, retry jump,
-// child-agent chips, resume-command copy, export menu — legacy renderSummary.
+// child-agent chips. 头部操作收在 HeaderActions 里（打开 ▾ / ⋯）。
 
-import { useMemo, useRef, useState } from 'react';
+import { useMemo, useState } from 'react';
 import { toast } from 'sonner';
-import { openSession } from '@/api/client';
-import type { OpenSessionResult, SessionDetail } from '@/api/types';
-import { DEMO } from '@/demo/flag';
-import { isLive } from '@/lib/live';
-import { formatCost, formatDurationCompact } from '@/lib/pure';
+import type { SessionDetail } from '@/api/types';
+import { useSharedClock } from '@/hooks/useSharedClock';
+import { formatDurationCompact } from '@/lib/pure';
 import { cn } from '@/lib/utils';
-import { dirForPlatform, loadStoredFlag, SUMMARY_COLLAPSED_KEY, saveStoredFlag, useAppStore } from '@/store';
+import { loadStoredFlag, SUMMARY_COLLAPSED_KEY, saveStoredFlag, useAppStore } from '@/store';
 import { ChildAgentsSection } from '@/views/trace/ChildAgentsSection';
 import { ContextUsageCard } from './ContextUsageCard';
-import type { ExportFormat } from './exports';
-import { runExport } from './exports';
+import { HeaderActions } from './HeaderActions';
 import type { MsgFilter, TimingAnalysis } from './lib';
-import { computeSessionStats, formatDate, formatNumber, resumeCommand, sessionCost, summarizeTokens } from './lib';
-import { useSessionsList } from './queries';
+import { computeSessionStats, sessionCost, summarizeTokens } from './lib';
+import { useSessionSummaries } from './queries';
+import { StatusPill } from './StatusPill';
+import { detailFacts, messageCount } from './sessionFacts';
+import { deriveSessionStatus, formatRelativeTime } from './sessionStatus';
 
 function FilterBadge({
   active,
@@ -50,203 +50,6 @@ function FilterBadge({
   );
 }
 
-const ACTION_BTN =
-  'rounded-full border border-border/70 bg-card px-3 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:border-primary/40 hover:bg-accent hover:text-foreground shadow-soft-sm';
-
-function ExportMenu({ detail }: { detail: SessionDetail }) {
-  const platform = useAppStore((s) => s.platform);
-  const selectedSessionId = useAppStore((s) => s.selectedSessionId);
-  const selectedAgent = useAppStore((s) => s.selectedAgent);
-  const settings = useAppStore((s) => s.settings);
-  const [open, setOpen] = useState(false);
-  const [copied, setCopied] = useState(false);
-  const timerRef = useRef<number | undefined>(undefined);
-
-  const onExport = async (format: ExportFormat) => {
-    setOpen(false);
-    const result = await runExport(
-      format,
-      detail,
-      platform,
-      selectedSessionId,
-      dirForPlatform(settings, platform) || undefined,
-      platform === 'openclaw' ? selectedAgent : undefined
-    );
-    if (result === 'copied') {
-      setCopied(true);
-      window.clearTimeout(timerRef.current);
-      timerRef.current = window.setTimeout(() => setCopied(false), 1500);
-    }
-  };
-
-  const entries: [ExportFormat, string][] = [
-    ['markdown', '📝 Markdown (.md)'],
-    ...(DEMO ? [] : ([['html', '🌐 HTML (.html)']] as [ExportFormat, string][])),
-    ['json', '📦 JSON (.json)'],
-    ['clipboard', '📋 复制到剪贴板'],
-  ];
-  if (['codex', 'claude-code', 'claude-desktop', 'omp', 'dsh', 'gemini'].includes(platform))
-    entries.push(['otlp', '🔭 OTLP JSON']);
-
-  return (
-    <div className="relative">
-      <button type="button" className={ACTION_BTN} onClick={() => setOpen((v) => !v)} data-testid="export-btn">
-        {copied ? '✅ Copied!' : '📥 导出'}
-      </button>
-      {open ? (
-        <>
-          <button
-            type="button"
-            aria-label="关闭导出菜单"
-            className="fixed inset-0 z-10 cursor-default bg-transparent"
-            onClick={() => setOpen(false)}
-          />
-          <div className="absolute right-0 z-20 mt-1 w-44 rounded-md border border-border bg-popover p-1 shadow-lg">
-            {entries.map(([format, label]) => (
-              <button
-                key={format}
-                type="button"
-                data-export={format}
-                onClick={() => void onExport(format)}
-                className="block w-full rounded px-2 py-1.5 text-left text-xs hover:bg-accent"
-              >
-                {label}
-              </button>
-            ))}
-          </div>
-        </>
-      ) : null}
-    </div>
-  );
-}
-
-function ResumeButton({ cwd }: { cwd: string | null | undefined }) {
-  const platform = useAppStore((s) => s.platform);
-  const selectedSessionId = useAppStore((s) => s.selectedSessionId);
-  const [copied, setCopied] = useState(false);
-  const cmd = resumeCommand(platform, selectedSessionId, cwd);
-  if (!cmd) return null;
-  return (
-    <button
-      type="button"
-      className={ACTION_BTN}
-      title={`复制在终端恢复此会话的命令：${cmd}`}
-      data-testid="resume-btn"
-      onClick={async () => {
-        try {
-          await navigator.clipboard.writeText(cmd);
-          setCopied(true);
-          setTimeout(() => setCopied(false), 1500);
-        } catch (error) {
-          toast.error(`复制失败: ${(error as Error).message}`);
-        }
-      }}
-    >
-      {copied ? '已复制' : '📋 复制恢复命令'}
-    </button>
-  );
-}
-
-// Platforms whose sessions resume natively in a terminal CLI (open → new window).
-const RESUME_PLATFORM_TITLES: Record<string, string> = {
-  codex: '打开 ChatGPT 应用（codex:// 深链直达会话；应用缺失时回退终端续跑）',
-  'claude-code': '在终端新窗口中恢复此会话（claude --resume）',
-  omp: '在终端新窗口中恢复此会话（omp --resume）',
-  doubao: '打开 Doubao 2 应用（深链直达会话；应用缺失时回退应用启动）',
-  'claude-desktop': '打开 Claude 应用（无会话级深链；应用缺失时回退默认编辑器）',
-  cursor: '打开 Cursor 应用（无会话级深链；应用缺失时回退默认编辑器）',
-  workbuddy: '打开 WorkBuddy 应用（无会话级深链；应用缺失时回退默认编辑器）',
-  trae: '打开 Trae CN 应用（无会话级深链；应用缺失时回退默认编辑器）',
-};
-
-// Mirror of lib/platforms/capabilities.json `open` flag: hermes sessions share
-// a single SQLite store, so "open" has no native target (locate still works).
-const NO_OPEN_PLATFORMS = new Set(['hermes']);
-
-function openTitleFor(platform: string): string {
-  return RESUME_PLATFORM_TITLES[platform] || '用默认应用打开会话日志文件';
-}
-
-function OpenButtons() {
-  const platform = useAppStore((s) => s.platform);
-  const selectedSessionId = useAppStore((s) => s.selectedSessionId);
-  const selectedAgent = useAppStore((s) => s.selectedAgent);
-  const settings = useAppStore((s) => s.settings);
-  const [pending, setPending] = useState<'locate' | 'open' | null>(null);
-
-  // Demo mode is read-only (the demo router rejects POSTs); the buttons only
-  // make sense against a real local server.
-  if (DEMO) return null;
-
-  const needsAgent = platform === 'openclaw';
-  const canOpen = !NO_OPEN_PLATFORMS.has(platform);
-  const dir = dirForPlatform(settings, platform) || undefined;
-  const disabled = needsAgent && !selectedAgent;
-
-  const run = async (action: 'locate' | 'open') => {
-    setPending(action);
-    try {
-      const res: OpenSessionResult = await openSession(platform, selectedSessionId, action, {
-        agent: selectedAgent || undefined,
-        dir,
-      });
-      if (res.ok) {
-        // A session being actively written by another process is the "open in
-        // another app" situation: warn that live updates won't land here.
-        if (action === 'open' && res.hint?.process) {
-          toast.warning(
-            `已打开，但该会话正被 ${res.hint.process}（PID ${res.hint.pid}）活跃使用，可能在别的客户端中打开中`
-          );
-          return;
-        }
-        toast.success(res.detail || (action === 'locate' ? '已定位' : '已打开'));
-        return;
-      }
-      const fb = res.fallback;
-      if (fb?.type === 'copy-path' && fb.path) {
-        await navigator.clipboard.writeText(fb.path);
-        toast.error(`${res.error || '操作失败'}（已复制路径）`);
-      } else if (fb?.type === 'copy-command' && fb.command) {
-        await navigator.clipboard.writeText(fb.command);
-        toast.error(`${res.error || '操作失败'}（已复制命令）`);
-      } else {
-        toast.error(res.error || '操作失败');
-      }
-    } catch (error) {
-      toast.error(`操作失败: ${(error as Error).message}`);
-    } finally {
-      setPending(null);
-    }
-  };
-
-  return (
-    <>
-      <button
-        type="button"
-        className={ACTION_BTN}
-        title={disabled ? '请先选择 OpenClaw agent' : '在 Finder 中定位会话日志文件'}
-        data-testid="locate-btn"
-        disabled={disabled || pending !== null}
-        onClick={() => void run('locate')}
-      >
-        {pending === 'locate' ? '定位中…' : '📍 定位'}
-      </button>
-      {canOpen ? (
-        <button
-          type="button"
-          className={ACTION_BTN}
-          title={disabled ? '请先选择 OpenClaw agent' : openTitleFor(platform)}
-          data-testid="open-btn"
-          disabled={disabled || pending !== null}
-          onClick={() => void run('open')}
-        >
-          {pending === 'open' ? '打开中…' : '🚀 打开'}
-        </button>
-      ) : null}
-    </>
-  );
-}
-
 export function SessionSummary({
   detail,
   timing,
@@ -263,11 +66,10 @@ export function SessionSummary({
   onRetryJump: () => void;
 }) {
   const selectedSessionId = useAppStore((s) => s.selectedSessionId);
-  const msgOrder = useAppStore((s) => s.msgOrder);
-  const setMsgOrder = useAppStore((s) => s.setMsgOrder);
-  const { data: sessions } = useSessionsList();
+  const { data: sessions } = useSessionSummaries();
   const [collapsed, setCollapsed] = useState(() => loadStoredFlag(SUMMARY_COLLAPSED_KEY, true));
   const [pathCopied, setPathCopied] = useState(false);
+  const clockNow = useSharedClock();
 
   const selectedSummary = sessions?.find((s) => s.id === selectedSessionId);
   const sessionFile = selectedSummary?.file;
@@ -294,6 +96,27 @@ export function SessionSummary({
   const tokenSummary = useMemo(() => summarizeTokens(msgs, tokenUsage), [msgs, tokenUsage]);
   const cost = useMemo(() => sessionCost(msgs), [msgs]);
   const listModel = selectedSummary?.model || detail.session?.model;
+  // 同一组事实喂给状态与计数：侧栏卡片、看板、这里取的是同一份数据。
+  const facts = useMemo(() => detailFacts(detail, selectedSummary), [detail, selectedSummary]);
+  const projectPath = selectedSummary?.projectPath || detail.session?.projectPath || detail.session?.cwd || null;
+  const explicitProjectName = selectedSummary?.projectName || detail.session?.projectName || null;
+  // cwd 回退时只显示最后一段目录名，完整路径放进 tooltip。
+  const projectName =
+    explicitProjectName ||
+    (projectPath
+      ? projectPath
+          .replace(/[\\/]+$/, '')
+          .split(/[\\/]/)
+          .pop() || projectPath
+      : null);
+  const isArchived = facts.archived;
+  const lastActivityAt = facts.lastActivityAt;
+  const lastActivityTitle = lastActivityAt === null ? undefined : new Date(lastActivityAt).toLocaleString();
+  const sessionDurationMs = timing.totalDurationMs;
+  // 相对时间统一走 sessionStatus 的词表（秒/分钟/小时/天/月），不再混用绝对日期串。
+  const activityLabel = lastActivityAt === null ? null : formatRelativeTime(lastActivityAt, clockNow);
+
+  const status = useMemo(() => deriveSessionStatus(facts, clockNow), [facts, clockNow]);
 
   const total = timing.totalDurationMs;
   const toolMs = timing.totalToolDurationMs || 0;
@@ -314,6 +137,11 @@ export function SessionSummary({
     .slice(0, 8);
   const toolCallCount = stats.toolCallCount || selectedSummary?.toolCallCount || 0;
   const toolResultCount = stats.toolResultCount || selectedSummary?.toolResultCount || 0;
+  const userCount = facts.userCount;
+  const assistantCount = facts.assistantCount;
+  const conversationCount = messageCount(facts);
+  const reasoningCount = msgs.filter((message) => message.role === 'reasoning').length;
+  const totalItemCount = msgs.length;
 
   const toggleCollapsed = () => {
     setCollapsed((prev) => {
@@ -332,65 +160,57 @@ export function SessionSummary({
           >
             {selectedSummary?.title || detail.session?.id || selectedSessionId}
           </h2>
-          <div className="mt-2 flex flex-wrap items-center gap-1.5 text-[11px] text-muted-foreground">
-            <span className="rounded-full bg-secondary/80 px-2 py-0.5 font-medium">
-              {formatDate(detail.session?.timestamp)}
+          {/* 一行元信息：状态是唯一的高亮胶囊，其余用「·」分隔的纯文字。
+              日期不再单列（最近活动的 tooltip 里有完整时间，左侧卡片也有）。 */}
+          <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-muted-foreground">
+            <span data-testid="session-summary-status" title={status.hint} className="inline-flex">
+              <StatusPill
+                tone={status.tone}
+                label={status.label}
+                hint={status.hint}
+                pulse={status.kind === 'working'}
+              />
             </span>
-            {isLive(detail.session?.lastActivity) ? (
-              <span className="flex items-center gap-1 rounded-full bg-green-500/10 px-2 py-0.5 font-medium text-green-600 dark:text-green-300">
-                <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-green-500" />
-                活跃中
+            {activityLabel ? (
+              <span title={lastActivityTitle}>
+                最近活动 <span className="text-foreground/80">{activityLabel}</span>
               </span>
             ) : null}
-            {selectedSummary?.projectName || detail.session?.projectName || detail.session?.cwd ? (
-              <span
-                className="max-w-[260px] truncate rounded-full bg-secondary/80 px-2 py-0.5 font-medium"
-                title={selectedSummary?.projectPath || detail.session?.projectPath || detail.session?.cwd || ''}
-              >
-                {selectedSummary?.projectName || detail.session?.projectName || detail.session?.cwd}
+            {sessionDurationMs !== null ? (
+              <span title="按首条至末条有效消息的时间跨度计算，不包含末次活动后的空闲时间">
+                时长 <span className="text-foreground/80">{formatDurationCompact(sessionDurationMs)}</span>
               </span>
             ) : null}
             {listModel ? (
-              <span className="rounded-full bg-secondary/80 px-2 py-0.5 font-medium">模型：{listModel}</span>
+              <span className="max-w-[220px] truncate" title={listModel}>
+                模型 <span className="text-foreground/80">{listModel.split('/').pop()}</span>
+              </span>
             ) : null}
-            <span className="rounded-full bg-secondary/80 px-2 py-0.5 font-medium">消息：{msgs.length}</span>
-            <span className="rounded-full bg-secondary/80 px-2 py-0.5 font-medium">{toolCallCount} 次工具调用</span>
-            {selectedSummary?.archived || detail.session?.archived ? (
-              <span className="rounded-full bg-amber-500/10 px-2 py-0.5 font-medium text-amber-700 dark:text-amber-300">
+            {projectName ? (
+              <span className="max-w-[220px] truncate" title={projectPath || projectName}>
+                项目 <span className="text-foreground/80">{projectName}</span>
+              </span>
+            ) : null}
+            <span title="按日志记录计数，与左侧会话列表、看板同一口径">
+              👤 {userCount} · 🤖 {assistantCount}
+            </span>
+            <span>{toolCallCount} 次工具调用</span>
+            {isArchived ? (
+              <span className="rounded border border-amber-500/50 bg-amber-500/10 px-1 py-px font-medium text-amber-700 dark:text-amber-300">
                 已归档
               </span>
             ) : null}
             {detail.session?.contentAvailable === false ? (
-              <span className="rounded-full bg-amber-500/10 px-2 py-0.5 font-medium text-[#b7791f]">
+              <span
+                className="rounded border border-amber-500/50 bg-amber-500/10 px-1 py-px font-medium text-[#b7791f]"
+                title="日志里没有保留正文，只能看到元信息与计数"
+              >
                 本地未保留正文
               </span>
             ) : null}
           </div>
         </div>
-        <div className="flex flex-wrap items-center justify-end gap-2">
-          <button
-            type="button"
-            className={ACTION_BTN}
-            title={
-              msgOrder === 'newest-first' ? '当前：最新在上；点击改为最早在上' : '当前：最早在上；点击改为最新在上'
-            }
-            onClick={() => setMsgOrder(msgOrder === 'newest-first' ? 'oldest-first' : 'newest-first')}
-          >
-            {msgOrder === 'newest-first' ? '改为最早在上' : '改为最新在上'}
-          </button>
-          <button
-            type="button"
-            className={ACTION_BTN}
-            title="折叠/展开会话统计详情"
-            onClick={toggleCollapsed}
-            data-testid="summary-toggle"
-          >
-            {collapsed ? '更多信息' : '收起信息'}
-          </button>
-          <ResumeButton cwd={detail.session?.cwd} />
-          <OpenButtons />
-          <ExportMenu detail={detail} />
-        </div>
+        <HeaderActions detail={detail} collapsed={collapsed} onToggleCollapsed={toggleCollapsed} />
       </div>
 
       {!collapsed ? (
@@ -399,7 +219,6 @@ export function SessionSummary({
             <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
               <span>会话 ID：{detail.session?.id || selectedSessionId}</span>
               {detail.session?.dataSource ? <span>来源：{detail.session.dataSource}</span> : null}
-              {total !== null ? <span>总耗时：{formatDurationCompact(total)}</span> : null}
               {total !== null && timing.totalToolDurationMs !== null && total > 0 ? (
                 <span>
                   工具执行：{formatDurationCompact(toolMs)}（{Math.round((toolMs / total) * 100)}%） · 模型：
@@ -410,8 +229,12 @@ export function SessionSummary({
                 <button
                   type="button"
                   className="text-[#b7791f] hover:underline"
-                  title="跳转到耗时最长的一轮"
-                  onClick={() => timing.slowestStep?.messageId && onScrollToMessage(timing.slowestStep.messageId)}
+                  title={
+                    timing.slowestStep.anchorId
+                      ? `跳转到耗时最长的一轮（锚点：message-${timing.slowestStep.anchorId}）`
+                      : '跳转到耗时最长的一轮'
+                  }
+                  onClick={() => timing.slowestStep?.anchorId && onScrollToMessage(timing.slowestStep.anchorId)}
                 >
                   最慢一轮：{formatDurationCompact(timing.slowestStep.deltaMs)}（{timing.slowestStep.label}）
                 </button>
@@ -453,22 +276,40 @@ export function SessionSummary({
                   onClick={() => setMsgFilter('user')}
                   title="Click to show only user messages"
                 >
-                  👤 User: {stats.userCount}
+                  👤 User: {userCount}
                 </FilterBadge>
                 <FilterBadge
                   active={msgFilter === 'assistant'}
                   onClick={() => setMsgFilter('assistant')}
                   title="Click to show only assistant messages"
                 >
-                  🤖 Assistant: {stats.assistantCount}
+                  🤖 Assistant: {assistantCount}
                 </FilterBadge>
-                <FilterBadge
-                  active={msgFilter === null}
-                  onClick={() => setMsgFilter(null)}
-                  title="Click to show all messages"
+                <span
+                  className="rounded-full bg-secondary/70 px-2.5 py-1 text-[11px] font-medium text-muted-foreground"
+                  title="用户 + 助手记录条数（与列表、看板同一口径）"
                 >
-                  💬 Total: {msgs.length}
-                </FilterBadge>
+                  💬 消息合计：{conversationCount}
+                </span>
+              </div>
+            </div>
+            <div className="rounded-md border border-border/70 p-2.5">
+              <div className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                Activity
+              </div>
+              <div className="flex flex-wrap gap-1">
+                <span
+                  className="rounded-full bg-secondary/70 px-2.5 py-1 text-[11px] font-medium text-muted-foreground"
+                  title="Model reasoning records"
+                >
+                  🧠 Reasoning: {reasoningCount}
+                </span>
+                <span
+                  className="rounded-full bg-secondary/70 px-2.5 py-1 text-[11px] font-medium text-muted-foreground"
+                  title="All normalized transcript items, including conversation, reasoning, and tool records"
+                >
+                  📊 Total Items: {totalItemCount}
+                </span>
               </div>
             </div>
             <div className="rounded-md border border-border/70 p-2.5">
@@ -602,51 +443,13 @@ export function SessionSummary({
             </div>
             <ContextUsageCard
               usage={contextUsage}
+              cumulative={{ tokens: tokenSummary, cost }}
               unavailableNote={
                 detail.session?.dataSource === 'indexeddb'
                   ? 'Doubao 的 trajectory 与 IndexedDB 本地记录未提供 Token usage，无法计算上下文用量。'
                   : undefined
               }
             />
-            <div className="rounded-md border border-border/70 p-2.5">
-              <div className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Tokens</div>
-              <div className="flex flex-wrap gap-1">
-                {Object.keys(tokenSummary).length ? (
-                  Object.entries(tokenSummary).map(([key, value]) => {
-                    const label =
-                      {
-                        input: 'Input',
-                        output: 'Output',
-                        cacheRead: 'Cache Read',
-                        cacheWrite: 'Cache Write',
-                        reasoning: 'Reasoning',
-                        totalTokens: 'Total',
-                        contextWindow: 'Context Window',
-                      }[key] || key;
-                    return (
-                      <span
-                        key={key}
-                        className="rounded border border-border px-1.5 py-0.5 text-[11px] text-muted-foreground"
-                      >
-                        {label}: {formatNumber(value)}
-                      </span>
-                    );
-                  })
-                ) : (
-                  <span className="rounded border border-border px-1.5 py-0.5 text-[11px] text-muted-foreground">
-                    No token data
-                  </span>
-                )}
-                {cost > 0 ? (
-                  <span
-                    className="rounded border border-border px-1.5 py-0.5 text-[11px] text-muted-foreground"
-                    title="按消息 usage.cost.total 合计"
-                  >
-                    💰 {formatCost(cost)}
-                  </span>
-                ) : null}
-              </div>
-            </div>
           </div>
           <ChildAgentsSection />
         </div>

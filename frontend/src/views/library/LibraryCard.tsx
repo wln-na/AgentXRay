@@ -1,12 +1,13 @@
 // Library card: name/source/date head, per-target install toggles, description,
-// tags, usage badges, clamped content, Copy/编辑/删除/历史 actions.
+// tags, clamped content, Copy/编辑/删除 actions.
 // Legacy reference: public/js/app.js renderLibrary card template (~2133-2284).
 
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
 import { toast } from 'sonner';
 import { deleteLibraryPrompt, installLibraryPrompt, uninstallLibraryPrompt } from '@/api/client';
-import type { InstallTarget, LibraryPrompt, LibraryUsageEntry } from '@/api/types';
+import type { InstallTarget, LibraryPrompt } from '@/api/types';
+import { CopyButton } from '@/components/CopyButton';
 import { Markdown } from '@/components/Markdown';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
@@ -17,20 +18,9 @@ const TARGETS: { target: InstallTarget; label: string }[] = [
   { target: 'omp', label: 'OMP' },
 ];
 
-export function LibraryCard({
-  prompt,
-  usage,
-  onEdit,
-  onHistory,
-}: {
-  prompt: LibraryPrompt;
-  usage: LibraryUsageEntry | null;
-  onEdit: () => void;
-  onHistory: () => void;
-}) {
+export function LibraryCard({ prompt, onEdit }: { prompt: LibraryPrompt; onEdit: () => void }) {
   const queryClient = useQueryClient();
   const [expanded, setExpanded] = useState(false);
-  const [copied, setCopied] = useState(false);
   const content = prompt.content || '';
   const long = content.length > 500;
   const dateStr = prompt.createdAt ? new Date(prompt.createdAt).toLocaleString() : '—';
@@ -47,13 +37,6 @@ export function LibraryCard({
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['library'] }),
     onError: (err: Error) => toast.error(`删除失败: ${err.message}`),
   });
-
-  const copy = () => {
-    navigator.clipboard.writeText(content).then(() => {
-      setCopied(true);
-      setTimeout(() => setCopied(false), 1200);
-    });
-  };
 
   return (
     <div className="rounded-lg border border-border bg-card p-4">
@@ -96,18 +79,6 @@ export function LibraryCard({
           ))}
         </div>
       )}
-      {usage && usage.uses > 0 && (
-        <div className="mt-2 text-xs text-muted-foreground">
-          {[
-            `📈 用过 ${usage.uses} 次`,
-            usage.avgMessages != null ? `平均 ${Number(usage.avgMessages.toFixed(1))} 条消息/轮` : null,
-            usage.errorRate != null ? `错误率 ${Math.round(usage.errorRate * 100)}%` : null,
-            usage.lastUsed ? `最近 ${new Date(usage.lastUsed).toLocaleDateString()}` : null,
-          ]
-            .filter(Boolean)
-            .join(' · ')}
-        </div>
-      )}
       <div className={cn('mt-2', long && !expanded && 'max-h-40 overflow-hidden')}>
         <Markdown text={content} />
       </div>
@@ -121,9 +92,7 @@ export function LibraryCard({
         </button>
       )}
       <div className="mt-3 flex gap-2">
-        <Button variant="outline" size="sm" onClick={copy}>
-          {copied ? 'Copied!' : 'Copy'}
-        </Button>
+        <CopyButton text={content} />
         <Button variant="outline" size="sm" onClick={onEdit}>
           编辑
         </Button>
@@ -138,9 +107,6 @@ export function LibraryCard({
           }}
         >
           删除
-        </Button>
-        <Button variant="outline" size="sm" onClick={onHistory}>
-          🕒 历史
         </Button>
       </div>
     </div>

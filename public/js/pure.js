@@ -1,8 +1,9 @@
 // GENERATED FILE — do not edit.
 // Source of truth: frontend/src/lib/pure.ts + frontend/src/lib/markdown.ts.
 // Regenerate with `node scripts/build-legacy-pure.mjs` (also runs in build:ui).
-// Browser: functions land on window.* (loaded before the legacy app script).
-// Node: require('public/js/pure.js') returns the same functions.
+// Node: require('public/js/pure.js') returns the same functions (the test suite).
+// Browser: functions also land on window.*, but no bundled UI loads this file
+// anymore — the React app imports the TS sources and the legacy UI is retired.
 var __axrPure = (() => {
   var __defProp = Object.defineProperty;
   var __getOwnPropDesc = Object.getOwnPropertyDescriptor;

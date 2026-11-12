@@ -42,7 +42,7 @@
 1. 渲染内容只有「一块画布 + 一个可选的拖拽热区 + 可选气泡」，没有组件树、没有路由、没有状态框架。React/Vite 的收益在此趋零。
 2. 引入 Vite/webpack 会带来**第二套 node_modules + 第二套构建配置 + 第二套 CI 步骤**，并把子包与根包「一条命令跑测试」的目标打散。
 3. 零构建让 `desktop/main.js` 能直接 `loadFile('renderer/index.html')`，也让根 `npm test` 完全不受影响（测试只 require 纯逻辑层）。
-4. 根包已有 `build:ui`（`scripts/build-legacy-pure.mjs` + frontend Vite）。**再叠加一套**只会增加心智负担。
+4. 根包已有 `build:ui`（`npm run build:pure` + frontend Vite）。**再叠加一套**只会增加心智负担。
 
 **反驳点（如实记录）**：若未来 P4+ 要长出设置面板、皮肤选择器、拖拽布局等复杂 UI，手写 DOM 会变得吃力，届时引入构建是合理的。本设计**显式推迟**该决定，并在 `renderer/` 保持「无框架、易迁移」的写法。同时**不引入 TypeScript**（TS 只存在于 `frontend/`）；desktop 子包用 CommonJS（`lib/`）与浏览器原生 script（`renderer/`），风格对齐 `lib/` + `biome.json`（单引号、分号、行宽 120）。
 
@@ -697,7 +697,7 @@ runtime dependencies:
 
 **后端契约（复用，勿改）**：
 - `GET /api/pet/state`：SSE，`event: state` payload `{state,platform,sessionId,agent,bubble,updatedAt}`；`event: error` `{error}`；15s `: ping`；`?once=1` 返回单次 JSON；`?window=`（秒，默认 180）/`?interval=`（ms，默认 2000，夹 500–10000）。连接瞬间先发一帧 idle 占位。
-- `POST /api/:platform/sessions/:sessionId/open`（openclaw 走 `POST /api/agents/:name/sessions/:sessionId/open`），body `{action:'open'|'locate'}`，返回 `{ok,action,detail}` 或 `{ok:false,error,fallback:{type,path?/command?}}`。**桌面壳只调用，不新增后端路由。**
+- `POST /api/:platform/sessions/:sessionId/open`（openclaw 也走同一路由，`agent` 用 `?agent=<name>` 传入），body `{action:'open'|'locate'}`，返回 `{ok,action,detail}` 或 `{ok:false,error,fallback:{type,path?/command?}}`。**桌面壳只调用，不新增后端路由。**
 
 **安全边界**：`contextIsolation:true`、`nodeIntegration:false`、`sandbox`（renderer）；CSP 仅允许自身脚本；主进程不接受 renderer 传入任意 URL/命令（`pet:open-session` 只接受 `{platform,sessionId,agent}` 并由 `buildOpenRequest` 组装路径，`sessionId`/`agent` 复用后端 `SESSION_ID_RE`/`AGENT_NAME_RE` 的校验语义）。
 

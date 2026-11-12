@@ -55,9 +55,10 @@ If you build and operate your own agent in production, use a tracing platform. I
 - **Spawn tracking** — Detect and navigate parent/child agent relationships
 - **OMP sub-agents** — Sub-agents spawned by an OMP session show up as chips in the summary; click one to read the child agent's full transcript
 - **Message timeline** — Visual graph showing conversation flow with role indicators
+- **Session task panel** — Combines explicit task records with LLM classification. Multiple user messages and Codex turns can be grouped into one semantic task, which is shown as pending, in-progress, or completed with jumps to evidence messages
 - **Resume command** — One click copies the exact command to resume a session in its own CLI (`codex resume`, `claude --resume`, `omp --resume=`)
 - **Locate & open** — One click reveals a session's log file in Finder, deep-links into the exact session (codex → `codex://threads/<sessionId>` in the ChatGPT app — the Codex thread id equals the rollout session id; doubao → `https://www.doubao.com/chat/<conversationId>` opened inside the Doubao work client), otherwise launches the owning app (claude-desktop → Claude, cursor → Cursor), resumes CLI sessions in a fresh iTerm2/Terminal window (claude-code / omp), or opens the log with the default editor (Hermes: locate only). App-first platforms fall back gracefully when the app is missing (codex → terminal resume; claude-desktop / cursor → default editor). If another process is actively writing the session log at open time (the "open in another app" situation), the UI warns which process holds it. Copyable path/command fallbacks on non-macOS (macOS only; see `/api/:platform/sessions/:id/open`)
-- **Active sessions at a glance** — Sessions written within the last 3 minutes are flagged "活跃中" (live) in the list and detail header, so you can tell which agent is working right now
+- **Recent activity and session duration** — Sessions with activity records in the last 3 minutes are marked in the list and detail header. This is a recent-activity signal, not confirmation that a process is still running. The detail header also shows the span between the first and last valid messages and the time since the latest activity
 - **Collapsible summary** — Fold the session summary away when you want the full height for messages
 - **Auto-refresh** — Live-updating session list and messages: SSE streams new lines the moment they land, and the list + detail reconcile every 5s so the view self-heals even if the stream drops
 - **Settings panel** — Configure platform directories from the UI, persisted in localStorage
@@ -129,6 +130,87 @@ npm start
 ```
 
 Open http://localhost:3800
+
+### Use a remote Ollama model through SSH
+
+AgentXRay can call an Ollama model running on a remote development machine through
+an SSH local port forward. Replace `your-ssh-host` with your local SSH host alias;
+do not commit personal host names, API keys, or local model settings to this repo.
+The example below forwards the remote Ollama port to `127.0.0.1:18000`:
+
+```bash
+# Terminal 1: keep the SSH tunnel running
+ssh -fNT \
+  -o ExitOnForwardFailure=yes \
+  -o ServerAliveInterval=30 \
+  -o ServerAliveCountMax=3 \
+  -L 127.0.0.1:18000:127.0.0.1:11434 \
+  your-ssh-host
+
+# Verify the remote Ollama models through the tunnel
+curl http://127.0.0.1:18000/v1/models
+
+# Terminal 2: start AgentXRay from the source tree
+npm start
+```
+
+In AgentXRay, open **Settings → LLM 接口**, create a profile such as `local`,
+and enter:
+
+```text
+Base URL: http://127.0.0.1:18000/v1
+Model: qwen2.5:7b-instruct-q4_K_M
+API Key: leave empty
+```
+
+Multiple profiles can be stored at the same time. For example, keep the remote
+Ollama profile for session task classification and route prompt rewriting to a
+separate cloud API profile. The local configuration has this shape:
+
+```json
+{
+  "version": 2,
+  "activeProfile": "local",
+  "profiles": {
+    "local": {
+      "type": "openai-compatible",
+      "baseUrl": "http://127.0.0.1:18000/v1",
+      "model": "qwen2.5:7b-instruct-q4_K_M",
+      "apiKey": ""
+    },
+    "cloud": {
+      "type": "openai-compatible",
+      "baseUrl": "https://your-provider.example/v1",
+      "model": "your-cloud-model",
+      "apiKey": "your-local-secret"
+    }
+  },
+  "routes": {
+    "sessionTasks": "local",
+    "promptRewrite": "cloud",
+    "promptAnalysis": "cloud",
+    "libraryName": "local"
+  }
+}
+```
+
+The file is stored at `~/.agentxray/llm.json` and is intentionally outside the
+repository. Do not commit it or put real API keys in README examples.
+
+The Base URL must end at `/v1`; AgentXRay appends `/chat/completions` itself.
+Use the exact model id returned by `/v1/models`. For example, to use another
+model, replace the model value with `deepseek-r1:7b`.
+
+The tunnel is local to the machine running AgentXRay. The actual endpoint and
+model selection are personal settings stored in `~/.agentxray/llm.json`, which is
+outside this repository. If the tunnel disconnects, rerun
+the `ssh -fNT` command before using LLM-backed features. To inspect or stop the
+tunnel:
+
+```bash
+pgrep -af '127.0.0.1:18000:127.0.0.1:11434'
+kill <ssh-pid>
+```
 
 ---
 
@@ -222,8 +304,8 @@ npm start
 | Endpoint | Description |
 |----------|-------------|
 | `GET /api/agents` | List OpenClaw agents |
-| `GET /api/agents/:name/sessions` | List sessions for an agent |
-| `GET /api/agents/:name/sessions/:id` | Get session messages |
+| `GET /api/openclaw/sessions?agent=<name>` | List sessions for an OpenClaw agent (`{ sessions, page }`, same shape as every platform) |
+| `GET /api/openclaw/sessions/:id?agent=<name>` | Get a paged session window for an OpenClaw agent's session |
 | `GET /api/codex/sessions` | List Codex sessions |
 | `GET /api/codex/sessions/:id` | Get Codex session messages |
 | `GET /api/claude-code/sessions` | List Claude Code sessions |
@@ -256,7 +338,7 @@ npm start
 | `GET /api/prompts/hidden` | List hidden prompt hashes and previews |
 | `POST /api/prompts/hidden` | Hide one prompt (`text`) or a batch (`texts`) |
 | `DELETE /api/prompts/hidden/:hash` | Restore a hidden prompt by hash |
-| `GET/PUT /api/settings/llm` | LLM backend config: OpenAI-compatible `baseUrl`/`model`/`apiKey`, persisted in `~/.agentxray/llm.json` (key never echoed back) |
+| `GET/PUT /api/settings/llm` | Local LLM profiles and per-feature routes, persisted in `~/.agentxray/llm.json` (API keys never echoed back) |
 | `GET /api/search` | Full-text search across sessions (`?platform=all` searches every platform at once, multi-keyword AND) |
 | `GET /api/codex/sessions/:id/children` | List child agents spawned by a Codex session |
 | `GET /api/codex/sessions/:id/children/:name` | Get a Codex child agent's messages |
@@ -264,9 +346,10 @@ npm start
 | `GET /api/claude-code/sessions/:id/children/:name` | Get a Claude Code child agent's messages |
 | `GET /api/omp/sessions/:id/children` | List sub-agents spawned by an OMP session |
 | `GET /api/omp/sessions/:id/children/:name` | Get a spawned OMP sub-agent's messages |
-| `GET /api/:platform/sessions/:id/context?messageIndex=N` | Reconstruct context before a message (`codex`, `claude-code`, `claude-desktop`) |
-| `POST /api/:platform/sessions/:id/open` | One-click locate/open a session (all platforms except OpenClaw; `{ "action": "locate" \| "open" }`): locate reveals the log in Finder; open deep-links into the exact session (codex via `codex://threads/<sessionId>` in the ChatGPT app; doubao via `https://www.doubao.com/chat/<conversationId>` opened inside the Doubao work client), launches the owning app (claude-desktop→Claude, cursor→Cursor), or resumes CLI sessions in a fresh terminal window (claude-code/omp), or opens the log with the default editor. App-first platforms fall back when the app is missing (codex→terminal resume; claude-desktop/cursor→default editor). When another process is actively writing the log, the response carries a `hint` with the holding process so the UI can warn "open in another app". macOS only — non-macOS and failures return a copyable `fallback` path/command |
-| `POST /api/agents/:name/sessions/:id/open` | Same locate/open actions for an OpenClaw agent's session (`{ "action": "locate" \| "open" }`; OpenClaw is served here, not on the generic route) |
+| `GET /api/:platform/sessions/:id/context?messageIndex=N` or `?messageId=…` | Reconstruct context before a message (`codex`, `claude-code`, `claude-desktop`; OpenClaw via `?agent=<name>`) |
+| `GET /api/:platform/sessions/:id/context?messageIds=a,b,c` | Batch context reconstruction (≤200 ids, one parse) → `{ snapshots, errors }` |
+| `GET /api/:platform/sessions/:id/full?agent` | Get the complete transcript (`complete: true`, no `messagePage`) — the explicit way to ask for every message |
+| `POST /api/:platform/sessions/:id/open?agent` | One-click locate/open a session (all platforms, OpenClaw via `?agent=<name>`; `{ "action": "locate" \| "open" }`): locate reveals the log in Finder; open deep-links into the exact session (codex via `codex://threads/<sessionId>` in the ChatGPT app; doubao via `https://www.doubao.com/chat/<conversationId>` opened inside the Doubao work client), launches the owning app (claude-desktop→Claude, cursor→Cursor), or resumes CLI sessions in a fresh terminal window (claude-code/omp), or opens the log with the default editor. App-first platforms fall back when the app is missing (codex→terminal resume; claude-desktop/cursor→default editor). When another process is actively writing the log, the response carries a `hint` with the holding process so the UI can warn "open in another app". macOS only — non-macOS and failures return a copyable `fallback` path/command |
 | `GET /api/:platform/sessions/:id/export?format=md\|html` | Export a scrubbed session as Markdown or self-contained HTML |
 | `GET /api/otlp/:platform/:sessionId` | Export a supported session as OTLP-compatible JSON |
 | `GET /api/watch` | Stream real-time session updates with Server-Sent Events |
@@ -287,13 +370,15 @@ npm start
 
 All list/detail endpoints accept an optional `?dir=` parameter to override the default directory. The usage endpoint accepts per-platform directory overrides such as `?codexDir=/custom/path`.
 
+Session lists are paged and return `{ sessions, page }` (`page`: `total`, `limit`, `start`, `end`, `hasMore`, `nextBefore`; default limit 100, max 200). Session detail is always a window too: `messagePage` is always present (default limit 60, max 200) and `before` is the shared cursor for both. Ask for the complete transcript with the explicit `/…/full` endpoint — omitting `limit` no longer returns everything. OpenClaw is served by the same `/api/:platform/...` routes as every other platform, with `agent` passed as a query parameter (`?agent=<name>`); `GET /api/agents` still lists the OpenClaw agent names.
+
 ---
 
 ## Tech Stack
 
 - **Backend:** Node.js + Express
-- **Frontend:** React + Vite + TypeScript under `frontend/` (default UI, served from `frontend/dist`)
-- **Legacy UI:** the original vanilla HTML/CSS/JS app under `public/`, served at `/legacy` — **frozen: security fixes only**. New features land in the React app exclusively; a feature change to the React renderer requires zero edits under `public/js/`. Shared logic (formatters, trace builder, markdown/escape pipeline) is authored once in `frontend/src/lib/pure.ts` and `frontend/src/lib/markdown.ts`, and `public/js/pure.js` is generated from them (`npm run build:legacy-pure`, also part of `build:ui`).
+- **Frontend:** React + Vite + TypeScript under `frontend/` (the only UI, served from `frontend/dist`)
+- **Legacy UI (retired):** the original vanilla HTML/CSS/JS app that lived under `public/` has been removed; `/legacy` is no longer served and there is no second UI to choose between. Shared logic (formatters, trace builder, markdown/escape pipeline) is still authored once in `frontend/src/lib/pure.ts` and `frontend/src/lib/markdown.ts`, and `public/js/pure.js` is generated from them (`npm run build:pure`, also part of `build:ui`) as the bundle the Node test suite `require()`s.
 - **Data:** Reads JSONL/SQLite session stores directly, maintains a privacy-minimized derived SQLite cache for Doubao IndexedDB, and stores daily usage rollups in `~/.agentxray/usage-index.sqlite` — no prompts, and excluded from the default session backup
 - **Zero external CDN** — Everything is self-contained, works offline
 

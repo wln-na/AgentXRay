@@ -1,11 +1,14 @@
 // 会话 view: session detail (summary + messages/trace toggle), pagination,
 // scroll-to-message (local + cross-view via pendingScrollMsgId), SSE tail.
 
+import { useQueryClient } from '@tanstack/react-query';
 import { Activity, MessageSquare } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { getSessionChild, getSessionMessages } from '@/api/client';
+import type { SessionDetail } from '@/api/types';
 import { usePlatformProbe } from '@/hooks/usePlatformProbe';
 import { cn } from '@/lib/utils';
-import { useAppStore } from '@/store';
+import { dirForPlatform, useAppStore } from '@/store';
 import { ChildAgentBanner } from '@/views/trace/ChildAgentsSection';
 import { useActiveSessionDetail } from '@/views/trace/childAgents';
 import { TraceView } from '@/views/trace/TraceView';
@@ -14,9 +17,10 @@ import type { MsgFilter } from './lib';
 import { buildTimingAnalysis } from './lib';
 import { MessageActionsContext } from './MessageItem';
 import { MessageList, MSG_BATCH_SIZE } from './MessageList';
-import { useSessionDetail } from './queries';
+import { mergeSessionDetailPages, useSessionDetail } from './queries';
 import { SessionSummary } from './SessionSummary';
 import { SystemContextPanel } from './SystemContextPanel';
+import { TaskPanel } from './TaskPanel';
 import { useSessionSse } from './useSessionSse';
 
 // Every platform probed empty (#13): guide the user to where logs are
@@ -129,6 +133,8 @@ function revealAndFlash(el: HTMLElement, color = '#58a6ff') {
 export function SessionsView() {
   const platform = useAppStore((s) => s.platform);
   const selectedSessionId = useAppStore((s) => s.selectedSessionId);
+  const selectedAgent = useAppStore((s) => s.selectedAgent);
+  const settings = useAppStore((s) => s.settings);
   const sessionView = useAppStore((s) => s.sessionView);
   const setSessionView = useAppStore((s) => s.setSessionView);
   const viewingChildAgent = useAppStore((s) => s.viewingChildAgent);
@@ -137,10 +143,12 @@ export function SessionsView() {
 
   const parentQuery = useSessionDetail(); // summary always shows the parent
   const activeQuery = useActiveSessionDetail(); // messages area: parent or child transcript
+  const queryClient = useQueryClient();
   const probe = usePlatformProbe(); // all-empty guided state (#13); cache shared with PlatformBar
 
   const [msgFilter, setMsgFilter] = useState<MsgFilter>(null);
   const [visibleUnitCount, setVisibleUnitCount] = useState<number>(MSG_BATCH_SIZE);
+  const [loadingMore, setLoadingMore] = useState(false);
   const messagesRef = useRef<HTMLDivElement>(null);
   const pendingAnchorRef = useRef<string | null>(null);
   const [scrollTick, setScrollTick] = useState(0);
@@ -148,13 +156,22 @@ export function SessionsView() {
 
   const activeKey = `${platform}:${selectedSessionId}:${viewingChildAgent ?? ''}`;
   const activeDetail = activeQuery.data;
-  const timing = useMemo(() => buildTimingAnalysis(activeDetail?.messages), [activeDetail]);
+  // Keyed on the messages ARRAY, not on the detail object: the detail object is a
+  // new identity after every poll (and after every metadata-only change), while
+  // TanStack Query's structural sharing keeps the messages array identical when
+  // nothing changed. Hanging the memo off the detail object made `timing` — and
+  // therefore every message unit and bubble — rebuild on every 5 s poll.
+  const timing = useMemo(() => buildTimingAnalysis(activeDetail?.messages), [activeDetail?.messages]);
   const parentTiming = useMemo(
     () => (viewingChildAgent ? buildTimingAnalysis(parentQuery.data?.messages) : timing),
-    [viewingChildAgent, parentQuery.data, timing]
+    [viewingChildAgent, parentQuery.data?.messages, timing]
   );
 
-  // New transcript loaded → legacy loadSession: all messages if ≤200, else first 60
+  // New transcript loaded → legacy loadSession: batch the render at MSG_BATCH_SIZE
+  // units. This used to gate on `messagePage` (the server always returns one), which
+  // set the count to Infinity and rendered every loaded message in a single commit —
+  // so a large payload produced tens of thousands of DOM nodes with no batching.
+  // Gate on the actual message count instead.
   useEffect(() => {
     if (!activeDetail || paginatedKeyRef.current === activeKey) return;
     paginatedKeyRef.current = activeKey;
@@ -162,6 +179,69 @@ export function SessionsView() {
     setMsgFilter(null);
     messagesRef.current?.scrollTo({ top: 0 });
   }, [activeKey, activeDetail]);
+
+  const loadOlderMessages = useCallback(async () => {
+    const current = activeQuery.data;
+    const page = current?.messagePage;
+    if (!current || !page?.hasMoreBefore || !page.nextBefore || loadingMore || !selectedSessionId) return;
+    setLoadingMore(true);
+    try {
+      const dir = dirForPlatform(settings, platform) || undefined;
+      if (viewingChildAgent) {
+        const next = await getSessionChild(
+          platform as 'omp' | 'claude-code' | 'codex' | 'dsh',
+          selectedSessionId,
+          viewingChildAgent,
+          dir,
+          {
+            limit: MSG_BATCH_SIZE,
+            before: page.nextBefore,
+          }
+        );
+        queryClient.setQueryData(
+          ['session-child', platform, selectedSessionId, viewingChildAgent],
+          mergeSessionDetailPages(current, next)
+        );
+      } else {
+        const next = await getSessionMessages(platform, selectedSessionId, {
+          agent: selectedAgent || undefined,
+          dir,
+          limit: MSG_BATCH_SIZE,
+          before: page.nextBefore,
+        });
+        queryClient.setQueryData<SessionDetail>(['session', platform, selectedSessionId], (existing) => {
+          if (!existing) return existing;
+          const seen = new Set(
+            existing.messages.map(
+              (message) => message.id || `${message.timestamp || ''}|${message.role || ''}|${message.toolCallId || ''}`
+            )
+          );
+          const older = next.messages.filter((message) => {
+            const key = message.id || `${message.timestamp || ''}|${message.role || ''}|${message.toolCallId || ''}`;
+            if (seen.has(key)) return false;
+            seen.add(key);
+            return true;
+          });
+          return {
+            ...existing,
+            messages: [...older, ...existing.messages],
+            messagePage: { ...next.messagePage, loadedCount: existing.messages.length + older.length },
+          };
+        });
+      }
+    } finally {
+      setLoadingMore(false);
+    }
+  }, [
+    activeQuery.data,
+    loadingMore,
+    selectedSessionId,
+    platform,
+    settings,
+    viewingChildAgent,
+    selectedAgent,
+    queryClient,
+  ]);
 
   // scrollToMessage: expand pagination + clear filter, then reveal + flash after paint
   const scrollToMessage = useCallback((msgId: string) => {
@@ -280,6 +360,14 @@ export function SessionsView() {
             <ChildAgentBanner />
             {activeDetail ? (
               <>
+                <TaskPanel
+                  messages={activeDetail.messages}
+                  platform={platform}
+                  sessionId={activeDetail.session?.id || selectedSessionId}
+                  agent={selectedAgent}
+                  dir={dirForPlatform(settings, platform) || undefined}
+                  onJump={scrollToMessage}
+                />
                 <DshActivityPanel events={activeDetail.activityEvents} />
                 <SystemContextPanel messages={activeDetail.contextMessages} />
                 <MessageList
@@ -289,7 +377,12 @@ export function SessionsView() {
                   msgFilter={msgFilter}
                   timing={timing}
                   visibleUnitCount={visibleUnitCount}
-                  onLoadMore={() => setVisibleUnitCount((c) => c + MSG_BATCH_SIZE)}
+                  onLoadMore={() => {
+                    if (activeDetail?.messagePage?.hasMoreBefore) void loadOlderMessages();
+                    else setVisibleUnitCount((c) => c + MSG_BATCH_SIZE);
+                  }}
+                  hasMoreBefore={activeDetail?.messagePage?.hasMoreBefore}
+                  loadingMore={loadingMore}
                 />
               </>
             ) : activeQuery.isError ? (

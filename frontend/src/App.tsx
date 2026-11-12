@@ -1,8 +1,7 @@
-import { BarChart3, Copy } from 'lucide-react';
+import { BarChart3, CircleHelp, Copy } from 'lucide-react';
 import type { CSSProperties, KeyboardEvent as ReactKeyboardEvent, PointerEvent as ReactPointerEvent } from 'react';
 import { lazy, Suspense, useEffect, useState } from 'react';
 import { toast } from 'sonner';
-import { PetWidget } from '@/components/PetWidget';
 import { PlatformBar } from '@/components/PlatformBar';
 import { Sidebar } from '@/components/Sidebar';
 import { Tabs, TabsContent } from '@/components/ui/tabs';
@@ -12,6 +11,7 @@ import { useVersionPoller } from '@/hooks/useVersionPoller';
 import { cn } from '@/lib/utils';
 import type { MainView } from '@/store';
 import { useAppStore } from '@/store';
+import { HelpDialog } from '@/views/help/HelpDialog';
 
 const InsightsView = lazy(() =>
   import('@/views/insights/InsightsView').then((module) => ({ default: module.InsightsView }))
@@ -26,7 +26,6 @@ const PromptsView = lazy(() =>
 const SessionsView = lazy(() =>
   import('@/views/sessions/SessionsView').then((module) => ({ default: module.SessionsView }))
 );
-const HelpView = lazy(() => import('@/views/help/HelpView').then((module) => ({ default: module.HelpView })));
 const FrameworksView = lazy(() =>
   import('@/views/frameworks/FrameworksView').then((module) => ({ default: module.FrameworksView }))
 );
@@ -71,7 +70,6 @@ const TABS: { view: MainView; label: string; title: string }[] = [
     label: '框架',
     title: '各框架 Agent 设计与会话存储方式：目录结构、文件格式、消息 schema 与 spawn 机制',
   },
-  { view: 'help', label: '帮助', title: '使用指南、数据目录说明与常见问题排查' },
 ];
 
 export default function App() {
@@ -79,11 +77,28 @@ export default function App() {
   const view = useAppStore((s) => s.view);
   const setView = useAppStore((s) => s.setView);
   const isUsage = view === 'usage';
+  // 「用量」与「框架」是整页视图，收起侧栏把宽度让出来。
   const isFrameworks = view === 'frameworks';
   const isFullWidth = isUsage || isFrameworks;
+  const [helpOpen, setHelpOpen] = useState(false);
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
   const [sidebarWidth, setSidebarWidth] = useState(loadSidebarWidth);
   const [isResizingSidebar, setIsResizingSidebar] = useState(false);
+
+  // Keep-alive: a view that has been visited once stays mounted, and
+  // <TabsContent forceMount> merely hides it (Radix sets the `hidden` attribute).
+  //
+  // Why: views used to be rendered conditionally (`view === 'x' ? <TabsContent/> : null`),
+  // so every tab switch unmounted the previous view. Coming back re-ran its queries and
+  // re-rendered the transcript from scratch, and returning to 会话 also re-fired one
+  // context-reconstruction request per message bubble. Keeping the visited views alive
+  // makes switching a pure show/hide.
+  // Views still mount lazily on first visit, so the expensive insights/prompts scans do
+  // not run at boot.
+  const [mountedViews, setMountedViews] = useState<ReadonlySet<MainView>>(() => new Set<MainView>([view]));
+  useEffect(() => {
+    setMountedViews((prev) => (prev.has(view) ? prev : new Set(prev).add(view)));
+  }, [view]);
 
   const resizeSidebarTo = (width: number) => {
     const next = clampSidebarWidth(width);
@@ -228,6 +243,15 @@ export default function App() {
                 <BarChart3 className="h-4 w-4" />
                 用量
               </button>
+              <button
+                type="button"
+                title="帮助：常见问题排查与数据边界说明"
+                aria-label="帮助"
+                onClick={() => setHelpOpen(true)}
+                className="ml-auto inline-flex h-9 w-9 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
+              >
+                <CircleHelp className="h-4 w-4" />
+              </button>
             </div>
 
             {isFullWidth ? (
@@ -236,39 +260,60 @@ export default function App() {
               </div>
             ) : (
               <Tabs value={view} onValueChange={(v) => setView(v as MainView)} className="flex min-h-0 flex-1 flex-col">
-                <Suspense fallback={<ViewFallback />}>
-                  {view === 'sessions' ? (
-                    <TabsContent value="sessions" forceMount className="mt-0 min-h-0 flex-1 overflow-auto p-2 sm:p-4">
+                {mountedViews.has('sessions') ? (
+                  <TabsContent
+                    value="sessions"
+                    forceMount
+                    hidden={view !== 'sessions'}
+                    className="mt-0 min-h-0 flex-1 overflow-auto p-2 sm:p-4"
+                  >
+                    <Suspense fallback={<ViewFallback />}>
                       <SessionsView />
-                    </TabsContent>
-                  ) : null}
-                  {view === 'insights' ? (
-                    <TabsContent value="insights" forceMount className="mt-0 min-h-0 flex-1 overflow-auto p-4">
+                    </Suspense>
+                  </TabsContent>
+                ) : null}
+                {mountedViews.has('insights') ? (
+                  <TabsContent
+                    value="insights"
+                    forceMount
+                    hidden={view !== 'insights'}
+                    className="mt-0 min-h-0 flex-1 overflow-auto p-4"
+                  >
+                    <Suspense fallback={<ViewFallback />}>
                       <InsightsView />
-                    </TabsContent>
-                  ) : null}
-                  {view === 'prompts' ? (
-                    <TabsContent value="prompts" forceMount className="mt-0 min-h-0 flex-1 overflow-auto p-4">
+                    </Suspense>
+                  </TabsContent>
+                ) : null}
+                {mountedViews.has('prompts') ? (
+                  <TabsContent
+                    value="prompts"
+                    forceMount
+                    hidden={view !== 'prompts'}
+                    className="mt-0 min-h-0 flex-1 overflow-auto p-4"
+                  >
+                    <Suspense fallback={<ViewFallback />}>
                       <PromptsView />
-                    </TabsContent>
-                  ) : null}
-                  {view === 'library' ? (
-                    <TabsContent value="library" forceMount className="mt-0 min-h-0 flex-1 overflow-auto p-4">
+                    </Suspense>
+                  </TabsContent>
+                ) : null}
+                {mountedViews.has('library') ? (
+                  <TabsContent
+                    value="library"
+                    forceMount
+                    hidden={view !== 'library'}
+                    className="mt-0 min-h-0 flex-1 overflow-auto p-4"
+                  >
+                    <Suspense fallback={<ViewFallback />}>
                       <LibraryView />
-                    </TabsContent>
-                  ) : null}
-                  {view === 'help' ? (
-                    <TabsContent value="help" forceMount className="mt-0 min-h-0 flex-1 overflow-auto p-3 sm:p-4">
-                      <HelpView />
-                    </TabsContent>
-                  ) : null}
-                </Suspense>
+                    </Suspense>
+                  </TabsContent>
+                ) : null}
               </Tabs>
             )}
           </main>
         </div>
       </div>
-      <PetWidget />
+      <HelpDialog open={helpOpen} onOpenChange={setHelpOpen} />
     </TooltipProvider>
   );
 }

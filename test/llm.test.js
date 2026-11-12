@@ -40,7 +40,14 @@ test('LLM settings API: defaults, save, key redaction and validation', async () 
   try {
     // Fresh home: nothing configured, no claude CLI → backend null
     const initial = await getJson(base, '/api/settings/llm');
-    assert.deepEqual(initial, { baseUrl: '', model: '', hasApiKey: false, backend: null });
+    assert.equal(initial.version, 2);
+    assert.equal(initial.activeProfile, '');
+    assert.deepEqual(initial.profiles, {});
+    assert.deepEqual(initial.routes, {});
+    assert.equal(initial.baseUrl, '');
+    assert.equal(initial.model, '');
+    assert.equal(initial.hasApiKey, false);
+    assert.equal(initial.backend, null);
 
     // Save an endpoint; the key must never be echoed back
     const saved = await sendJson(base, 'PUT', '/api/settings/llm', {
@@ -67,9 +74,64 @@ test('LLM settings API: defaults, save, key redaction and validation', async () 
 
     // Clearing baseUrl also clears the stored key
     const cleared = await sendJson(base, 'PUT', '/api/settings/llm', { baseUrl: '', model: '' });
-    assert.deepEqual(cleared, { baseUrl: '', model: '', hasApiKey: false, backend: null });
+    assert.equal(cleared.activeProfile, '');
+    assert.deepEqual(cleared.profiles, {});
+    assert.equal(cleared.hasApiKey, false);
+    assert.equal(cleared.backend, null);
   } finally {
     await stop();
+  }
+});
+
+test('multiple LLM profiles route different features to different endpoints', async () => {
+  const cloud = await startMockOpenAi(JSON.stringify({ rewrite: '云端改写', rationale: '云端' }));
+  const local = await startMockOpenAi('local-name\n');
+  const { base, stop } = await startServer(NO_CLI);
+  try {
+    await sendJson(base, 'PUT', '/api/settings/llm', {
+      activeProfile: 'local',
+      profiles: {
+        local: { type: 'openai-compatible', baseUrl: local.base, model: 'qwen-local' },
+        cloud: { type: 'openai-compatible', baseUrl: `${cloud.base}/v1`, model: 'cloud-model', apiKey: 'sk-cloud' },
+      },
+      routes: { promptRewrite: 'cloud', libraryName: 'local' },
+    });
+
+    const settings = await getJson(base, '/api/settings/llm');
+    assert.equal(settings.activeProfile, 'local');
+    assert.deepEqual(settings.routes, { promptRewrite: 'cloud', libraryName: 'local' });
+    assert.equal(settings.profiles.cloud.hasApiKey, true);
+    assert.equal('apiKey' in settings.profiles.cloud, false);
+    assert.equal(settings.routeBackends.promptRewrite, 'openai');
+    assert.equal(settings.routeBackends.libraryName, 'openai');
+
+    const cloudRewrite = await sendJson(base, 'POST', '/api/prompts/rewrite', { text: 'fix login' });
+    assert.equal(cloudRewrite.rewrite, '云端改写');
+
+    const defaulted = await sendJson(base, 'PUT', '/api/settings/llm', {
+      activeProfile: 'local',
+      profiles: {
+        local: { type: 'openai-compatible', baseUrl: local.base, model: 'qwen-local' },
+        cloud: { type: 'openai-compatible', baseUrl: `${cloud.base}/v1`, model: 'cloud-model' },
+      },
+      routes: { promptRewrite: null },
+    });
+    assert.deepEqual(defaulted.routes, { libraryName: 'local' });
+
+    const rewrite = await sendJson(base, 'POST', '/api/prompts/rewrite', { text: 'fix login' });
+    assert.equal(rewrite.rewrite, 'local-name');
+    const name = await sendJson(base, 'POST', '/api/library/suggest-name', { text: 'fix login' });
+    assert.equal(name.name, 'local-name');
+
+    assert.equal(cloud.requests.length, 1);
+    assert.equal(cloud.requests[0].body.model, 'cloud-model');
+    assert.equal(cloud.requests[0].auth, 'Bearer sk-cloud');
+    assert.equal(local.requests.length, 2);
+    assert.equal(local.requests[0].body.model, 'qwen-local');
+  } finally {
+    await stop();
+    await cloud.close();
+    await local.close();
   }
 });
 

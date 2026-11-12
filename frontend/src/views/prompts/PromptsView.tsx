@@ -1,29 +1,26 @@
-// Prompts view (spec V4) — real-human prompt extraction grouped by directory.
-// Toolbar (search / 聚类分析 / 琐碎 filter / 隐藏管理 / 批量选择 / 导出 JSON),
-// summary chips, 画像 section, group→session→prompt rows, batch-select bar.
-// Behavior reference: public/js/app.js loadPrompts/renderPrompts.
+// Prompts view — real-human prompt extraction grouped by directory.
+// 工具栏只保留：搜索 / 聚类分析 / 已隐藏管理。单条收藏与隐藏放在行内。
+// 已移除：批量选择、琐碎 prompt 过滤、导出 JSON、单条 LLM 改写、画像三张图表。
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useEffect, useId, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { toast } from 'sonner';
 
 import { getHiddenPrompts, getPromptAnalysis, getPrompts } from '@/api/client';
 import type { PromptAnalysis, PromptCluster } from '@/api/types';
 import { PLATFORM_LABELS } from '@/api/types';
 import { Button } from '@/components/ui/button';
-import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
 import { clusterPrefillContent } from '@/lib/pure';
-import { dirForPlatform, HIDE_TRIVIAL_KEY, loadStoredFlag, saveStoredFlag, useAppStore } from '@/store';
+import { dirForPlatform, useAppStore } from '@/store';
 import { heuristicLibraryName, LibraryFormDialog } from '@/views/library/LibraryFormDialog';
 
 import { PromptGroupSection } from './PromptGroupSection';
 import { PromptsAnalysis } from './PromptsAnalysis';
 import { PromptsHiddenDialog } from './PromptsHiddenDialog';
-import { downloadJson, errorMessage, filterPromptGroups, hidePromptTextsChunked, selectionTexts } from './promptsLib';
+import { errorMessage, filterPromptGroups, hidePromptTextsChunked } from './promptsLib';
 
 export function PromptsView() {
-  const hideTrivialId = useId();
   const platform = useAppStore((s) => s.platform);
   const selectedAgent = useAppStore((s) => s.selectedAgent);
   const settings = useAppStore((s) => s.settings);
@@ -35,7 +32,7 @@ export function PromptsView() {
   const agent = platform === 'openclaw' && selectedAgent ? selectedAgent : undefined;
   const dir = dirForPlatform(settings, platform) || undefined;
 
-  // Search — debounced 250ms like legacy; searching disables the trivial filter.
+  // Search — debounced 250ms like legacy.
   const [searchInput, setSearchInput] = useState('');
   const [search, setSearch] = useState('');
   useEffect(() => {
@@ -43,9 +40,6 @@ export function PromptsView() {
     return () => window.clearTimeout(timer);
   }, [searchInput]);
 
-  const [hideTrivial, setHideTrivialState] = useState(() => loadStoredFlag(HIDE_TRIVIAL_KEY));
-  const [selectMode, setSelectMode] = useState(false);
-  const [selection, setSelection] = useState<Set<string>>(new Set());
   const [manageOpen, setManageOpen] = useState(false);
   // 「入库」-saved cluster patterns (session-local, legacy clusterSavedPatterns).
   const [savedPatterns, setSavedPatterns] = useState<Set<string>>(new Set());
@@ -84,8 +78,6 @@ export function PromptsView() {
     mutationFn: async ({ texts }: { texts: string[]; message: string }) => hidePromptTextsChunked(texts),
     onSuccess: (_data, { message }) => {
       toast(message);
-      setSelectMode(false);
-      setSelection(new Set());
       void queryClient.invalidateQueries({ queryKey: ['prompts'] });
       void queryClient.invalidateQueries({ queryKey: ['prompts-hidden'] });
     },
@@ -93,11 +85,9 @@ export function PromptsView() {
   });
 
   const filtered = useMemo(
-    () => (promptsQuery.data ? filterPromptGroups(promptsQuery.data, search, hideTrivial) : null),
-    [promptsQuery.data, search, hideTrivial]
+    () => (promptsQuery.data ? filterPromptGroups(promptsQuery.data, search) : null),
+    [promptsQuery.data, search]
   );
-  // Legacy clears the selection on every re-render; here on every filter/data change.
-  useEffect(() => setSelection(new Set()), [filtered]);
 
   const q = search.trim().toLowerCase();
 
@@ -128,7 +118,7 @@ export function PromptsView() {
         <Input
           type="search"
           className="h-8 w-72"
-          placeholder="Filter prompts / directories / sessions"
+          placeholder="按 prompt 文本 / 目录 / 会话过滤"
           value={searchInput}
           onChange={(e) => setSearchInput(e.target.value)}
         />
@@ -136,68 +126,25 @@ export function PromptsView() {
           variant="outline"
           size="sm"
           disabled={analyzeMutation.isPending}
-          title="把相似 prompt 聚成模板簇，统计每类平均轮数/错误率，并由配置的 LLM 给出改写建议（约 1-3 分钟）"
+          title="把相似 prompt 聚成模板簇，统计每类平均轮数/错误率，并由 Claude 给出改写建议（约 1-2 分钟）"
           onClick={() => analyzeMutation.mutate(!!(analysis && analysis.platform === platform))}
         >
           {analyzeLabel}
         </Button>
-        <label
-          htmlFor={hideTrivialId}
-          className="flex cursor-pointer items-center gap-1.5 text-xs"
-          title="隐藏折叠后不足 12 字符的琐碎 prompt（搜索时自动停用）"
-        >
-          <Checkbox
-            id={hideTrivialId}
-            checked={hideTrivial}
-            onCheckedChange={(v) => {
-              setHideTrivialState(v === true);
-              saveStoredFlag(HIDE_TRIVIAL_KEY, v === true);
-            }}
-          />
-          隐藏琐碎 prompt
-        </label>
         {hidden.length > 0 && (
           <Button variant="link" size="sm" className="px-1" onClick={() => setManageOpen(true)}>
             已隐藏 {hidden.length} · 管理
           </Button>
         )}
-        <Button
-          variant={selectMode ? 'default' : 'outline'}
-          size="sm"
-          title="批量选择 prompt 后一键隐藏（可恢复）"
-          onClick={() => {
-            setSelectMode(!selectMode);
-            setSelection(new Set());
-          }}
-        >
-          ☑ 批量选择
-        </Button>
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={() => downloadJson(data, `prompts-${platform}-${new Date().toISOString().slice(0, 10)}.json`)}
-        >
-          导出 JSON
-        </Button>
       </div>
 
       <div className="text-xs text-muted-foreground">
         <span className="mr-1 rounded-full border border-border bg-secondary px-2 py-0.5">
           📍 当前平台：{PLATFORM_LABELS[platform] || platform}
         </span>
-        从会话历史自动提取的真人 prompt（已过滤工具输出与系统注入），按目录分组 — 每条可 ⭐ 收藏入库、「优化」用配置的
-        LLM 改写 · {data.totalPrompts} prompts / {data.totalSessions} sessions / {data.groups.length} directories
+        从会话历史自动提取的真人 prompt（已过滤工具输出与系统注入），按目录分组 — 每条可 ⭐ 收藏入库 ·{' '}
+        {data.totalPrompts} prompts / {data.totalSessions} sessions / {data.groups.length} directories
         {q && filtered ? ` — showing ${filtered.shownPrompts} prompts / ${filtered.shownSessions} sessions` : ''}
-        {filtered?.trivialActive && filtered.trivialHidden > 0 && (
-          <span className="ml-1 rounded-full border border-border bg-secondary px-2 py-0.5">
-            已滤琐碎 {filtered.trivialHidden}
-          </span>
-        )}
-        {hidden.length > 0 && (
-          <span className="ml-1 rounded-full border border-border bg-secondary px-2 py-0.5">
-            已隐藏 {hidden.length}
-          </span>
-        )}
       </div>
 
       <PromptsAnalysis
@@ -218,24 +165,11 @@ export function PromptsView() {
       />
 
       {filtered && filtered.groups.length > 0 ? (
-        filtered.groups.map((g, gi) => (
+        filtered.groups.map((g) => (
           <PromptGroupSection
             key={g.directory}
             group={g}
-            gi={gi}
             searchActive={!!q}
-            selectMode={selectMode}
-            selection={selection}
-            onToggleKeys={(keys, on) =>
-              setSelection((prev) => {
-                const next = new Set(prev);
-                for (const key of keys) {
-                  if (on) next.add(key);
-                  else next.delete(key);
-                }
-                return next;
-              })
-            }
             onHideSession={(s) =>
               hideMutation.mutate({ texts: s.prompts.map((p) => p.text), message: `已隐藏 ${s.prompts.length} 条` })
             }
@@ -251,35 +185,7 @@ export function PromptsView() {
           />
         ))
       ) : (
-        <div className="py-10 text-center text-sm text-muted-foreground">No matches.</div>
-      )}
-
-      {selectMode && (
-        <div className="sticky bottom-3 z-10 mx-auto flex w-fit items-center gap-3 rounded-lg border border-border bg-card px-4 py-2 shadow-lg">
-          <span className="text-sm">已选 {selection.size} 条</span>
-          <Button
-            variant="destructive"
-            size="sm"
-            disabled={selection.size === 0 || hideMutation.isPending}
-            onClick={() => {
-              if (!filtered) return;
-              const texts = selectionTexts(selection, filtered.groups);
-              hideMutation.mutate({ texts, message: `已隐藏 ${texts.length} 条` });
-            }}
-          >
-            {hideMutation.isPending ? '隐藏中…' : '🗑 隐藏选中'}
-          </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => {
-              setSelectMode(false);
-              setSelection(new Set());
-            }}
-          >
-            取消
-          </Button>
-        </div>
+        <div className="py-10 text-center text-sm text-muted-foreground">没有匹配的 prompt。</div>
       )}
 
       <PromptsHiddenDialog open={manageOpen} onOpenChange={setManageOpen} hidden={hidden} />

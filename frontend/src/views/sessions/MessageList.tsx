@@ -1,7 +1,7 @@
 // Messages area: unit grouping, turn-group folds, retry annotations, and
 // newest-first pagination (>200 msgs → first 60 + load more) — legacy renderMessages.
 
-import { useMemo } from 'react';
+import { Fragment, memo, useMemo } from 'react';
 import type { Platform, SessionMessage } from '@/api/types';
 import { formatDurationCompact, getTextContent, parseTimestampMs } from '@/lib/pure';
 import { cn } from '@/lib/utils';
@@ -13,6 +13,36 @@ import type { MessageUnit, RetryInfo, TurnUnit } from './messageUnits';
 import { buildMessageUnits, buildRetryChains } from './messageUnits';
 
 export const MSG_BATCH_SIZE = 60; // units added per "load more" click
+
+/** 一轮/一条消息的时间锚点：优先助手消息，其次第一条工具步骤。 */
+function unitTimestamp(unit: MessageUnit): number | null {
+  if (unit.type === 'single') return parseTimestampMs(unit.msg.timestamp);
+  return (
+    parseTimestampMs(unit.assistant.timestamp) ??
+    unit.steps.reduce<number | null>((min, step) => {
+      const at = parseTimestampMs(step.timestamp);
+      return at === null ? min : min === null ? at : Math.min(min, at);
+    }, null)
+  );
+}
+
+/** 日期分隔线：一天只出现一次，替代每条消息都重复的完整日期。 */
+function DayDivider({ at }: { at: number }) {
+  const date = new Date(at);
+  const label = date.toLocaleDateString('zh-CN', {
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    weekday: 'short',
+  });
+  return (
+    <div className="flex items-center gap-2 py-1" data-testid="day-divider">
+      <span className="h-px flex-1 bg-border/70" />
+      <span className="rounded-full bg-secondary px-2 py-0.5 text-[10px] text-muted-foreground">{label}</span>
+      <span className="h-px flex-1 bg-border/70" />
+    </div>
+  );
+}
 
 function RetryAnnotation({ info }: { info: RetryInfo }) {
   const { status, attempt, totalAttempts } = info;
@@ -51,7 +81,11 @@ function Chip({ className, title, children }: { className?: string; title?: stri
   );
 }
 
-function TurnGroup({
+// memo: a turn group holds a whole tool chain (often dozens of MessageBubbles and
+// a lot of <pre> text). Its props are stable across the 5 s detail poll as long as
+// `timing` and `unit` keep their identities, which SessionsView now guarantees by
+// memoising buildTimingAnalysis on the messages array.
+const TurnGroup = memo(function TurnGroup({
   unit,
   timing,
   isCodex,
@@ -106,7 +140,11 @@ function TurnGroup({
   const assistantText = getTextContent(unit.assistant.content);
 
   return (
-    <div className="flex gap-2" id={`row-${messageAnchorId(unit.assistant) || ''}`}>
+    <div
+      className="flex gap-2"
+      id={`row-${messageAnchorId(unit.assistant) || ''}`}
+      data-message-anchor={messageAnchorId(unit.assistant) || undefined}
+    >
       <GraphLane message={unit.assistant} />
       <div className="min-w-0 flex-1">
         {assistantText ? (
@@ -189,7 +227,7 @@ function TurnGroup({
       </div>
     </div>
   );
-}
+});
 
 export function MessageList({
   messages,
@@ -200,6 +238,8 @@ export function MessageList({
   timing,
   visibleUnitCount,
   onLoadMore,
+  hasMoreBefore,
+  loadingMore,
 }: {
   messages: SessionMessage[];
   platform: Platform;
@@ -209,6 +249,8 @@ export function MessageList({
   timing: TimingAnalysis;
   visibleUnitCount: number;
   onLoadMore: () => void;
+  hasMoreBefore?: boolean;
+  loadingMore?: boolean;
 }) {
   const isCodex = platform === 'codex' || platform === 'omp' || platform === 'dsh' || platform === 'gemini';
   const msgOrder = useAppStore((s) => s.msgOrder);
@@ -235,42 +277,57 @@ export function MessageList({
 
   return (
     <div className="space-y-2" data-testid="message-list">
-      {units.slice(0, endIdx).map((unit, i) =>
-        unit.type === 'single' ? (
-          <div key={unit.msg.id || i} className="flex gap-2" id={`row-${messageAnchorId(unit.msg) || ''}`}>
-            <GraphLane message={unit.msg} />
-            <div className="min-w-0 flex-1">
-              <MessageBubble
-                message={unit.msg}
-                timing={timing.timingByMessage.get(unit.msg)}
-                contextEnabled={contextEnabled}
-                contextPlatform={platform}
-                contextSessionId={sessionId}
-                contextDir={dir}
-              />
+      {units.slice(0, endIdx).map((unit, i) => {
+        const at = unitTimestamp(unit);
+        const prevAt = i > 0 ? unitTimestamp(units[i - 1]) : null;
+        const showDay =
+          at !== null && (prevAt === null || new Date(at).toDateString() !== new Date(prevAt).toDateString());
+        const row =
+          unit.type === 'single' ? (
+            <div className="flex gap-2" id={`row-${messageAnchorId(unit.msg) || ''}`}>
+              <GraphLane message={unit.msg} />
+              <div className="min-w-0 flex-1">
+                <MessageBubble
+                  message={unit.msg}
+                  timing={timing.timingByMessage.get(unit.msg)}
+                  contextEnabled={contextEnabled}
+                  contextPlatform={platform}
+                  contextSessionId={sessionId}
+                  contextDir={dir}
+                />
+              </div>
             </div>
-          </div>
-        ) : (
-          <TurnGroup
-            key={unit.assistant.id || i}
-            unit={unit}
-            timing={timing}
-            isCodex={isCodex}
-            contextEnabled={contextEnabled}
-            contextPlatform={platform}
-            contextSessionId={sessionId}
-            contextDir={dir}
-          />
-        )
-      )}
-      {remaining > 0 ? (
+          ) : (
+            <TurnGroup
+              unit={unit}
+              timing={timing}
+              isCodex={isCodex}
+              contextEnabled={contextEnabled}
+              contextPlatform={platform}
+              contextSessionId={sessionId}
+              contextDir={dir}
+            />
+          );
+        return (
+          <Fragment key={unit.type === 'single' ? unit.msg.id || i : unit.assistant.id || i}>
+            {showDay && at !== null ? <DayDivider at={at} /> : null}
+            {row}
+          </Fragment>
+        );
+      })}
+      {remaining > 0 || hasMoreBefore ? (
         <div className="flex justify-center py-2" id="loadMoreBar">
           <button
             type="button"
             onClick={onLoadMore}
+            disabled={loadingMore}
             className="rounded-md border border-border px-3 py-1.5 text-xs text-muted-foreground hover:border-primary/50 hover:text-foreground"
           >
-            ▼ Load {Math.min(remaining, MSG_BATCH_SIZE)} earlier messages ({remaining} hidden)
+            {loadingMore
+              ? '正在加载更早消息…'
+              : remaining > 0
+                ? `▼ Load ${Math.min(remaining, MSG_BATCH_SIZE)} earlier messages (${remaining} hidden)`
+                : '▼ 加载更早消息'}
           </button>
         </div>
       ) : null}

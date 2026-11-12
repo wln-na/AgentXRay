@@ -464,10 +464,13 @@ test('open route returns 404 for a valid id with no matching session', async () 
 test('openclaw open route requires a sanitized agent and session id', async () => {
   const srv = await startServer();
   try {
+    // openclaw now uses the generic route with ?agent= (the /api/agents/:name
+    // family was removed), so an unsanitized agent is rejected by the same
+    // validation every platform goes through.
     const badAgent = await sendJson(
       srv.base,
       'POST',
-      '/api/agents/%E4%B8%AD%20%E6%96%87/sessions/x/open',
+      '/api/openclaw/sessions/x/open?agent=%E4%B8%AD%20%E6%96%87',
       { action: 'locate' },
       400
     );
@@ -475,7 +478,7 @@ test('openclaw open route requires a sanitized agent and session id', async () =
     const badSession = await sendJson(
       srv.base,
       'POST',
-      '/api/agents/agent-a/sessions/%E4%B8%AD%20%E6%96%87/open',
+      '/api/openclaw/sessions/%E4%B8%AD%20%E6%96%87/open?agent=agent-a',
       { action: 'locate' },
       400
     );

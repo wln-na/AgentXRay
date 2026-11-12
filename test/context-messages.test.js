@@ -291,3 +291,72 @@ test('watchParse leaves plain user messages on the message channel', () => {
   assert.equal(parsed.messages.length, 1);
   assert.equal(parsed.contextMessages.length, 0);
 });
+
+// ---------------------------------------------------------------------------
+// Codex user-message provenance classification: AGENTS.md / env-context
+// injections must land in the context channel (never as a "用户实际输入"
+// bubble), <turn_aborted> wrappers are dropped, real prompts stay in messages.
+
+function codexUserRecord(text, provenanceTypes) {
+  const payload = { type: 'message', role: 'user', content: [{ type: 'input_text', text }] };
+  if (provenanceTypes) {
+    payload.internal_chat_message_metadata_passthrough = {
+      content_item_metadata: provenanceTypes.map((type) => ({ provenance: { type } })),
+    };
+  }
+  return { timestamp: '2026-02-01T10:00:03.000Z', type: 'response_item', payload };
+}
+
+test('codex user injections route to the context channel; real prompts stay as user messages', async () => {
+  const file = await writeJsonl([
+    {
+      timestamp: '2026-02-01T10:00:00.000Z',
+      type: 'session_meta',
+      payload: { id: 'codex-provenance-fixture', cwd: '/fixtures/project', cli_version: '0.166.0' },
+    },
+    codexUserRecord('# AGENTS.md instructions\n\n<INSTRUCTIONS>\nrules\n</INSTRUCTIONS>', ['agents_md', 'harness']),
+    codexUserRecord('<turn_aborted>\nThe user interrupted the previous turn on purpose.\n</turn_aborted>', ['harness']),
+    codexUserRecord('分析这个 DAG 的执行情况', ['user']),
+  ]);
+
+  const parsed = await parseCodexSessionFile(file);
+
+  // Real prompt only — injections and turn wrappers must not appear as user bubbles
+  assert.equal(parsed.messages.filter((message) => message.role === 'user').length, 1);
+  assert.deepEqual(parsed.messages.find((message) => message.role === 'user').details.provenance, ['user']);
+
+  // AGENTS.md injection lands in the context channel with a stable kind
+  const agentsMd = parsed.contextMessages.find((message) => message.details.sourceKind === 'agents-md');
+  assert.ok(agentsMd, 'AGENTS.md injection should be a context message with kind agents-md');
+  assert.match(agentsMd.content[0].text, /^# AGENTS\.md instructions/);
+
+  // No turn_aborted wrapper anywhere
+  const allText = [...parsed.messages, ...parsed.contextMessages]
+    .map((message) => (message.content || []).map((part) => part.text || '').join(''))
+    .join('');
+  assert.ok(!allText.includes('<turn_aborted>'), 'turn_aborted wrapper should be dropped');
+
+  // AGENTS.md text feeds the system context panel
+  const agentsMdComponent = parsed.systemContext.systemComponents.find((component) => component.type === 'agents-md');
+  assert.ok(agentsMdComponent, 'systemComponents should include the agents-md block');
+});
+
+test('codex user injections without provenance metadata fall back to text prefixes', async () => {
+  const file = await writeJsonl([
+    {
+      timestamp: '2026-02-01T10:00:00.000Z',
+      type: 'session_meta',
+      payload: { id: 'codex-legacy-fixture', cwd: '/fixtures/project', cli_version: '0.100.0' },
+    },
+    codexUserRecord('<environment_context>\n  <cwd>/fixtures/project</cwd>\n</environment_context>'),
+    codexUserRecord('真实输入，无元数据'),
+    codexUserRecord('<turn_aborted>\ninterrupted\n</turn_aborted>'),
+  ]);
+
+  const parsed = await parseCodexSessionFile(file);
+  assert.equal(parsed.messages.filter((message) => message.role === 'user').length, 1);
+  assert.ok(parsed.contextMessages.some((message) => message.details.sourceKind === 'environment_context'));
+  assert.ok(
+    !parsed.messages.some((message) => (message.content || []).some((p) => (p.text || '').includes('<turn_aborted>')))
+  );
+});

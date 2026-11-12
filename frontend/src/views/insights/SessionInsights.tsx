@@ -4,13 +4,14 @@
 // failing message via the shared requestScrollToMessage store action.
 
 import { useQuery } from '@tanstack/react-query';
-import { useMemo } from 'react';
-import { getSessionDetail } from '@/api/client';
+import { getSessionFull } from '@/api/client';
 import { Badge } from '@/components/ui/badge';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { analyzeHealth, buildTraceTurns, formatDurationCompact, healthColor, healthLabel } from '@/lib/pure';
+import { formatDurationCompact } from '@/lib/pure';
 import { dirForPlatform, useAppStore } from '@/store';
 import { ContextUsageCard } from '@/views/sessions/ContextUsageCard';
+import { useSessionSummaries } from '@/views/sessions/queries';
+import { summaryFacts } from '@/views/sessions/sessionFacts';
 import { fmtTokens, formatNumber, InsightSection, ScopeChip, StatCard, UsageBar } from './bits';
 import type { WasteCategory } from './sessionStats';
 import {
@@ -38,13 +39,24 @@ export function SessionInsights() {
   const selectedSessionId = useAppStore((s) => s.selectedSessionId);
   const settings = useAppStore((s) => s.settings);
   const requestScrollToMessage = useAppStore((s) => s.requestScrollToMessage);
+  // 计数以列表摘要为准，避免「分析页 👤11」与「侧栏 👤12」再次打架。
+  const { data: sessionSummaries } = useSessionSummaries();
 
-  // Shared cache with the sessions view — same key + queryFn opts (contract).
+  // A separate endpoint (…/full) and a separate cache key: session analytics need
+  // every message, the sessions view needs one window. Previously both used one
+  // URL differing only by ?limit, so they shared a cache entry and the 13-15 MB
+  // full payload leaked into the transcript render.
+  // NOTE: this deliberately does NOT reuse the sessions view's ['session', …] key.
+  // Session insights need the WHOLE transcript, while the sessions view pages in
+  // `limit=60`. Sharing one cache entry meant this view's full payload (13–15 MB on
+  // large codex/workbuddy sessions) overwrote the paged one, and the sessions view
+  // then rendered every message of it (measured: 45 410 DOM nodes / 5.25 MB markup,
+  // re-rendered on every poll). Separate keys keep the two payload shapes apart.
   const query = useQuery({
-    queryKey: ['session', platform, selectedSessionId],
+    queryKey: ['session-full', platform, selectedSessionId],
     enabled: !!selectedSessionId,
     queryFn: () =>
-      getSessionDetail(platform, selectedSessionId, {
+      getSessionFull(platform, selectedSessionId, {
         agent: selectedAgent || undefined,
         dir: dirForPlatform(settings, platform) || undefined,
       }),
@@ -65,9 +77,6 @@ export function SessionInsights() {
   const session = query.data.session || {};
   const st = computeSessionInsights(msgs);
   const reflection = computeReflectionReport(msgs);
-  // Rule-based health score (same pipeline as the Trace view's health card,
-  // minus sub-agent spans) — surfaced here so the score is findable in both places.
-  const health = useMemo(() => analyzeHealth(buildTraceTurns(msgs, [])), [msgs]);
   const tokenUsage = query.data.tokenUsage || session.tokenUsage;
   const contextUsage = query.data.contextUsage || session.contextUsage;
   const tokenInput = tokenUsage?.input ?? st.totalInputTokens;
@@ -80,6 +89,8 @@ export function SessionInsights() {
   const errorRate = st.toolResultCount > 0 ? ((st.errorCount / st.toolResultCount) * 100).toFixed(1) : '0.0';
   const maxCalls = st.toolStats.length > 0 ? st.toolStats[0].calls : 1;
   const sid = session.id || selectedSessionId || '?';
+  const listSummary = sessionSummaries.find((item) => item.id === sid) ?? null;
+  const listFacts = listSummary ? summaryFacts(listSummary) : null;
 
   // Jump to the message backing a stat item (error / retry).
   const jumpToIndex = (idx: number) => {
@@ -107,14 +118,7 @@ export function SessionInsights() {
         <Badge variant="secondary">{sid.slice(0, 20)}</Badge>
         {session.cwd && <Badge variant="secondary">{session.cwd}</Badge>}
         <Badge variant="secondary">
-          👤 {st.userCount} &nbsp; 🤖 {st.assistantCount}
-        </Badge>
-        <Badge variant="outline" title={`规则打分（pure.ts scoreHealth）· 完整时间轴在会话详情的 Trace 标签`}>
-          <span
-            className="mr-1 inline-block h-2 w-2 rounded-full align-middle"
-            style={{ backgroundColor: healthColor(health.overall) }}
-          />
-          会话健康度 {health.overall} · {healthLabel(health.overall)}
+          👤 {listFacts?.userCount ?? st.userCount} &nbsp; 🤖 {listFacts?.assistantCount ?? st.assistantCount}
         </Badge>
       </div>
 
@@ -530,68 +534,64 @@ export function SessionInsights() {
             </div>
           )}
 
-          {/* Best vs Worst prompts (Bottom picks first, so either side may be empty) */}
+          {/* Best vs Worst prompts */}
           <div className="mb-4 grid gap-4 md:grid-cols-2">
-            {st.promptAnalysis.bestPrompts.length > 0 && (
-              <div>
-                <div className="mb-2 text-xs font-medium text-[#3fb950]">⭐ 高效 Prompt (Top 3)</div>
-                <div className="flex flex-col gap-2">
-                  {st.promptAnalysis.bestPrompts.map((p) => (
-                    <div key={p.index} className="rounded-md border border-[#3fb950]/30 bg-[#3fb950]/5 p-2">
-                      <div className="flex items-center justify-between gap-2">
-                        <span className="truncate text-[13px] font-medium" title={p.text}>
-                          {p.text}
-                        </span>
-                        <span className="shrink-0 rounded-full bg-[#3fb950]/20 px-1.5 py-0.5 text-xs font-mono text-[#3fb950]">
-                          {p.qualityScore}
-                        </span>
-                      </div>
-                      <div className="mt-1 flex flex-wrap gap-1.5 text-[0.65rem] text-muted-foreground">
-                        <span>🔧 {p.toolCalls}次</span>
-                        <span>⏱ {p.durationMs > 0 ? formatDurationCompact(p.durationMs) : '—'}</span>
-                        <span>📝 {p.length}字</span>
-                      </div>
+            <div>
+              <div className="mb-2 text-xs font-medium text-[#3fb950]">⭐ 高效 Prompt (Top 3)</div>
+              <div className="flex flex-col gap-2">
+                {st.promptAnalysis.bestPrompts.map((p) => (
+                  <div key={p.index} className="rounded-md border border-[#3fb950]/30 bg-[#3fb950]/5 p-2">
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="truncate text-[13px] font-medium" title={p.text}>
+                        {p.text}
+                      </span>
+                      <span className="shrink-0 rounded-full bg-[#3fb950]/20 px-1.5 py-0.5 text-xs font-mono text-[#3fb950]">
+                        {p.qualityScore}
+                      </span>
                     </div>
-                  ))}
-                </div>
-              </div>
-            )}
-            {st.promptAnalysis.worstPrompts.length > 0 && (
-              <div>
-                <div className="mb-2 text-xs font-medium text-[#f85149]">⚠️ 待改进 Prompt (Bottom 3)</div>
-                <div className="flex flex-col gap-2">
-                  {st.promptAnalysis.worstPrompts.map((p) => (
-                    <div key={p.index} className="rounded-md border border-[#f85149]/30 bg-[#f85149]/5 p-2">
-                      <div className="flex items-center justify-between gap-2">
-                        <span className="truncate text-[13px] font-medium" title={p.text}>
-                          {p.text}
-                        </span>
-                        <span className="shrink-0 rounded-full bg-[#f85149]/20 px-1.5 py-0.5 text-xs font-mono text-[#f85149]">
-                          {p.qualityScore}
-                        </span>
-                      </div>
-                      <div className="mt-1 flex flex-wrap gap-1.5 text-[0.65rem] text-muted-foreground">
-                        <span>🔧 {p.toolCalls}次</span>
-                        {p.errors > 0 && <span className="text-[#f85149]">❌ {p.errors}错误</span>}
-                        <span>⏱ {p.durationMs > 0 ? formatDurationCompact(p.durationMs) : '—'}</span>
-                      </div>
-                      {p.qualityFactors.filter((f) => f.startsWith('⚠️') || f.startsWith('❌')).length > 0 && (
-                        <div className="mt-1.5 flex flex-col gap-0.5">
-                          {p.qualityFactors
-                            .filter((f) => f.startsWith('⚠️') || f.startsWith('❌'))
-                            .slice(0, 2)
-                            .map((f, i) => (
-                              <div key={i} className="text-[0.65rem] text-[#f85149]">
-                                {f}
-                              </div>
-                            ))}
-                        </div>
-                      )}
+                    <div className="mt-1 flex flex-wrap gap-1.5 text-[0.65rem] text-muted-foreground">
+                      <span>🔧 {p.toolCalls}次</span>
+                      <span>⏱ {p.durationMs > 0 ? formatDurationCompact(p.durationMs) : '—'}</span>
+                      <span>📝 {p.length}字</span>
                     </div>
-                  ))}
-                </div>
+                  </div>
+                ))}
               </div>
-            )}
+            </div>
+            <div>
+              <div className="mb-2 text-xs font-medium text-[#f85149]">⚠️ 待改进 Prompt (Bottom 3)</div>
+              <div className="flex flex-col gap-2">
+                {st.promptAnalysis.worstPrompts.map((p) => (
+                  <div key={p.index} className="rounded-md border border-[#f85149]/30 bg-[#f85149]/5 p-2">
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="truncate text-[13px] font-medium" title={p.text}>
+                        {p.text}
+                      </span>
+                      <span className="shrink-0 rounded-full bg-[#f85149]/20 px-1.5 py-0.5 text-xs font-mono text-[#f85149]">
+                        {p.qualityScore}
+                      </span>
+                    </div>
+                    <div className="mt-1 flex flex-wrap gap-1.5 text-[0.65rem] text-muted-foreground">
+                      <span>🔧 {p.toolCalls}次</span>
+                      {p.errors > 0 && <span className="text-[#f85149]">❌ {p.errors}错误</span>}
+                      <span>⏱ {p.durationMs > 0 ? formatDurationCompact(p.durationMs) : '—'}</span>
+                    </div>
+                    {p.qualityFactors.filter((f) => f.startsWith('⚠️') || f.startsWith('❌')).length > 0 && (
+                      <div className="mt-1.5 flex flex-col gap-0.5">
+                        {p.qualityFactors
+                          .filter((f) => f.startsWith('⚠️') || f.startsWith('❌'))
+                          .slice(0, 2)
+                          .map((f, i) => (
+                            <div key={i} className="text-[0.65rem] text-[#f85149]">
+                              {f}
+                            </div>
+                          ))}
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
           </div>
 
           {/* Length vs efficiency */}

@@ -2,7 +2,7 @@
 // ported from legacy renderMessage/renderToolCall/renderToolResult/renderGraphLane.
 // Collapses are native <details> so DOM-driven jumps (legacy parity) can expand them.
 
-import { createContext, useContext } from 'react';
+import { createContext, memo, useContext, useState } from 'react';
 import type { MessageContentPart, Platform, SessionMessage } from '@/api/types';
 import { DshDiffView } from '@/components/DshDiffView';
 import { Markdown } from '@/components/Markdown';
@@ -12,6 +12,14 @@ import { cn } from '@/lib/utils';
 import { ContextPanel } from './ContextPanel';
 import type { TimingMeta } from './lib';
 import { formatDate, formatNumber, messageAnchorId, splitUserMessageContext, truncateId } from './lib';
+
+/** 逐条时间只显示「时:分:秒」；完整日期在 tooltip 与日期分隔线里。 */
+export function formatClockTime(timestamp: string | null): string {
+  if (!timestamp) return '';
+  const date = new Date(timestamp);
+  if (Number.isNaN(date.getTime())) return '';
+  return date.toLocaleTimeString(undefined, { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' });
+}
 /** scrollToMessage from SessionsView: expands pagination + clears filter + flashes. */
 export const MessageActionsContext = createContext<{ scrollToMessage: (id: string) => void }>({
   scrollToMessage: () => {},
@@ -72,7 +80,11 @@ function MessageHead({
         {meta}
       </div>
       <div className="flex items-center gap-1.5 text-muted-foreground">
-        {timestamp ? <span>{formatDate(timestamp)}</span> : null}
+        {timestamp ? (
+          <span title={formatDate(timestamp)} className="tabular-nums">
+            {formatClockTime(timestamp)}
+          </span>
+        ) : null}
         {/* tool duration ≥200ms on toolResults; delta ≥5s on everything (legacy badges) */}
         {withToolDuration && toolMs !== null && toolMs >= 200 ? (
           <DurationBadge ms={toolMs} warnAt={10000} dangerAt={60000} prefix="⏱ " title="Tool execution time" />
@@ -116,7 +128,10 @@ function Collapse({
 const PRE_CLASS = 'overflow-x-auto whitespace-pre-wrap break-words rounded bg-muted/60 p-2 font-mono text-[11px]';
 
 /** Embedded toolCall content part (OpenClaw/omp assistant messages). */
-export function ToolCallPart({ part }: { part: MessageContentPart }) {
+// memo: the 5s session poll re-renders the list even when nothing changed; the
+// message/part objects keep identity under TanStack Query structural sharing,
+// so memo turns those polls into no-ops for each tool-call subtree.
+export const ToolCallPart = memo(function ToolCallPart({ part }: { part: MessageContentPart }) {
   const { scrollToMessage } = useContext(MessageActionsContext);
   const hasArguments = part.arguments !== null && part.arguments !== undefined;
   const args = (hasArguments ? part.arguments : {}) as Record<string, unknown>;
@@ -190,7 +205,7 @@ export function ToolCallPart({ part }: { part: MessageContentPart }) {
       ) : null}
     </>
   );
-}
+});
 
 function ToolResultBlock({ message }: { message: SessionMessage }) {
   const text = getTextContent(message.content);
@@ -240,7 +255,8 @@ function ToolResultBlock({ message }: { message: SessionMessage }) {
 }
 
 /** Timeline dot + trunk to the left of each row (legacy graph lane). */
-export function GraphLane({ message }: { message: SessionMessage }) {
+// memo: one lane per row and it only depends on the message; skips poll re-renders.
+export const GraphLane = memo(function GraphLane({ message }: { message: SessionMessage }) {
   const tip =
     message.role === 'toolResult'
       ? `${message.isError ? '❌' : '✅'} ${message.toolName || 'tool'} · ${formatDate(message.timestamp)}`
@@ -261,9 +277,12 @@ export function GraphLane({ message }: { message: SessionMessage }) {
       <span title={tip} className={cn('relative mt-3 h-2.5 w-2.5 rounded-full ring-2 ring-card', cls)} />
     </div>
   );
-}
+});
 
-export function MessageBubble({
+// memo: messages are immutable objects from the query cache (structural sharing
+// preserves identity across the 5s poll), so unchanged bubbles skip re-rendering
+// their whole subtree — including the expensive markdown/tool-call trees.
+export const MessageBubble = memo(function MessageBubble({
   message,
   timing,
   showEmbeddedToolCalls = true,
@@ -283,6 +302,12 @@ export function MessageBubble({
 }) {
   const text = getTextContent(message.content);
   const anchor = messageAnchorId(message) || '';
+  // WHY lazy mount: the "完整上下文（重建）" fold below is closed by default, but
+  // React mounts <details> children regardless of `open`. That made every user
+  // turn fetch a full /context snapshot on session open (N requests / tens of
+  // MB, each re-parsing the session log on the server). Track the fold's real
+  // open state and only mount ContextPanel once it is opened.
+  const [ctxOpen, setCtxOpen] = useState(false);
 
   if (message.role === 'user') {
     const { input, contexts } = splitUserMessageContext(text);
@@ -326,15 +351,23 @@ export function MessageBubble({
           </details>
         ) : null}
         {contextEnabled && contextPlatform && contextSessionId ? (
-          <details className="mt-2 rounded border border-[#9BBBF4]/40 bg-[#9BBBF4]/5 px-2 py-1.5">
+          <details
+            className="mt-2 rounded border border-[#9BBBF4]/40 bg-[#9BBBF4]/5 px-2 py-1.5"
+            // A programmatic `details.open = true` (revealAndFlash in SessionsView
+            // walks ancestors of the jumped-to anchor and sets .open) fires the
+            // native `toggle` event too, so the panel also lazy-loads on jumps.
+            onToggle={(event) => setCtxOpen(event.currentTarget.open)}
+          >
             <summary className="cursor-pointer text-[11px] font-medium text-[#5B7FC9]">完整上下文（重建）</summary>
             <div className="mt-2">
-              <ContextPanel
-                platform={contextPlatform}
-                sessionId={contextSessionId}
-                messageId={message.id || undefined}
-                dir={contextDir}
-              />
+              {ctxOpen ? (
+                <ContextPanel
+                  platform={contextPlatform}
+                  sessionId={contextSessionId}
+                  messageId={message.id || undefined}
+                  dir={contextDir}
+                />
+              ) : null}
             </div>
           </details>
         ) : null}
@@ -443,4 +476,4 @@ export function MessageBubble({
       <ToolResultBlock message={message} />
     </article>
   );
-}
+});

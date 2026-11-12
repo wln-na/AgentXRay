@@ -7,16 +7,19 @@ import { memo, useEffect, useMemo, useRef, useState } from 'react';
 import type { SessionSummary } from '@/api/types';
 import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { isLive } from '@/lib/live';
-import { parseTimestampMs } from '@/lib/pure';
+import { useSharedClock } from '@/hooks/useSharedClock';
 import { cn } from '@/lib/utils';
 import { useAppStore } from '@/store';
 import { filterSessionList, formatDate } from './lib';
-import { useSessionsList } from './queries';
+import { useSessionsInfinite } from './queries';
+import { StatusDot, StatusPill } from './StatusPill';
+import type { SessionStatusKind } from './sessionStatus';
+import { countSessionStatuses, SESSION_STATUS_KINDS, STATUS_META, sessionStatusOf } from './sessionStatus';
 
 const VIRT_THRESHOLD = 200; // below this many sessions, render everything
 const VIRT_OVERSCAN = 10; // extra cards above/below the visible range
 const VIRT_ESTIMATE = 96; // estimated card height incl. gap
+const EMPTY_SESSIONS: SessionSummary[] = [];
 
 type SessionChip = {
   kind: 'user' | 'assistant' | 'tool' | 'spawn' | 'model';
@@ -42,25 +45,18 @@ const CHIP_CLASSES: Record<SessionChip['kind'], string> = {
   model: 'border-border bg-secondary text-muted-foreground',
 };
 
-// Live-session definition (LIVE_WINDOW_MS + isLive) lives in @/lib/live —
-// shared with SessionSummary so both views mark the same "open elsewhere" state.
-
-const LiveChip = memo(function LiveChip() {
-  return (
-    <span className="flex items-center gap-1 rounded border border-green-500/40 bg-green-500/10 px-1 py-px text-[10px] font-medium text-green-700 dark:text-green-300">
-      <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-green-500" />
-      活跃中
-    </span>
-  );
-});
+// Status vocabulary (进行中 / 待跟进 / 已完成 / 空闲) is derived once in
+// ./sessionStatus and rendered with the same primitives as the board/header.
 
 const SessionCard = memo(function SessionCard({
   session,
   active,
+  now,
   onSelect,
 }: {
   session: SessionSummary;
   active: boolean;
+  now: number;
   onSelect: (id: string) => void;
 }) {
   const onClick = () => onSelect(session.id);
@@ -69,6 +65,7 @@ const SessionCard = memo(function SessionCard({
     onSelect(session.id);
     useAppStore.getState().setSessionView('trace');
   };
+  const status = sessionStatusOf(session, now);
   const preview = session.firstUserMessage
     ? session.firstUserMessage.length > 80
       ? `${session.firstUserMessage.slice(0, 80)}…`
@@ -93,14 +90,14 @@ const SessionCard = memo(function SessionCard({
     >
       <div className="flex items-center justify-between gap-2 text-[11px] text-muted-foreground">
         <span>{formatDate(session.timestamp)}</span>
-        <span className="flex items-center gap-1">
-          {isLive(session.lastActivity) ? <LiveChip /> : null}
+        <span className="flex shrink-0 items-center gap-1">
+          <span data-testid="session-card-status" title={status.hint} className="inline-flex">
+            <StatusPill tone={status.tone} label={status.label} hint={status.hint} pulse={status.kind === 'working'} />
+          </span>
           {session.archived ? (
             <span className="rounded border border-amber-500/50 bg-amber-500/10 px-1 py-px text-[10px] text-amber-700 dark:text-amber-300">
               已归档
             </span>
-          ) : session.status ? (
-            <span className="rounded border border-border px-1 py-px text-[10px] uppercase">{session.status}</span>
           ) : null}
         </span>
       </div>
@@ -164,10 +161,6 @@ function sessionProjectInfo(session: SessionSummary, platform: string): SessionP
   return { key: `cwd:${cwd}`, name, path: cwd };
 }
 
-function sessionProject(session: SessionSummary, platform: string): string {
-  return sessionProjectInfo(session, platform).name;
-}
-
 function projectOptions(sessions: SessionSummary[], platform: string) {
   const projects = new Map<string, SessionProject & { count: number }>();
   for (const session of sessions) {
@@ -214,101 +207,11 @@ function sessionPeriodValue(session: SessionSummary): SessionPeriod {
   };
 }
 
-function sessionPeriod(session: SessionSummary): SessionPeriod {
-  const { year, month } = sessionPeriodValue(session);
-  return {
-    year: year === UNKNOWN_YEAR ? '时间未知' : `${year}年`,
-    month: month === UNKNOWN_MONTH ? '月份未知' : `${month}月`,
-  };
-}
-
 function periodLabel(value: string, unit: 'year' | 'month'): string {
   if (value === ALL_PERIODS) return unit === 'year' ? '全部年份' : '全部月份';
   if (value === UNKNOWN_YEAR) return '时间未知';
   if (value === UNKNOWN_MONTH) return '月份未知';
   return unit === 'year' ? `${value}年` : `${value}月`;
-}
-
-function groupedSessions(sessions: SessionSummary[], platform: string) {
-  const groups = new Map<string, Map<string, Map<string, SessionSummary[]>>>();
-  const sortedSessions = [...sessions].sort((a, b) => {
-    const aMs = parseTimestampMs(a.lastActivity || a.timestamp) || 0;
-    const bMs = parseTimestampMs(b.lastActivity || b.timestamp) || 0;
-    return bMs - aMs;
-  });
-  for (const session of sortedSessions) {
-    const project = sessionProject(session, platform) || '会话';
-    const { year, month } = sessionPeriod(session);
-    if (!groups.has(year)) groups.set(year, new Map());
-    const projects = groups.get(year) as Map<string, Map<string, SessionSummary[]>>;
-    if (!projects.has(project)) projects.set(project, new Map());
-    const months = projects.get(project) as Map<string, SessionSummary[]>;
-    const items = months.get(month) || [];
-    items.push(session);
-    months.set(month, items);
-  }
-  return groups;
-}
-
-function SessionGroups({
-  sessions,
-  platform,
-  selectedSessionId,
-  onSelect,
-}: {
-  sessions: SessionSummary[];
-  platform: string;
-  selectedSessionId: string;
-  onSelect: (id: string) => void;
-}) {
-  const groups = useMemo(() => groupedSessions(sessions, platform), [sessions, platform]);
-  return (
-    <div className="flex flex-col gap-4">
-      {Array.from(groups).map(([year, projects]) => {
-        const yearCount = Array.from(projects.values()).reduce(
-          (yearSum, months) =>
-            yearSum + Array.from(months.values()).reduce((monthSum, items) => monthSum + items.length, 0),
-          0
-        );
-        return (
-          <section
-            key={year}
-            className="space-y-3"
-            style={{ contentVisibility: 'auto', containIntrinsicSize: '0 520px' }}
-          >
-            <div className="sticky top-0 z-[3] rounded bg-background/95 px-1 py-1 text-xs font-semibold text-foreground backdrop-blur">
-              {year} <span className="font-normal text-muted-foreground">({yearCount})</span>
-            </div>
-            {Array.from(projects).map(([project, months]) => {
-              const projectCount = Array.from(months.values()).reduce((sum, items) => sum + items.length, 0);
-              return (
-                <div key={`${year}:${project}`} className="space-y-2 pl-1">
-                  <div className="sticky top-7 z-[2] bg-background/95 px-2 py-0.5 text-[11px] font-semibold text-foreground backdrop-blur">
-                    {project} <span className="font-normal text-muted-foreground">· {projectCount}</span>
-                  </div>
-                  {Array.from(months).map(([month, items]) => (
-                    <div key={`${year}:${project}:${month}`} className="space-y-2 pl-2">
-                      <div className="sticky top-12 z-[1] border-l-2 border-primary/30 bg-background/95 px-2 py-0.5 text-[10px] font-medium text-muted-foreground backdrop-blur">
-                        {month} · {items.length}
-                      </div>
-                      {items.map((session) => (
-                        <SessionCard
-                          key={session.id}
-                          session={session}
-                          active={session.id === selectedSessionId}
-                          onSelect={onSelect}
-                        />
-                      ))}
-                    </div>
-                  ))}
-                </div>
-              );
-            })}
-          </section>
-        );
-      })}
-    </div>
-  );
 }
 
 export function SessionList({
@@ -331,13 +234,21 @@ export function SessionList({
     onSessionSelected?.();
   };
 
-  const { data, isLoading, error, refetch } = useSessionsList();
-  const sessions = data ?? [];
+  const now = useSharedClock();
+  const { data, isLoading, error, refetch, fetchNextPage, hasNextPage, isFetchingNextPage } = useSessionsInfinite();
+  // Cursor pagination: `data.pages` holds the newest page plus every older page
+  // the user explicitly loaded, in order. Flatten for the existing list pipeline
+  // (filter/search/group/virtualize) so none of that logic changes.
+  const sessions = useMemo(() => data?.pages.flatMap((page) => page.sessions) ?? EMPTY_SESSIONS, [data]);
+  const totalCount = data?.pages[0]?.page.total ?? sessions.length;
+  /** null = 不过滤状态；否则只看该状态（与看板时代的四列语义一致，但只有一列）。 */
+  const [selectedStatus, setSelectedStatus] = useState<SessionStatusKind | null>(null);
   const [selectedProject, setSelectedProject] = useState(ALL_PROJECTS);
   const [selectedYear, setSelectedYear] = useState(ALL_PERIODS);
   const [selectedMonth, setSelectedMonth] = useState(ALL_PERIODS);
 
   useEffect(() => {
+    setSelectedStatus(null);
     setSelectedProject(ALL_PROJECTS);
     setSelectedYear(ALL_PERIODS);
     setSelectedMonth(ALL_PERIODS);
@@ -411,7 +322,7 @@ export function SessionList({
       ),
     [searchFiltered, selectedProject, platform]
   );
-  const filtered = useMemo(
+  const periodFiltered = useMemo(
     () =>
       projectFiltered.filter((session) => {
         const period = sessionPeriodValue(session);
@@ -422,11 +333,19 @@ export function SessionList({
       }),
     [projectFiltered, selectedYear, selectedMonth]
   );
+  // 计数基于「搜索 + 项目 + 年月」之后的结果：切换状态 chip 时数字不会乱跳。
+  const statusCounts = useMemo(() => countSessionStatuses(periodFiltered, now), [periodFiltered, now]);
+  const filtered = useMemo(
+    () =>
+      selectedStatus === null
+        ? periodFiltered
+        : periodFiltered.filter((session) => sessionStatusOf(session, now).kind === selectedStatus),
+    [periodFiltered, selectedStatus, now]
+  );
   const projectFilterActive = selectedProject !== ALL_PROJECTS;
   const periodFilterActive = selectedYear !== ALL_PERIODS || selectedMonth !== ALL_PERIODS;
-  const structuredFilterActive = projectFilterActive || periodFilterActive;
-  const groupedPlatform = platform === 'doubao' || platform === 'codex';
-  const virtualized = !groupedPlatform && filtered.length > VIRT_THRESHOLD;
+  const structuredFilterActive = projectFilterActive || periodFilterActive || selectedStatus !== null;
+  const virtualized = filtered.length > VIRT_THRESHOLD;
 
   const parentRef = useRef<HTMLDivElement>(null);
   const virtualizer = useVirtualizer({
@@ -439,13 +358,17 @@ export function SessionList({
     useAnimationFrameWithResizeObserver: true,
   });
 
-  // Auto-select first session when nothing valid is selected (legacy loadSessions)
+  // Auto-select first session when nothing valid is selected (legacy loadSessions).
+  // With cursor pagination only the first page is loaded, so a selection that is
+  // missing from `sessions` may simply live on an older, not-yet-loaded page —
+  // never clear it while `hasNextPage` is still true.
   useEffect(() => {
     if (!data) return;
-    if (!data.some((s) => s.id === useAppStore.getState().selectedSessionId)) {
-      setSelectedSessionId(data[0]?.id || '');
-    }
-  }, [data, setSelectedSessionId]);
+    const current = useAppStore.getState().selectedSessionId;
+    if (sessions.some((session) => session.id === current)) return;
+    if (current && hasNextPage) return;
+    setSelectedSessionId(sessions[0]?.id || '');
+  }, [data, sessions, hasNextPage, setSelectedSessionId]);
 
   // ↑↓ keyboard navigation over the filtered list (legacy document keydown)
   useEffect(() => {
@@ -499,13 +422,76 @@ export function SessionList({
   }
 
   const resetStructuredFilters = () => {
+    setSelectedStatus(null);
     setSelectedProject(ALL_PROJECTS);
     setSelectedYear(ALL_PERIODS);
     setSelectedMonth(ALL_PERIODS);
   };
 
+  // "Load older sessions" footer (mirrors MessageList's #loadMoreBar). With cursor
+  // pagination nothing older is fetched until the user asks: the first page is the
+  // cheapest possible sidebar load, older pages are opt-in.
+  const loadMoreBar = hasNextPage ? (
+    <div className="flex justify-center py-2" id="sessionLoadMoreBar">
+      <button
+        type="button"
+        onClick={() => void fetchNextPage()}
+        disabled={isFetchingNextPage}
+        title={`已加载 ${sessions.length} / 共 ${totalCount} 个会话`}
+        className="rounded-md border border-border px-3 py-1.5 text-xs text-muted-foreground hover:border-primary/50 hover:text-foreground disabled:cursor-default disabled:opacity-60"
+      >
+        {isFetchingNextPage ? '正在加载更早的会话…' : '▼ 加载更早的会话'}
+      </button>
+    </div>
+  ) : null;
+
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-2">
+      {/* 状态筛选：看板取消后，四列语义收成这一行 chips，点一下只看该状态。 */}
+      <div className="flex flex-wrap items-center gap-1.5" role="toolbar" aria-label="按状态筛选会话">
+        <button
+          type="button"
+          data-testid="status-chip-all"
+          aria-pressed={selectedStatus === null}
+          title="显示全部状态的会话"
+          onClick={() => setSelectedStatus(null)}
+          className={cn(
+            'inline-flex h-6 items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-medium tabular-nums transition-colors',
+            selectedStatus === null
+              ? 'border-primary/40 bg-primary/10 text-primary'
+              : 'border-border/70 bg-card/70 text-muted-foreground hover:border-border hover:text-foreground'
+          )}
+        >
+          全部
+          <span className="text-foreground/80">{statusCounts.total}</span>
+        </button>
+        {SESSION_STATUS_KINDS.map((kind) => {
+          const meta = STATUS_META[kind];
+          const count = statusCounts[kind];
+          const active = selectedStatus === kind;
+          return (
+            <button
+              key={kind}
+              type="button"
+              data-tone={meta.tone}
+              data-testid={`status-chip-${kind}`}
+              aria-pressed={active}
+              title={active ? `取消筛选，显示全部状态（${meta.hint}）` : `${meta.hint} — 只看该状态`}
+              onClick={() => setSelectedStatus(active ? null : kind)}
+              className={cn(
+                'inline-flex h-6 items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-medium tabular-nums transition-colors',
+                active
+                  ? 'border-[color:var(--tone)] bg-[color:var(--tone-soft)] text-[color:var(--tone)]'
+                  : 'border-border/70 bg-card/70 text-muted-foreground hover:border-border hover:text-foreground'
+              )}
+            >
+              <StatusDot tone={meta.tone} pulse={kind === 'working' && count > 0} />
+              {meta.label}
+              <span className="text-foreground/80">{count}</span>
+            </button>
+          );
+        })}
+      </div>
       <fieldset className="rounded-xl border border-border/60 bg-card/70 p-3 shadow-soft-sm" aria-label="会话筛选">
         <div className="mb-1.5 flex items-center justify-between gap-2 text-[11px] text-muted-foreground">
           <span className="inline-flex items-center gap-1">
@@ -580,8 +566,8 @@ export function SessionList({
                 size="icon"
                 className="h-8 w-8 shrink-0"
                 onClick={resetStructuredFilters}
-                title="清除项目和年月筛选"
-                aria-label="清除项目和年月筛选"
+                title="清除状态、项目和年月筛选"
+                aria-label="清除状态、项目和年月筛选"
               >
                 <RotateCcw className="h-3.5 w-3.5" />
               </Button>
@@ -596,12 +582,14 @@ export function SessionList({
         <div className="p-2 text-xs text-muted-foreground">当前平台暂无会话。</div>
       ) : !filtered.length ? (
         <div className="space-y-2 p-2 text-xs text-muted-foreground">
-          <div>没有符合当前搜索、项目或年月条件的会话。</div>
+          <div>没有符合当前搜索、状态、项目或年月条件的会话。</div>
           {structuredFilterActive ? (
             <button type="button" onClick={resetStructuredFilters} className="text-primary hover:underline">
-              清除项目和年月筛选
+              清除状态、项目和年月筛选
             </button>
           ) : null}
+          {/* The matching session may be on an older, not-yet-loaded page. */}
+          {loadMoreBar}
         </div>
       ) : (
         <div ref={parentRef} className="min-h-0 flex-1 overflow-y-auto pr-1" data-testid="session-list">
@@ -617,18 +605,16 @@ export function SessionList({
                     className="absolute left-0 top-0 w-full pb-2"
                     style={{ transform: `translateY(${row.start}px)` }}
                   >
-                    <SessionCard session={session} active={session.id === selectedSessionId} onSelect={selectSession} />
+                    <SessionCard
+                      session={session}
+                      active={session.id === selectedSessionId}
+                      now={now}
+                      onSelect={selectSession}
+                    />
                   </div>
                 );
               })}
             </div>
-          ) : groupedPlatform ? (
-            <SessionGroups
-              sessions={filtered}
-              platform={platform}
-              selectedSessionId={selectedSessionId}
-              onSelect={setSelectedSessionId}
-            />
           ) : (
             <div className="flex flex-col gap-2">
               {filtered.map((session) => (
@@ -636,11 +622,13 @@ export function SessionList({
                   key={session.id}
                   session={session}
                   active={session.id === selectedSessionId}
+                  now={now}
                   onSelect={setSelectedSessionId}
                 />
               ))}
             </div>
           )}
+          {loadMoreBar}
         </div>
       )}
     </div>

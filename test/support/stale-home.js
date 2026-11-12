@@ -330,7 +330,7 @@ function sweepStaleDirs(options = {}) {
         fs.rmSync(target, { recursive: true, force: true });
         result.removed.push(target);
       } catch (error) {
-        result.errors.push({ path: target, message: error && error.message ? error.message : String(error) });
+        result.errors.push({ path: target, message: error?.message ? error.message : String(error) });
       }
     }
   }
@@ -369,7 +369,7 @@ function sweepOnce(options = {}) {
     // option can never break test startup.
     result = {
       ...EMPTY_RESULT,
-      errors: [{ path: '(sweep)', message: error && error.message ? error.message : String(error) }],
+      errors: [{ path: '(sweep)', message: error?.message ? error.message : String(error) }],
     };
     if (process.env.AXR_SWEEP_VERBOSE === '1') {
       process.stderr.write(`[stale-home] fatal ${result.errors[0].message}\n`);

@@ -16,6 +16,7 @@ import type {
   PromptsData,
   SearchResult,
   SessionDetail,
+  SessionMessagePage,
   SessionSummary,
   SpawnLink,
 } from '@/api/types';
@@ -180,17 +181,76 @@ export function demoJson<T>(url: string, init?: RequestInit): Promise<T> {
     return ok({ archiveDir: '(demo)', files: 0, bytes: 0, lastBackup: null });
   }
   if (parsed.pathname === '/api/settings/llm') {
-    return ok({ baseUrl: '', model: '', hasApiKey: false, backend: null });
+    return ok({
+      version: 2,
+      activeProfile: '',
+      profiles: {},
+      routes: {},
+      routeBackends: {},
+      baseUrl: '',
+      model: '',
+      hasApiKey: false,
+      backend: null,
+    });
   }
 
   // /api/:platform/sessions[/:id[/children[/:name]]]
   if (seg(2) === 'sessions') {
     const platform = seg(1);
-    if (parts.length === 3) return ok(data.sessions[platform] ?? []);
+    // The list is a cursor page now: { sessions, page } — not a bare array.
+    if (parts.length === 3) {
+      const all = data.sessions[platform] ?? [];
+      const params = new URLSearchParams(parsed.search);
+      const limitRaw = params.get('limit');
+      const limit = limitRaw === null || limitRaw === '' ? all.length : Math.max(1, Number(limitRaw) || all.length);
+      const beforeRaw = Number(params.get('before'));
+      const end = Number.isInteger(beforeRaw) && beforeRaw >= 0 ? Math.min(beforeRaw, all.length) : all.length;
+      const start = Math.max(0, end - limit);
+      return ok({
+        sessions: all.slice(start, end),
+        page: {
+          total: all.length,
+          limit,
+          start,
+          end,
+          hasMore: start > 0,
+          nextBefore: start > 0 ? String(start) : null,
+        },
+      });
+    }
+    // .../:id/full → the complete transcript, no messagePage
+    if (parts.length === 5 && seg(4) === 'full') {
+      const detail = data.details[`${platform}/${seg(3)}`];
+      if (!detail) return Promise.reject(new Error('Session not found in demo data'));
+      const { messagePage: _page, ...rest } = detail;
+      return ok({ ...rest, complete: true });
+    }
     if (parts.length === 4) {
       const detail = data.details[`${platform}/${seg(3)}`];
       if (detail) return ok(detail);
       return Promise.reject(new Error('Session not found in demo data'));
+    }
+    if (seg(4) === 'messages' && parts.length === 5) {
+      const detail = data.details[`${platform}/${seg(3)}`];
+      if (!detail) return Promise.reject(new Error('Session not found in demo data'));
+      const params = new URLSearchParams(parsed.search);
+      const limit = Math.max(1, Number(params.get('limit')) || 60);
+      const beforeRaw = Number(params.get('before'));
+      const end =
+        Number.isInteger(beforeRaw) && beforeRaw >= 0
+          ? Math.min(beforeRaw, detail.messages.length)
+          : detail.messages.length;
+      const start = Math.max(0, end - limit);
+      const page: SessionMessagePage = {
+        total: detail.messages.length,
+        limit,
+        start,
+        end,
+        loadedCount: end - start,
+        hasMoreBefore: start > 0,
+        nextBefore: start > 0 ? String(start) : null,
+      };
+      return ok({ messages: detail.messages.slice(start, end), messagePage: page });
     }
     if (seg(4) === 'children') {
       if (parts.length === 5) return ok(data.children[`${platform}/${seg(3)}`] ?? []);

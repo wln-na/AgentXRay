@@ -58,6 +58,18 @@
     --assistant: 152 56% 36%;
     --danger: 0 74% 54%;
 
+    /* Session status tones (botmux "Calm Console" palette).
+       Used by .status-pill / .status-dot / .status-board-card, selected through
+       data-tone on the element. Keep in sync with sessionStatus.ts tones. */
+    --st-work: #3b6fe0;
+    --st-work-soft: #e9f0fd;
+    --st-need: #cf8413;
+    --st-need-soft: #fbf0da;
+    --st-done: #1d9a63;
+    --st-done-soft: #e4f5ed;
+    --st-idle: #8a92a8;
+    --st-idle-soft: #f0f2f7;
+
     /* Soft shadows */
     --shadow-sm: 0 1px 2px 0 rgb(15 23 42 / 0.04);
     --shadow-md: 0 1px 3px 0 rgb(15 23 42 / 0.05), 0 6px 20px -6px rgb(15 23 42 / 0.08);
@@ -105,6 +117,16 @@
     --user: 234 90% 68%;
     --assistant: 152 50% 48%;
     --danger: 0 74% 62%;
+
+    /* Session status tones, dark theme (botmux dark palette) */
+    --st-work: #6b96e8;
+    --st-work-soft: rgb(107 150 232 / 0.13);
+    --st-need: #d99e3f;
+    --st-need-soft: rgb(217 158 63 / 0.13);
+    --st-done: #4cc38a;
+    --st-done-soft: rgb(76 195 138 / 0.13);
+    --st-idle: #69748a;
+    --st-idle-soft: rgb(140 150 170 / 0.1);
 
     --shadow-sm: 0 1px 2px 0 rgb(0 0 0 / 0.3);
     --shadow-md: 0 1px 3px 0 rgb(0 0 0 / 0.4), 0 6px 20px -6px rgb(0 0 0 / 0.5);
@@ -179,5 +201,73 @@
   }
   .shadow-soft-lg {
     box-shadow: var(--shadow-lg);
+  }
+}
+
+/*
+ * Session status primitives — botmux "Calm Console" language.
+ *
+ * Every element carrying `data-tone` picks up --tone / --tone-soft, so a single
+ * class (.status-dot, .status-pill) works for all four
+ * tones without per-tone Tailwind utilities (opacity modifiers don't compose
+ * with var() colours, and the soft fill is a hand-tuned token anyway).
+ */
+@layer components {
+  [data-tone="work"] {
+    --tone: var(--st-work);
+    --tone-soft: var(--st-work-soft);
+  }
+  [data-tone="need"] {
+    --tone: var(--st-need);
+    --tone-soft: var(--st-need-soft);
+  }
+  [data-tone="done"] {
+    --tone: var(--st-done);
+    --tone-soft: var(--st-done-soft);
+  }
+  [data-tone="idle"] {
+    --tone: var(--st-idle);
+    --tone-soft: var(--st-idle-soft);
+  }
+
+  .status-dot {
+    display: inline-block;
+    height: 6px;
+    width: 6px;
+    flex: none;
+    border-radius: 999px;
+    background: var(--tone, var(--st-idle));
+  }
+
+  .status-dot-pulse {
+    animation: status-dot-pulse 1.8s ease-out infinite;
+  }
+
+  .status-pill {
+    display: inline-flex;
+    max-width: 100%;
+    align-items: center;
+    gap: 4px;
+    border-radius: 999px;
+    border: 1px solid color-mix(in srgb, var(--tone, var(--st-idle)) 30%, transparent);
+    background: var(--tone-soft, var(--st-idle-soft));
+    padding: 1px 7px;
+    color: var(--tone, var(--st-idle));
+    font-size: 10px;
+    font-weight: 600;
+    line-height: 1.6;
+    white-space: nowrap;
+  }
+}
+
+@keyframes status-dot-pulse {
+  0% {
+    box-shadow: 0 0 0 0 color-mix(in srgb, var(--tone, var(--st-idle)) 55%, transparent);
+  }
+  70% {
+    box-shadow: 0 0 0 4px transparent;
+  }
+  100% {
+    box-shadow: 0 0 0 0 transparent;
   }
 }
