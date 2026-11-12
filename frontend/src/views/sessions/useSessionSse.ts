@@ -75,7 +75,7 @@ export function useSessionSse(onNewMessages: (count: number) => void): SseStatus
                 ...current.messagePage,
                 total: current.messagePage.total + fresh.length,
                 end: current.messagePage.end + fresh.length,
-                loadedCount: current.messagePage.loadedCount + fresh.length,
+                loadedCount: (current.messagePage.loadedCount ?? current.messages.length) + fresh.length,
               },
             }
           : current.messagePage
