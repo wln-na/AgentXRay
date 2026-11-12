@@ -51,6 +51,28 @@ const DIST_ASSETS_PREFIX = `${path.join(DIST_DIR, 'assets')}${path.sep}`;
 const HAS_DIST = fs.existsSync(path.join(DIST_DIR, 'index.html'));
 const PLATFORM_COUNT = Object.keys(PLATFORMS).length;
 
+// Keep the SPA shell from becoming an unbounded filesystem-read endpoint.
+// This small in-process limiter is sufficient for the localhost-first server;
+// deployments behind a proxy should still enforce a network-level limit.
+const SPA_RATE_WINDOW_MS = 60_000;
+const SPA_RATE_MAX = 120;
+const spaRateBuckets = new Map();
+function spaRateLimit(req, res, next) {
+  const now = Date.now();
+  const key = req.ip || req.socket.remoteAddress || 'unknown';
+  const current = spaRateBuckets.get(key);
+  if (!current || now - current.startedAt >= SPA_RATE_WINDOW_MS) {
+    spaRateBuckets.set(key, { startedAt: now, count: 1 });
+    return next();
+  }
+  current.count += 1;
+  if (current.count > SPA_RATE_MAX) {
+    res.setHeader('Retry-After', '60');
+    return res.status(429).end('Too many requests');
+  }
+  return next();
+}
+
 // --- Transport & ops middleware (lib/ops.js) -------------------------------
 // Order matters: the logger wraps everything so it measures the full request,
 // and the compressor sits in front of static + routes so every body (JSON,
@@ -130,7 +152,7 @@ app.use('/api', (_req, res) => {
 // in frontend/dist). The shell must revalidate (no-cache + ETag) so a rebuilt
 // UI is not served stale forever. Without a build the API still works and this
 // route explains how to build the UI — the retired `/legacy` path has no shell.
-app.get('*', (_req, res) => {
+app.get('*', spaRateLimit, (_req, res) => {
   if (!HAS_DIST) {
     res.setHeader('Cache-Control', 'no-store');
     res.setHeader('Content-Type', 'text/plain; charset=utf-8');

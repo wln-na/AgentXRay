@@ -38,7 +38,9 @@ function tsType(meta) {
     case 'boolean':
       return 'boolean';
     case 'literal':
-      return typeof meta.value === 'string' ? `'${meta.value.replace(/'/g, "\\'")}'` : String(meta.value);
+      return typeof meta.value === 'string'
+        ? `'${meta.value.replace(/\\/g, '\\\\').replace(/'/g, "\\'")}'` // lgtm[js/incomplete-sanitization]
+        : String(meta.value);
     case 'ref':
       return meta.name;
     case 'nullable':
